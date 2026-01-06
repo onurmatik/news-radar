@@ -3,15 +3,17 @@
   "version": "1.0.0",
   "description": "AI-assisted news radar application",
   "dependencies": {
+    "@radix-ui/react-slot": "^1.2.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.3.1",
+    "framer-motion": "^11.0.8",
+    "lucide-react": "^0.344.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "lucide-react": "^0.344.0",
-    "framer-motion": "^11.0.8",
-    "clsx": "^2.1.0",
-    "tailwind-merge": "^2.2.1",
-    "date-fns": "^3.3.1",
     "react-router-dom": "^6.22.3",
-    "sonner": "^1.4.3"
+    "sonner": "^1.4.3",
+    "tailwind-merge": "^2.6.0"
   },
   "type": "module",
   "scripts": {
@@ -20,6 +22,7 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@types/node": "^25.0.3",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",

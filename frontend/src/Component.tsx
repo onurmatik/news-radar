@@ -1,8 +1,7 @@
-import React from 'react';
-import { HashRouter, Routes, Route } from 'react-router-dom';
-import Dashboard from '@/pages/Dashboard';
-import Keywords from '@/pages/Keywords';
-import Settings from '@/pages/Settings';
+import { HashRouter, Routes, Route } from "react-router-dom";
+import Dashboard from "@/pages/Dashboard";
+import Keywords from "@/pages/Keywords";
+import Settings from "@/pages/Settings";
 
 export function NewsRadar() {
   return (
