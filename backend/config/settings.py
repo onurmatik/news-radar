@@ -42,8 +42,6 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-    "rest_framework",
-
     "newsradar.apps.accounts",
     "newsradar.apps.keywords",
     "newsradar.apps.agenda",
