@@ -1,0 +1,12 @@
+.*
+!.gitignore
+!.env.example
+*.pyc
+media/
+__pycache__/
+static/logo.png
+build/
+*.egg-info/
+dist/
+node_modules/
+.idea/
