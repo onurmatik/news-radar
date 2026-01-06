@@ -3,6 +3,7 @@ flower
 dj-database-url
 Django==5.2.9
 djangorestframework
+django-ninja
 httpx
 numpy
 openai
