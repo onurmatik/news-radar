@@ -32,6 +32,7 @@ class ContentMatch(models.Model):
     class Meta:
         unique_together = [("keyword", "content_item")]
         ordering = ["-matched_at"]
+        verbose_name_plural = "content matches"
 
     def __str__(self) -> str:
         return f"{self.keyword.text} -> {self.content_item_id}"

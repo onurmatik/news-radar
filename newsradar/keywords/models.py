@@ -1,15 +1,20 @@
+import re
+
 from django.db import models
+from openai import OpenAI
 from pgvector.django import VectorField, HnswIndex
 
 
-class Keyword(models.Model):
-    class Status(models.TextChoices):
-        ACTIVE = "active", "Active"
-        PAUSED = "paused", "Paused"
-        ARCHIVED = "archived", "Archived"
+KEYWORD_NORMALIZE_RE = re.compile(r"\s+")
 
+
+def normalize_keyword_text(text: str) -> str:
+    return KEYWORD_NORMALIZE_RE.sub(" ", text).strip()
+
+
+class Keyword(models.Model):
     text = models.CharField(max_length=255)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    normalized_text = models.TextField(unique=True, null=True, blank=True)
 
     embedding = VectorField(dimensions=1536, blank=True, null=True)
 
@@ -30,3 +35,26 @@ class Keyword(models.Model):
 
     def __str__(self) -> str:
         return f"{self.text}"
+
+    def save(self, *args, **kwargs) -> None:
+        normalized_text = normalize_keyword_text(self.text)
+        needs_embedding = False
+
+        if self.pk:
+            existing = Keyword.objects.filter(pk=self.pk).only("normalized_text").first()
+            if existing and existing.normalized_text != normalized_text:
+                needs_embedding = True
+        else:
+            needs_embedding = True
+
+        if normalized_text != self.normalized_text:
+            self.normalized_text = normalized_text
+
+        if normalized_text and (self.embedding is None or needs_embedding):
+            client = OpenAI()
+            self.embedding = client.embeddings.create(
+                model="text-embedding-3-small",
+                input=normalized_text,
+            ).data[0].embedding
+
+        super().save(*args, **kwargs)
