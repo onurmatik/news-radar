@@ -1,6 +1,6 @@
 from django.apps import AppConfig
 
 
-class AccountsConfig(AppConfig):
+class AgendaConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'backend.newsradar.apps.accounts'
+    name = "newsradar.agenda"

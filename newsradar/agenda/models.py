@@ -38,9 +38,6 @@ class ContentItem(models.Model):
     content_text = models.TextField(null=True, blank=True)
     ai_summary = models.TextField(null=True, blank=True)
 
-    entities = models.JSONField(default=list, blank=True)
-    topics = models.JSONField(default=list, blank=True)
-
     embedding = VectorField(dimensions=1536, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -63,7 +60,7 @@ class ContentMatch(models.Model):
         related_name="matches"
     )
     content_item = models.ForeignKey(
-        "agenda.ContentItem",
+        "ContentItem",
         on_delete=models.CASCADE,
         related_name="matches"
     )
@@ -95,7 +92,7 @@ class AgendaItem(models.Model):
     summary = models.TextField()
 
     content_items = models.ManyToManyField(
-        "agenda.ContentItem",
+        "ContentItem",
         related_name="agenda_items",
         blank=True,
     )
