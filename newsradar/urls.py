@@ -20,6 +20,11 @@ from django.urls import path
 from newsradar.agenda.api import api as agenda_api
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path('nrAdmin/', admin.site.urls),
     path('api/agenda/', agenda_api.urls),
 ]
+
+
+admin.site.index_title = 'Welcome to News Radar'
+admin.site.site_header = 'News Radar Administration'
+admin.site.site_title = 'News Radar Administration'
