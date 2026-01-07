@@ -17,11 +17,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from newsradar.agenda.api import api as agenda_api
+from newsradar.executions.api import api as executions_api
+
 
 urlpatterns = [
     path('nrAdmin/', admin.site.urls),
-    path('api/agenda/', agenda_api.urls),
+    path('api/executions/', executions_api.urls),
 ]
 
 
