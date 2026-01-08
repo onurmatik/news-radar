@@ -37,8 +37,6 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                "Created content item {content_item_id} and match {content_match_id}.".format(
-                    **result
-                )
+                "Created content item {content_item_id}.".format(**result)
             )
         )

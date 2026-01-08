@@ -6,7 +6,6 @@ from openai import OpenAI
 from newsradar.agenda.models import (
     ContentItem,
     ContentItemSource,
-    ContentMatch,
     ContentSource,
 )
 from newsradar.keywords.models import Keyword, normalize_keyword_text
@@ -86,6 +85,7 @@ def execute_web_search(
             "output_text": response.output_text,
         },
         origin_type=origin_type,
+        keyword=keyword,
     )
     content_sources = _extract_content_sources(response_payload)
     if content_sources:
@@ -125,17 +125,11 @@ def execute_web_search(
             ignore_conflicts=True,
         )
 
-    content_match = ContentMatch.objects.create(
-        keyword=keyword,
-        content_item=content_item,
-    )
-
     keyword.last_fetched_at = timezone.now()
     keyword.save(update_fields=["last_fetched_at"])
 
     return {
         "content_item_id": content_item.id,
-        "content_match_id": content_match.id,
         "output_text": response.output_text,
         "response": response_payload,
     }

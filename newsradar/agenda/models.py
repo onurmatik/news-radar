@@ -14,39 +14,19 @@ class ContentItem(models.Model):
         choices=OriginType.choices,
         default=OriginType.USER,
     )
+    keyword = models.ForeignKey(
+        "keywords.Keyword",
+        on_delete=models.SET_NULL,
+        related_name="content_items",
+        null=True,
+        blank=True,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-updated_at", "-created_at"]
-
-
-class ContentMatch(models.Model):
-    """
-    Links content items to keywords.
-    """
-    keyword = models.ForeignKey(
-        "keywords.Keyword",
-        on_delete=models.CASCADE,
-        related_name="matches"
-    )
-    content_item = models.ForeignKey(
-        "ContentItem",
-        on_delete=models.CASCADE,
-        related_name="matches"
-    )
-
-    match_score = models.FloatField(default=0.0)  # relevance
-    matched_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = [("keyword", "content_item")]
-        ordering = ["-matched_at"]
-        verbose_name_plural = "content matches"
-
-    def __str__(self) -> str:
-        return f"{self.keyword} -> {self.content_item}"
 
 
 class ContentSource(models.Model):

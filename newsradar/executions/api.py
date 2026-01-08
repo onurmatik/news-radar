@@ -15,7 +15,6 @@ class WebSearchExecutionRequest(Schema):
 
 class WebSearchExecutionResponse(Schema):
     content_item_id: int
-    content_match_id: int
     origin_type: str
     output_text: str | None
     response: dict[str, Any]
