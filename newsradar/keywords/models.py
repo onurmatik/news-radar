@@ -34,7 +34,7 @@ class Keyword(models.Model):
         ordering = ["-last_fetched_at", "-created_at"]
 
     def __str__(self) -> str:
-        return f"{self.text}"
+        return f"{self.normalized_text}"
 
     def save(self, *args, **kwargs) -> None:
         normalized_text = normalize_keyword_text(self.text)

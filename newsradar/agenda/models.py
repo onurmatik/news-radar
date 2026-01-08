@@ -35,12 +35,15 @@ class ContentMatch(models.Model):
         verbose_name_plural = "content matches"
 
     def __str__(self) -> str:
-        return f"{self.keyword.text} -> {self.content_item_id}"
+        return f"{self.keyword} -> {self.content_item}"
 
 
 class ContentSource(models.Model):
     url = models.URLField(max_length=2048, unique=True)
     title = models.CharField(max_length=2048, blank=True)
+
+    def __str__(self) -> str:
+        return f"{self.url}"
 
 
 class ContentItemSource(models.Model):
@@ -57,5 +60,4 @@ class ContentItemSource(models.Model):
     order_index = models.PositiveIntegerField()
 
     class Meta:
-        ordering = ["order_index"]
         unique_together = [("content_item", "content_source")]
