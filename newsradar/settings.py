@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "newsradar.accounts",
     "newsradar.keywords",
     "newsradar.agenda",
+    "newsradar.executions",
 ]
 
 MIDDLEWARE = [
