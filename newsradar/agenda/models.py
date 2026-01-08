@@ -2,7 +2,18 @@ from django.db import models
 
 
 class ContentItem(models.Model):
+    class OriginType(models.TextChoices):
+        PERIODIC = "periodic", "Periodic"
+        USER = "user", "User"
+        ADMIN = "admin", "Admin"
+        CLI = "cli", "CLI"
+
     content = models.JSONField(blank=True, null=True)
+    origin_type = models.CharField(
+        max_length=20,
+        choices=OriginType.choices,
+        default=OriginType.USER,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

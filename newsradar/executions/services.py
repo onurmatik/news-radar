@@ -59,7 +59,10 @@ def _extract_content_sources(response_payload: dict) -> list[dict]:
     return sources
 
 
-def execute_web_search(normalized_keyword: str) -> dict:
+def execute_web_search(
+    normalized_keyword: str,
+    origin_type: str = ContentItem.OriginType.USER,
+) -> dict:
     normalized_keyword = normalize_keyword_text(normalized_keyword)
     keyword = Keyword.objects.filter(normalized_text=normalized_keyword).first()
     if not keyword:
@@ -84,7 +87,8 @@ def execute_web_search(normalized_keyword: str) -> dict:
             "query": prompt,
             "response": response_payload,
             "output_text": response.output_text,
-        }
+        },
+        origin_type=origin_type,
     )
     content_sources = _extract_content_sources(response_payload)
     if content_sources:

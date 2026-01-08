@@ -5,7 +5,7 @@ from .models import ContentItem, ContentItemSource, ContentMatch, ContentSource
 
 @admin.register(ContentItem)
 class ContentItemAdmin(admin.ModelAdmin):
-    list_display = ("id", "created_at", "updated_at")
+    list_display = ("id", "origin_type", "created_at", "updated_at")
 
 
 @admin.register(ContentMatch)

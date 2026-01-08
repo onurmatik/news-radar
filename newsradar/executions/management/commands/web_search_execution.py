@@ -19,7 +19,10 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         normalized_keyword = options["normalized_keyword"]
         if options["run_async"]:
-            async_result = web_search_execution.delay(normalized_keyword)
+            async_result = web_search_execution.delay(
+                normalized_keyword,
+                origin_type="cli",
+            )
             self.stdout.write(
                 self.style.SUCCESS(
                     f"Queued web search execution task {async_result.id}."
@@ -28,7 +31,7 @@ class Command(BaseCommand):
             return
 
         try:
-            result = execute_web_search(normalized_keyword)
+            result = execute_web_search(normalized_keyword, origin_type="cli")
         except ValueError as exc:
             raise CommandError(str(exc)) from exc
 

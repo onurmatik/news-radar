@@ -10,11 +10,13 @@ api = NinjaAPI(title="Executions API", urls_namespace="executions")
 
 class WebSearchExecutionRequest(Schema):
     normalized_keyword: str
+    origin_type: str = "user"
 
 
 class WebSearchExecutionResponse(Schema):
     content_item_id: int
     content_match_id: int
+    origin_type: str
     output_text: str | None
     response: dict[str, Any]
 
@@ -22,8 +24,14 @@ class WebSearchExecutionResponse(Schema):
 @api.post("/web-search", response=WebSearchExecutionResponse)
 def web_search_execution(request, payload: WebSearchExecutionRequest):
     try:
-        result = execute_web_search(payload.normalized_keyword)
+        result = execute_web_search(
+            payload.normalized_keyword,
+            origin_type=payload.origin_type,
+        )
     except ValueError as exc:
         raise HttpError(404, str(exc)) from exc
 
-    return WebSearchExecutionResponse(**result)
+    return WebSearchExecutionResponse(
+        **result,
+        origin_type=payload.origin_type,
+    )

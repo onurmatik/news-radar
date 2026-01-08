@@ -14,7 +14,10 @@ class KeywordAdmin(admin.ModelAdmin):
     def run_web_search(self, request, queryset):
         task_ids = []
         for keyword in queryset:
-            async_result = web_search_execution.delay(keyword.normalized_text)
+            async_result = web_search_execution.delay(
+                keyword.normalized_text,
+                origin_type="admin",
+            )
             task_ids.append(async_result.id)
 
         self.message_user(
