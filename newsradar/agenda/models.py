@@ -68,7 +68,6 @@ class ContentItemSource(models.Model):
         on_delete=models.CASCADE,
         related_name="content_links"
     )
-    order_index = models.PositiveIntegerField()
 
     class Meta:
         unique_together = [("content_item", "content_source")]

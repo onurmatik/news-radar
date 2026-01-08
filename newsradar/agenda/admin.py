@@ -22,5 +22,5 @@ class ContentSourceAdmin(admin.ModelAdmin):
 
 @admin.register(ContentItemSource)
 class ContentItemSourceAdmin(admin.ModelAdmin):
-    list_display = ("id", "content_item", "content_source", "order_index")
+    list_display = ("id", "content_item", "content_source")
     list_select_related = ("content_item", "content_source")

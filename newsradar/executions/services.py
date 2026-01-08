@@ -38,7 +38,6 @@ def _extract_content_sources(response_payload: dict) -> list[dict]:
         return []
 
     sources = []
-    order_index = 0
     for content_item in message_output.get("content") or []:
         annotations = content_item.get("annotations") or []
         for annotation in annotations:
@@ -51,10 +50,8 @@ def _extract_content_sources(response_payload: dict) -> list[dict]:
                 {
                     "url": _normalize_source_url(url),
                     "title": annotation.get("title") or annotation.get("source_title") or "",
-                    "order_index": order_index,
                 }
             )
-            order_index += 1
 
     return sources
 
@@ -122,7 +119,6 @@ def execute_web_search(
                 ContentItemSource(
                     content_item=content_item,
                     content_source=existing_sources[url],
-                    order_index=unique_sources[url]["order_index"],
                 )
                 for url in urls
             ],
@@ -132,7 +128,6 @@ def execute_web_search(
     content_match = ContentMatch.objects.create(
         keyword=keyword,
         content_item=content_item,
-        match_score=1.0,
     )
 
     keyword.last_fetched_at = timezone.now()
