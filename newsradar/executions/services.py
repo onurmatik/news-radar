@@ -1,3 +1,4 @@
+import os
 from urllib.parse import urlparse, urlunparse
 
 from django.utils import timezone
@@ -56,6 +57,19 @@ def _extract_content_sources(response_payload: dict) -> list[dict]:
     return sources
 
 
+SUPPORTED_LLM_PROVIDERS = {"openai"}
+
+
+def _get_llm_provider() -> str:
+    provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+    if provider not in SUPPORTED_LLM_PROVIDERS:
+        supported = ", ".join(sorted(SUPPORTED_LLM_PROVIDERS))
+        raise ValueError(
+            f"Unsupported LLM provider '{provider}'. Supported providers: {supported}."
+        )
+    return provider
+
+
 def execute_web_search(
     normalized_keyword: str,
     origin_type: str = Execution.OriginType.USER,
@@ -70,12 +84,25 @@ def execute_web_search(
         f"{normalized_keyword}"
     )
 
-    client = OpenAI()
-    response = client.responses.create(
-        model="gpt-5-nano",
-        tools=[{"type": "web_search"}],
-        input=prompt,
-    )
+    provider = _get_llm_provider()
+    llm_config: dict[str, object]
+    if provider == "openai":
+        model = os.getenv("OPENAI_WEB_SEARCH_MODEL", "gpt-5-nano")
+        tools = [{"type": "web_search"}]
+        client = OpenAI()
+        response = client.responses.create(
+            model=model,
+            tools=tools,
+            input=prompt,
+        )
+        llm_config = {
+            "provider": provider,
+            "model": model,
+            "tools": tools,
+            "input": prompt,
+        }
+    else:
+        raise ValueError(f"Unsupported LLM provider '{provider}'.")
 
     response_payload = response.model_dump()
     content_item = ContentItem.objects.create(
@@ -85,11 +112,7 @@ def execute_web_search(
         content_item=content_item,
         raw_data=response_payload,
         origin_type=origin_type,
-        llm_config={
-            "model": "gpt-5-nano",
-            "tools": [{"type": "web_search"}],
-            "input": prompt,
-        },
+        llm_config=llm_config,
     )
     content_sources = _extract_content_sources(response_payload)
     if content_sources:
