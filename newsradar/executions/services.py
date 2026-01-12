@@ -3,11 +3,12 @@ from urllib.parse import urlparse, urlunparse
 from django.utils import timezone
 from openai import OpenAI
 
-from newsradar.agenda.models import (
+from newsradar.content.models import (
     ContentItem,
     ContentItemSource,
     ContentSource,
 )
+from newsradar.executions.models import Execution
 from newsradar.keywords.models import Keyword, normalize_keyword_text
 
 
@@ -57,7 +58,7 @@ def _extract_content_sources(response_payload: dict) -> list[dict]:
 
 def execute_web_search(
     normalized_keyword: str,
-    origin_type: str = ContentItem.OriginType.USER,
+    origin_type: str = Execution.OriginType.USER,
 ) -> dict:
     normalized_keyword = normalize_keyword_text(normalized_keyword)
     keyword = Keyword.objects.filter(normalized_text=normalized_keyword).first()
@@ -78,14 +79,17 @@ def execute_web_search(
 
     response_payload = response.model_dump()
     content_item = ContentItem.objects.create(
-        content={
-            "keyword": normalized_keyword,
-            "query": prompt,
-            "response": response_payload,
-            "output_text": response.output_text,
-        },
-        origin_type=origin_type,
         keyword=keyword,
+    )
+    execution = Execution.objects.create(
+        content_item=content_item,
+        raw_data=response_payload,
+        origin_type=origin_type,
+        llm_config={
+            "model": "gpt-5-nano",
+            "tools": [{"type": "web_search"}],
+            "input": prompt,
+        },
     )
     content_sources = _extract_content_sources(response_payload)
     if content_sources:
@@ -129,7 +133,8 @@ def execute_web_search(
     keyword.save(update_fields=["last_fetched_at"])
 
     return {
+        "execution_id": execution.id,
         "content_item_id": content_item.id,
         "output_text": response.output_text,
-        "response": response_payload,
+        "response": execution.raw_data,
     }

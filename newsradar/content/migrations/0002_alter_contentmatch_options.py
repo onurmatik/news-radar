@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('agenda', '0001_initial'),
+        ('content', '0001_initial'),
     ]
 
     operations = [

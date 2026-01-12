@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('agenda', '0006_remove_contentitemsource_order_index'),
+        ('content', '0006_remove_contentitemsource_order_index'),
         ('keywords', '0002_remove_keyword_status_keyword_normalized_text'),
     ]
 

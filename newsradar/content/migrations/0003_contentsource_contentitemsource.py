@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('agenda', '0002_alter_contentmatch_options'),
+        ('content', '0002_alter_contentmatch_options'),
     ]
 
     operations = [
@@ -24,8 +24,8 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('order_index', models.PositiveIntegerField()),
-                ('content_item', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='source_links', to='agenda.contentitem')),
-                ('content_source', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='content_links', to='agenda.contentsource')),
+                ('content_item', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='source_links', to='content.contentitem')),
+                ('content_source', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='content_links', to='content.contentsource')),
             ],
             options={
                 'ordering': ['order_index'],

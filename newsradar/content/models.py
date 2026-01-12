@@ -2,18 +2,6 @@ from django.db import models
 
 
 class ContentItem(models.Model):
-    class OriginType(models.TextChoices):
-        PERIODIC = "periodic", "Periodic"
-        USER = "user", "User"
-        ADMIN = "admin", "Admin"
-        CLI = "cli", "CLI"
-
-    content = models.JSONField(blank=True, null=True)
-    origin_type = models.CharField(
-        max_length=20,
-        choices=OriginType.choices,
-        default=OriginType.USER,
-    )
     keyword = models.ForeignKey(
         "keywords.Keyword",
         on_delete=models.SET_NULL,
@@ -21,6 +9,7 @@ class ContentItem(models.Model):
         null=True,
         blank=True,
     )
+    metadata = models.JSONField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -32,6 +21,9 @@ class ContentItem(models.Model):
 class ContentSource(models.Model):
     url = models.URLField(max_length=2048, unique=True)
     title = models.CharField(max_length=2048, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:
         return f"{self.url}"

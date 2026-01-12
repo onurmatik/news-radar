@@ -14,6 +14,7 @@ class WebSearchExecutionRequest(Schema):
 
 
 class WebSearchExecutionResponse(Schema):
+    execution_id: int
     content_item_id: int
     origin_type: str
     output_text: str | None

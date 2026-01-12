@@ -1,3 +1,26 @@
 from django.db import models
 
-# Create your models here.
+
+class Execution(models.Model):
+    class OriginType(models.TextChoices):
+        PERIODIC = "periodic", "Periodic"
+        USER = "user", "User"
+        ADMIN = "admin", "Admin"
+        CLI = "cli", "CLI"
+
+    content_item = models.ForeignKey(
+        "content.ContentItem",
+        on_delete=models.CASCADE,
+        related_name="executions",
+    )
+    raw_data = models.JSONField(blank=True, null=True)
+    origin_type = models.CharField(
+        max_length=20,
+        choices=OriginType.choices,
+        default=OriginType.USER,
+    )
+    llm_config = models.JSONField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
