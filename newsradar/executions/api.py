@@ -3,6 +3,7 @@ from typing import Any
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 
+from newsradar.executions.models import Execution
 from newsradar.executions.services import execute_web_search
 
 api = NinjaAPI(title="Executions API", urls_namespace="executions")
@@ -22,6 +23,11 @@ class WebSearchExecutionResponse(Schema):
 
 @api.post("/web-search", response=WebSearchExecutionResponse)
 def web_search_execution(request, payload: WebSearchExecutionRequest):
+    if payload.origin_type not in Execution.OriginType.values:
+        raise HttpError(
+            400,
+            "Invalid origin_type."
+        )
     try:
         result = execute_web_search(
             payload.normalized_keyword,

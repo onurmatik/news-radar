@@ -7,6 +7,7 @@ from newsradar.executions.tasks import web_search_execution
 @admin.register(Keyword)
 class KeywordAdmin(admin.ModelAdmin):
     list_display = ("text", "normalized_text", "created_at", "last_fetched_at")
+    list_filter = ("last_fetched_at", "created_at")
     search_fields = ("text", "normalized_text")
     actions = ("run_web_search",)
 
