@@ -84,11 +84,7 @@ def execute_web_search(
         f"{normalized_keyword}"
     )
 
-    content_item = ContentItem.objects.create(
-        keyword=keyword,
-    )
     execution = Execution.objects.create(
-        content_item=content_item,
         origin_type=origin_type,
         status=Execution.Status.RUNNING,
     )
@@ -114,12 +110,22 @@ def execute_web_search(
             raise ValueError(f"Unsupported LLM provider '{provider}'.")
 
         response_payload = response.model_dump()
+        content_item = ContentItem.objects.create(
+            keyword=keyword,
+        )
+        execution.content_item = content_item
         execution.raw_data = response_payload
         execution.status = Execution.Status.COMPLETED
         execution.error_message = None
         execution.llm_config = llm_config
         execution.save(
-            update_fields=["raw_data", "status", "error_message", "llm_config"]
+            update_fields=[
+                "content_item",
+                "raw_data",
+                "status",
+                "error_message",
+                "llm_config",
+            ]
         )
 
         content_sources = _extract_content_sources(response_payload)

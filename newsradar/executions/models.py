@@ -17,6 +17,8 @@ class Execution(models.Model):
         "content.ContentItem",
         on_delete=models.CASCADE,
         related_name="executions",
+        null=True,
+        blank=True,
     )
     raw_data = models.JSONField(blank=True, null=True)
     origin_type = models.CharField(
