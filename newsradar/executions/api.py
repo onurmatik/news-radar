@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from ninja import NinjaAPI, Schema
@@ -19,6 +20,52 @@ class WebSearchExecutionResponse(Schema):
     content_item_id: int
     origin_type: str
     response: dict[str, Any]
+
+
+class ExecutionListItem(Schema):
+    id: int
+    status: str
+    origin_type: str
+    created_at: datetime
+    content_item_id: int | None
+    error_message: str | None
+
+
+class ExecutionListResponse(Schema):
+    executions: list[ExecutionListItem]
+
+
+@api.get("/", response=ExecutionListResponse)
+def list_executions(
+    request,
+    status: str | None = None,
+    origin_type: str | None = None,
+):
+    execution_filter = {}
+    if status:
+        if status not in Execution.Status.values:
+            raise HttpError(400, "Invalid status.")
+        execution_filter["status"] = status
+    if origin_type:
+        if origin_type not in Execution.OriginType.values:
+            raise HttpError(400, "Invalid origin_type.")
+        execution_filter["origin_type"] = origin_type
+
+    executions = Execution.objects.filter(**execution_filter)
+
+    return ExecutionListResponse(
+        executions=[
+            ExecutionListItem(
+                id=execution.id,
+                status=execution.status,
+                origin_type=execution.origin_type,
+                created_at=execution.created_at,
+                content_item_id=execution.content_item_id,
+                error_message=execution.error_message,
+            )
+            for execution in executions
+        ]
+    )
 
 
 @api.post("/web-search", response=WebSearchExecutionResponse)
