@@ -5,13 +5,13 @@ from .models import ContentItem, ContentItemSource, ContentSource
 
 @admin.register(ContentItem)
 class ContentItemAdmin(admin.ModelAdmin):
-    list_display = ("id", "keyword", "created_at", "updated_at")
+    list_display = ("id", "keyword", "metadata", "created_at", "updated_at")
     list_select_related = ("keyword",)
 
 
 @admin.register(ContentSource)
 class ContentSourceAdmin(admin.ModelAdmin):
-    list_display = ("id", "url", "title")
+    list_display = ("id", "url", "title", "created_at", "updated_at")
     search_fields = ("url", "title")
 
 

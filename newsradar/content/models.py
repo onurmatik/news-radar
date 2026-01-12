@@ -12,10 +12,13 @@ class ContentItem(models.Model):
     metadata = models.JSONField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-updated_at", "-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.id}: {self.keyword}"
 
 
 class ContentSource(models.Model):
@@ -23,7 +26,7 @@ class ContentSource(models.Model):
     title = models.CharField(max_length=2048, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self) -> str:
         return f"{self.url}"
