@@ -2,6 +2,11 @@ from django.db import models
 
 
 class Execution(models.Model):
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
     class OriginType(models.TextChoices):
         PERIODIC = "periodic", "Periodic"
         USER = "user", "User"
@@ -19,6 +24,12 @@ class Execution(models.Model):
         choices=OriginType.choices,
         default=OriginType.USER,
     )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.RUNNING,
+    )
+    error_message = models.TextField(blank=True, null=True)
     llm_config = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

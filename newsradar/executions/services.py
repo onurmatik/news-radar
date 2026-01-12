@@ -84,80 +84,98 @@ def execute_web_search(
         f"{normalized_keyword}"
     )
 
-    provider = _get_llm_provider()
-    llm_config: dict[str, object]
-    if provider == "openai":
-        model = os.getenv("OPENAI_WEB_SEARCH_MODEL", "gpt-5-nano")
-        tools = [{"type": "web_search"}]
-        client = OpenAI()
-        response = client.responses.create(
-            model=model,
-            tools=tools,
-            input=prompt,
-        )
-        llm_config = {
-            "provider": provider,
-            "model": model,
-            "tools": tools,
-            "input": prompt,
-        }
-    else:
-        raise ValueError(f"Unsupported LLM provider '{provider}'.")
-
-    response_payload = response.model_dump()
     content_item = ContentItem.objects.create(
         keyword=keyword,
     )
     execution = Execution.objects.create(
         content_item=content_item,
-        raw_data=response_payload,
         origin_type=origin_type,
-        llm_config=llm_config,
+        status=Execution.Status.RUNNING,
     )
-    content_sources = _extract_content_sources(response_payload)
-    if content_sources:
-        unique_sources = {}
-        ordered_urls = []
-        for source in content_sources:
-            url = source["url"]
-            if url in unique_sources:
-                continue
-            unique_sources[url] = source
-            ordered_urls.append(url)
+    llm_config: dict[str, object] | None = None
+    try:
+        provider = _get_llm_provider()
+        if provider == "openai":
+            model = os.getenv("OPENAI_WEB_SEARCH_MODEL", "gpt-5-nano")
+            tools = [{"type": "web_search"}]
+            llm_config = {
+                "provider": provider,
+                "model": model,
+                "tools": tools,
+                "input": prompt,
+            }
+            client = OpenAI()
+            response = client.responses.create(
+                model=model,
+                tools=tools,
+                input=prompt,
+            )
+        else:
+            raise ValueError(f"Unsupported LLM provider '{provider}'.")
 
-        urls = ordered_urls
-        existing_sources = {
-            source.url: source
-            for source in ContentSource.objects.filter(url__in=urls)
-        }
-        new_sources = [
-            ContentSource(url=url, title=unique_sources[url]["title"])
-            for url in urls
-            if url not in existing_sources
-        ]
-        if new_sources:
-            ContentSource.objects.bulk_create(new_sources, ignore_conflicts=True)
+        response_payload = response.model_dump()
+        execution.raw_data = response_payload
+        execution.status = Execution.Status.COMPLETED
+        execution.error_message = None
+        execution.llm_config = llm_config
+        execution.save(
+            update_fields=["raw_data", "status", "error_message", "llm_config"]
+        )
+
+        content_sources = _extract_content_sources(response_payload)
+        if content_sources:
+            unique_sources = {}
+            ordered_urls = []
+            for source in content_sources:
+                url = source["url"]
+                if url in unique_sources:
+                    continue
+                unique_sources[url] = source
+                ordered_urls.append(url)
+
+            urls = ordered_urls
             existing_sources = {
                 source.url: source
                 for source in ContentSource.objects.filter(url__in=urls)
             }
-        ContentItemSource.objects.bulk_create(
-            [
-                ContentItemSource(
-                    content_item=content_item,
-                    content_source=existing_sources[url],
-                )
+            new_sources = [
+                ContentSource(url=url, title=unique_sources[url]["title"])
                 for url in urls
-            ],
-            ignore_conflicts=True,
-        )
+                if url not in existing_sources
+            ]
+            if new_sources:
+                ContentSource.objects.bulk_create(new_sources, ignore_conflicts=True)
+                existing_sources = {
+                    source.url: source
+                    for source in ContentSource.objects.filter(url__in=urls)
+                }
+            ContentItemSource.objects.bulk_create(
+                [
+                    ContentItemSource(
+                        content_item=content_item,
+                        content_source=existing_sources[url],
+                    )
+                    for url in urls
+                ],
+                ignore_conflicts=True,
+            )
 
-    keyword.last_fetched_at = timezone.now()
-    keyword.save(update_fields=["last_fetched_at"])
+        keyword.last_fetched_at = timezone.now()
+        keyword.save(update_fields=["last_fetched_at"])
 
-    return {
-        "execution_id": execution.id,
-        "content_item_id": content_item.id,
-        "output_text": response.output_text,
-        "response": execution.raw_data,
-    }
+        return {
+            "execution_id": execution.id,
+            "content_item_id": content_item.id,
+            "response": execution.raw_data,
+        }
+    except Exception as exc:
+        execution.status = Execution.Status.FAILED
+        execution.error_message = str(exc)
+        if llm_config is not None:
+            execution.llm_config = llm_config
+            execution.save(
+                update_fields=["status", "error_message", "llm_config"]
+            )
+        else:
+            execution.save(update_fields=["status", "error_message"])
+        raise
