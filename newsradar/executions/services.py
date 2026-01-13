@@ -1,8 +1,10 @@
 import os
+from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from django.utils import timezone
 from openai import OpenAI
+from perplexity import Perplexity
 
 from newsradar.content.models import (
     ContentItem,
@@ -13,6 +15,19 @@ from newsradar.executions.models import Execution
 from newsradar.keywords.models import Keyword, normalize_keyword_text
 
 
+SUPPORTED_WEB_SEARCH_PROVIDERS = {"openai", "perplexity"}
+
+
+def _get_llm_provider() -> str:
+    provider = os.getenv("WEB_SEARCH_PROVIDER", "openai").strip().lower()
+    if provider not in SUPPORTED_WEB_SEARCH_PROVIDERS:
+        supported = ", ".join(sorted(SUPPORTED_WEB_SEARCH_PROVIDERS))
+        raise ValueError(
+            f"Unsupported LLM provider '{provider}'. Supported providers: {supported}."
+        )
+    return provider
+
+
 def _normalize_source_url(url: str) -> str:
     parsed = urlparse(url)
     if parsed.query == "utm_source=openai":
@@ -20,54 +35,82 @@ def _normalize_source_url(url: str) -> str:
     return urlunparse(parsed)
 
 
-def _extract_content_sources(response_payload: dict) -> list[dict]:
+def _extract_content_sources(provider: str, response_payload: dict) -> list[dict]:
+    """
+    Returns list of:
+      {"url": str, "title": str, "metadata": dict|None}
+    """
+    provider = (provider or "").strip().lower()
     if not response_payload:
         return []
-    output_items = response_payload.get("output") or []
-    if not output_items:
-        return []
 
-    message_output = next(
-        (
-            item
-            for item in reversed(output_items)
-            if item.get("type") == "message" and item.get("status") == "completed"
-        ),
-        None,
-    )
-    if not message_output:
-        return []
+    if provider == "openai":
+        output_items = response_payload.get("output") or []
+        if not output_items:
+            return []
 
-    sources = []
-    for content_item in message_output.get("content") or []:
-        annotations = content_item.get("annotations") or []
-        for annotation in annotations:
-            if annotation.get("type") != "url_citation":
+        message_output = next(
+            (
+                item
+                for item in reversed(output_items)
+                if item.get("type") == "message" and item.get("status") == "completed"
+            ),
+            None,
+        )
+        if not message_output:
+            return []
+
+        sources: list[dict] = []
+        for content_item in (message_output.get("content") or []):
+            annotations = content_item.get("annotations") or []
+            for annotation in annotations:
+                if annotation.get("type") != "url_citation":
+                    continue
+                url = annotation.get("url") or annotation.get("source_url")
+                if not url:
+                    continue
+                title = annotation.get("title") or annotation.get("source_title") or ""
+                metadata = {
+                    "provider": "openai",
+                }
+                sources.append(
+                    {
+                        "url": _normalize_source_url(url),
+                        "title": title,
+                        "metadata": metadata,
+                    }
+                )
+        return sources
+
+    if provider == "perplexity":
+        results = response_payload.get("results") or []
+        if not isinstance(results, list) or not results:
+            return []
+
+        sources: list[dict] = []
+        for item in results:
+            if not isinstance(item, dict):
                 continue
-            url = annotation.get("url") or annotation.get("source_url")
+            url = item.get("url")
             if not url:
                 continue
+            title = item.get("title") or ""
+            metadata = {"provider": "perplexity"}
+            for k, v in item.items():
+                if k in {"url", "title"}:
+                    continue
+                metadata[k] = v
+
             sources.append(
                 {
                     "url": _normalize_source_url(url),
-                    "title": annotation.get("title") or annotation.get("source_title") or "",
+                    "title": title,
+                    "metadata": metadata or None,
                 }
             )
+        return sources
 
-    return sources
-
-
-SUPPORTED_LLM_PROVIDERS = {"openai"}
-
-
-def _get_llm_provider() -> str:
-    provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
-    if provider not in SUPPORTED_LLM_PROVIDERS:
-        supported = ", ".join(sorted(SUPPORTED_LLM_PROVIDERS))
-        raise ValueError(
-            f"Unsupported LLM provider '{provider}'. Supported providers: {supported}."
-        )
-    return provider
+    return []
 
 
 def execute_web_search(
@@ -91,6 +134,8 @@ def execute_web_search(
     llm_config: dict[str, object] | None = None
     try:
         provider = _get_llm_provider()
+
+        response_obj: Any
         if provider == "openai":
             model = os.getenv("OPENAI_WEB_SEARCH_MODEL", "gpt-5-nano")
             tools = [{"type": "web_search"}]
@@ -98,18 +143,31 @@ def execute_web_search(
                 "provider": provider,
                 "model": model,
                 "tools": tools,
-                "input": prompt,
+                "prompt": prompt,
             }
             client = OpenAI()
-            response = client.responses.create(
+            response_obj = client.responses.create(
                 model=model,
                 tools=tools,
                 input=prompt,
             )
+
+        elif provider == "perplexity":
+            model = os.getenv("PERPLEXITY_WEB_SEARCH_MODEL", "sonar")
+            llm_config = {
+                "provider": provider,
+                "model": model,
+                "prompt": prompt,
+            }
+            client = Perplexity()
+            response_obj = client.search.create(
+                query=prompt,
+            )
         else:
             raise ValueError(f"Unsupported LLM provider '{provider}'.")
 
-        response_payload = response.model_dump()
+        response_payload = response_obj.model_dump()
+
         content_item = ContentItem.objects.create(
             keyword=keyword,
         )
@@ -128,15 +186,15 @@ def execute_web_search(
             ]
         )
 
-        content_sources = _extract_content_sources(response_payload)
+        content_sources = _extract_content_sources(provider, response_payload)
         if content_sources:
-            unique_sources = {}
-            ordered_urls = []
-            for source in content_sources:
-                url = source["url"]
-                if url in unique_sources:
+            unique_by_url: dict[str, dict] = {}
+            ordered_urls: list[str] = []
+            for src in content_sources:
+                url = src["url"]
+                if url in unique_by_url:
                     continue
-                unique_sources[url] = source
+                unique_by_url[url] = src
                 ordered_urls.append(url)
 
             urls = ordered_urls
@@ -145,7 +203,11 @@ def execute_web_search(
                 for source in ContentSource.objects.filter(url__in=urls)
             }
             new_sources = [
-                ContentSource(url=url, title=unique_sources[url]["title"])
+                ContentSource(
+                    url=url,
+                    title=unique_by_url[url].get("title") or "",
+                    metadata=unique_by_url[url].get("metadata"),
+                )
                 for url in urls
                 if url not in existing_sources
             ]
@@ -162,6 +224,7 @@ def execute_web_search(
                         content_source=existing_sources[url],
                     )
                     for url in urls
+                    if url in existing_sources
                 ],
                 ignore_conflicts=True,
             )

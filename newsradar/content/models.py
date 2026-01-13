@@ -25,8 +25,9 @@ class ContentSource(models.Model):
     url = models.URLField(max_length=2048, unique=True)
     title = models.CharField(max_length=2048, blank=True)
 
+    metadata = models.JSONField(blank=True, null=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self) -> str:
         return f"{self.url}"

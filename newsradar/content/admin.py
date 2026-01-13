@@ -12,7 +12,7 @@ class ContentItemAdmin(admin.ModelAdmin):
 
 @admin.register(ContentSource)
 class ContentSourceAdmin(admin.ModelAdmin):
-    list_display = ("id", "url", "title", "created_at", "updated_at")
+    list_display = ("id", "url", "title", "created_at")
     search_fields = ("url", "title")
 
 

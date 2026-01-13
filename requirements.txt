@@ -6,6 +6,7 @@ django-ninja
 httpx
 numpy
 openai
+perplexityai
 pgvector
 pydantic
 psycopg2-binary
