@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -20,6 +21,14 @@ class Execution(models.Model):
         null=True,
         blank=True,
     )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="executions",
+        null=True,
+        blank=True,
+    )
+
     raw_data = models.JSONField(blank=True, null=True)
     origin_type = models.CharField(
         max_length=20,

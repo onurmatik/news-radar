@@ -41,6 +41,8 @@ def list_executions(
     status: str | None = None,
     origin_type: str | None = None,
 ):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
     execution_filter = {}
     if status:
         if status not in Execution.Status.values:
@@ -51,7 +53,10 @@ def list_executions(
             raise HttpError(400, "Invalid origin_type.")
         execution_filter["origin_type"] = origin_type
 
-    executions = Execution.objects.filter(**execution_filter)
+    executions = Execution.objects.filter(
+        user=request.user,
+        **execution_filter,
+    )
 
     return ExecutionListResponse(
         executions=[
@@ -70,6 +75,8 @@ def list_executions(
 
 @api.post("/web-search", response=WebSearchExecutionResponse)
 def web_search_execution(request, payload: WebSearchExecutionRequest):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
     if payload.origin_type not in Execution.OriginType.values:
         raise HttpError(
             400,
@@ -82,6 +89,11 @@ def web_search_execution(request, payload: WebSearchExecutionRequest):
         )
     except ValueError as exc:
         raise HttpError(404, str(exc)) from exc
+
+    execution = Execution.objects.filter(id=result["execution_id"]).first()
+    if execution and execution.user_id != request.user.id:
+        execution.user = request.user
+        execution.save(update_fields=["user"])
 
     return WebSearchExecutionResponse(
         **result,

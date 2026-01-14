@@ -5,6 +5,7 @@ from django.db.models import Count, Max, Q
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 
+from newsradar.accounts.models import UserKeyword
 from newsradar.content.models import ContentSource
 from newsradar.keywords.models import Keyword, normalize_keyword_query
 
@@ -48,12 +49,17 @@ class KeywordCreateResponse(Schema):
 
 @api.get("/", response=KeywordListResponse)
 def list_keywords(request, search: str | None = None):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
     keyword_filter = Q()
     if search:
         keyword_filter = Q(text__icontains=search) | Q(query__icontains=search)
 
     keywords = (
-        Keyword.objects.filter(keyword_filter)
+        Keyword.objects.filter(
+            keyword_filter,
+            keywords_by__user=request.user,
+        )
         .annotate(
             content_source_count=Count(
                 "content_items__source_links__content_source",
@@ -80,10 +86,13 @@ def list_keywords(request, search: str | None = None):
 
 @api.post("/", response=KeywordCreateResponse)
 def create_keyword(request, payload: KeywordCreateRequest):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
     normalized_text = normalize_keyword_query(payload.text)
     if not normalized_text:
         raise HttpError(400, "Keyword text cannot be empty.")
     keyword = Keyword.objects.create(text=payload.text)
+    UserKeyword.objects.create(user=request.user, keyword=keyword)
 
     return KeywordCreateResponse(
         keyword=KeywordListItem(
@@ -99,7 +108,13 @@ def create_keyword(request, payload: KeywordCreateRequest):
 
 @api.get("/{keyword_uuid}/sources", response=KeywordContentSourcesResponse)
 def list_keyword_content_sources(request, keyword_uuid: uuid.UUID):
-    keyword = Keyword.objects.filter(uuid=keyword_uuid).first()
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+    keyword = Keyword.objects.filter(
+        uuid=keyword_uuid,
+        keywords_by__user=request.user,
+    ).first()
+
     if not keyword:
         raise HttpError(404, "Keyword not found for UUID.")
 
