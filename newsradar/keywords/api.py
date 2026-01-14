@@ -6,7 +6,7 @@ from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 
 from newsradar.content.models import ContentSource
-from newsradar.keywords.models import Keyword
+from newsradar.keywords.models import Keyword, normalize_keyword_query
 
 api = NinjaAPI(title="Keywords API", urls_namespace="keywords")
 
@@ -38,6 +38,14 @@ class KeywordListResponse(Schema):
     keywords: list[KeywordListItem]
 
 
+class KeywordCreateRequest(Schema):
+    text: str
+
+
+class KeywordCreateResponse(Schema):
+    keyword: KeywordListItem
+
+
 @api.get("/", response=KeywordListResponse)
 def list_keywords(request, search: str | None = None):
     keyword_filter = Q()
@@ -67,6 +75,25 @@ def list_keywords(request, search: str | None = None):
             )
             for keyword in keywords
         ]
+    )
+
+
+@api.post("/", response=KeywordCreateResponse)
+def create_keyword(request, payload: KeywordCreateRequest):
+    normalized_text = normalize_keyword_query(payload.text)
+    if not normalized_text:
+        raise HttpError(400, "Keyword text cannot be empty.")
+    keyword = Keyword.objects.create(text=payload.text)
+
+    return KeywordCreateResponse(
+        keyword=KeywordListItem(
+            id=keyword.id,
+            uuid=keyword.uuid,
+            text=keyword.text,
+            query=keyword.query,
+            last_fetched_at=keyword.last_fetched_at,
+            content_source_count=0,
+        )
     )
 
 
