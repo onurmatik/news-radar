@@ -2,6 +2,7 @@ import os
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
+from django.conf import settings
 from django.utils import timezone
 from openai import OpenAI
 from perplexity import Perplexity
@@ -15,17 +16,55 @@ from newsradar.executions.models import Execution
 from newsradar.keywords.models import Keyword, normalize_keyword_text
 
 
-SUPPORTED_WEB_SEARCH_PROVIDERS = {"openai", "perplexity"}
-
-
-def _get_llm_provider() -> str:
-    provider = os.getenv("WEB_SEARCH_PROVIDER", "openai").strip().lower()
-    if provider not in SUPPORTED_WEB_SEARCH_PROVIDERS:
-        supported = ", ".join(sorted(SUPPORTED_WEB_SEARCH_PROVIDERS))
+def _get_llm_provider(keyword: Keyword | None = None) -> str:
+    provider = (
+        getattr(keyword, "provider", None)
+        or settings.WEB_SEARCH_PROVIDER
+    )
+    provider = str(provider).strip().lower()
+    if provider not in settings.SUPPORTED_WEB_SEARCH_PROVIDERS:
+        supported = ", ".join(sorted(settings.SUPPORTED_WEB_SEARCH_PROVIDERS))
         raise ValueError(
             f"Unsupported LLM provider '{provider}'. Supported providers: {supported}."
         )
     return provider
+
+
+def _build_perplexity_search_payload(keyword: Keyword, prompt: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "query": prompt,
+        "max_results": keyword.max_results,
+        "max_tokens": keyword.max_tokens,
+        "max_tokens_per_page": keyword.max_tokens_per_page,
+    }
+
+    if keyword.search_domain_allowlist:
+        payload["search_domain_filter"] = keyword.search_domain_allowlist
+    if keyword.search_domain_blocklist:
+        payload["search_domain_filter_exclude"] = keyword.search_domain_blocklist
+    if keyword.search_language_filter:
+        payload["search_language_filter"] = keyword.search_language_filter
+    if keyword.country:
+        payload["country"] = keyword.country
+    if keyword.search_recency_filter:
+        payload["search_recency_filter"] = keyword.search_recency_filter
+    if keyword.search_after_date:
+        payload["search_after_date"] = keyword.search_after_date.strftime("%m/%d/%Y")
+    if keyword.search_before_date:
+        payload["search_before_date"] = keyword.search_before_date.strftime("%m/%d/%Y")
+    if keyword.last_updated_after_filter:
+        payload["last_updated_after_filter"] = keyword.last_updated_after_filter.strftime(
+            "%m/%d/%Y"
+        )
+    if keyword.last_updated_before_filter:
+        payload["last_updated_before_filter"] = keyword.last_updated_before_filter.strftime(
+            "%m/%d/%Y"
+        )
+
+    if keyword.provider_config:
+        payload.update(keyword.provider_config)
+
+    return payload
 
 
 def _normalize_source_url(url: str) -> str:
@@ -133,7 +172,7 @@ def execute_web_search(
     )
     llm_config: dict[str, object] | None = None
     try:
-        provider = _get_llm_provider()
+        provider = _get_llm_provider(keyword)
 
         response_obj: Any
         if provider == "openai":
@@ -143,7 +182,7 @@ def execute_web_search(
                 "provider": provider,
                 "model": model,
                 "tools": tools,
-                "prompt": prompt,
+                "input": prompt,
             }
             client = OpenAI()
             response_obj = client.responses.create(
@@ -154,14 +193,15 @@ def execute_web_search(
 
         elif provider == "perplexity":
             model = os.getenv("PERPLEXITY_WEB_SEARCH_MODEL", "sonar")
+            payload = _build_perplexity_search_payload(keyword, prompt)
             llm_config = {
                 "provider": provider,
                 "model": model,
-                "prompt": prompt,
+                "search_payload": payload,
             }
             client = Perplexity()
             response_obj = client.search.create(
-                query=prompt,
+                **payload,
             )
         else:
             raise ValueError(f"Unsupported LLM provider '{provider}'.")

@@ -31,6 +31,14 @@ DEBUG = os.getenv("DJANGO_DEBUG", "0") == "1"
 
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if os.getenv("DJANGO_ALLOWED_HOSTS") else []
 
+SUPPORTED_WEB_SEARCH_PROVIDERS = {"openai", "perplexity"}
+
+WEB_SEARCH_PROVIDER = os.getenv("WEB_SEARCH_PROVIDER", "openai").lower()
+if WEB_SEARCH_PROVIDER not in SUPPORTED_WEB_SEARCH_PROVIDERS:
+    raise ValueError(
+        "WEB_SEARCH_PROVIDER must be one of: "
+        f"{', '.join(sorted(SUPPORTED_WEB_SEARCH_PROVIDERS))}."
+    )
 
 # Application definition
 
