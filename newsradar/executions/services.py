@@ -243,10 +243,7 @@ def execute_web_search(
                 ordered_urls.append(url)
 
             urls = ordered_urls
-            existing_sources = {
-                source.url: source
-                for source in ContentSource.objects.filter(url__in=urls)
-            }
+
             new_sources = [
                 ContentSource(
                     url=url,
@@ -254,24 +251,18 @@ def execute_web_search(
                     metadata=unique_by_url[url].get("metadata"),
                 )
                 for url in urls
-                if url not in existing_sources
             ]
-            if new_sources:
-                ContentSource.objects.bulk_create(new_sources, ignore_conflicts=True)
-                existing_sources = {
-                    source.url: source
-                    for source in ContentSource.objects.filter(url__in=urls)
-                }
+
+            created_sources = ContentSource.objects.bulk_create(new_sources)
+
             ContentItemSource.objects.bulk_create(
                 [
                     ContentItemSource(
                         content_item=content_item,
-                        content_source=existing_sources[url],
+                        content_source=source,
                     )
-                    for url in urls
-                    if url in existing_sources
-                ],
-                ignore_conflicts=True,
+                    for source in created_sources
+                ]
             )
 
         keyword.last_fetched_at = timezone.now()

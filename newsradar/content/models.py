@@ -22,7 +22,7 @@ class ContentItem(models.Model):
 
 
 class ContentSource(models.Model):
-    url = models.URLField(max_length=2048, unique=True)
+    url = models.URLField(max_length=2048)
     title = models.CharField(max_length=2048, blank=True)
 
     metadata = models.JSONField(blank=True, null=True)
