@@ -1,4 +1,5 @@
 import os
+import uuid
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -13,7 +14,7 @@ from newsradar.content.models import (
     ContentSource,
 )
 from newsradar.executions.models import Execution
-from newsradar.keywords.models import Keyword, normalize_keyword_text
+from newsradar.keywords.models import Keyword
 
 
 def _get_llm_provider(keyword: Keyword | None = None) -> str:
@@ -153,17 +154,21 @@ def _extract_content_sources(provider: str, response_payload: dict) -> list[dict
 
 
 def execute_web_search(
-    normalized_keyword: str,
+    keyword_uuid: str | uuid.UUID,
     origin_type: str = Execution.OriginType.USER,
 ) -> dict:
-    normalized_keyword = normalize_keyword_text(normalized_keyword)
-    keyword = Keyword.objects.filter(normalized_text=normalized_keyword).first()
+    if isinstance(keyword_uuid, str):
+        try:
+            keyword_uuid = uuid.UUID(keyword_uuid)
+        except ValueError as exc:
+            raise ValueError("Invalid keyword UUID.") from exc
+    keyword = Keyword.objects.filter(uuid=keyword_uuid).first()
     if not keyword:
-        raise ValueError("Keyword not found for normalized text.")
+        raise ValueError("Keyword not found for UUID.")
 
     prompt = (
         "Use web search to find the latest, up-to-date information for this keyword: "
-        f"{normalized_keyword}"
+        f"{keyword.query}"
     )
 
     execution = Execution.objects.create(

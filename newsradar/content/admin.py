@@ -6,7 +6,7 @@ from .models import ContentItem, ContentItemSource, ContentSource
 @admin.register(ContentItem)
 class ContentItemAdmin(admin.ModelAdmin):
     list_display = ("id", "keyword", "metadata", "created_at", "updated_at")
-    search_fields = ("keyword__text", "keyword__normalized_text")
+    search_fields = ("keyword__text", "keyword__query")
     list_select_related = ("keyword",)
 
 

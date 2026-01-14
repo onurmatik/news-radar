@@ -1,11 +1,12 @@
 from datetime import datetime
+import uuid
 
 from django.db.models import Count, Max, Q
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 
 from newsradar.content.models import ContentSource
-from newsradar.keywords.models import Keyword, normalize_keyword_text
+from newsradar.keywords.models import Keyword
 
 api = NinjaAPI(title="Keywords API", urls_namespace="keywords")
 
@@ -19,15 +20,16 @@ class ContentSourceItem(Schema):
 
 
 class KeywordContentSourcesResponse(Schema):
-    keyword_id: int
-    normalized_keyword: str
+    keyword_uuid: uuid.UUID
+    query: str
     sources: list[ContentSourceItem]
 
 
 class KeywordListItem(Schema):
     id: int
+    uuid: uuid.UUID
     text: str
-    normalized_text: str
+    query: str
     last_fetched_at: datetime | None
     content_source_count: int
 
@@ -40,9 +42,7 @@ class KeywordListResponse(Schema):
 def list_keywords(request, search: str | None = None):
     keyword_filter = Q()
     if search:
-        keyword_filter = Q(text__icontains=search) | Q(
-            normalized_text__icontains=search
-        )
+        keyword_filter = Q(text__icontains=search) | Q(query__icontains=search)
 
     keywords = (
         Keyword.objects.filter(keyword_filter)
@@ -52,15 +52,16 @@ def list_keywords(request, search: str | None = None):
                 distinct=True,
             )
         )
-        .order_by("-last_fetched_at", "-created_at", "normalized_text")
+        .order_by("-last_fetched_at", "-created_at", "query")
     )
 
     return KeywordListResponse(
         keywords=[
             KeywordListItem(
                 id=keyword.id,
+                uuid=keyword.uuid,
                 text=keyword.text,
-                normalized_text=keyword.normalized_text,
+                query=keyword.query,
                 last_fetched_at=keyword.last_fetched_at,
                 content_source_count=keyword.content_source_count,
             )
@@ -69,12 +70,11 @@ def list_keywords(request, search: str | None = None):
     )
 
 
-@api.get("/{keyword_text}/sources", response=KeywordContentSourcesResponse)
-def list_keyword_content_sources(request, keyword_text: str):
-    normalized_keyword = normalize_keyword_text(keyword_text)
-    keyword = Keyword.objects.filter(normalized_text=normalized_keyword).first()
+@api.get("/{keyword_uuid}/sources", response=KeywordContentSourcesResponse)
+def list_keyword_content_sources(request, keyword_uuid: uuid.UUID):
+    keyword = Keyword.objects.filter(uuid=keyword_uuid).first()
     if not keyword:
-        raise HttpError(404, "Keyword not found for normalized text.")
+        raise HttpError(404, "Keyword not found for UUID.")
 
     sources = (
         ContentSource.objects.filter(
@@ -88,8 +88,8 @@ def list_keyword_content_sources(request, keyword_text: str):
     )
 
     return KeywordContentSourcesResponse(
-        keyword_id=keyword.id,
-        normalized_keyword=normalized_keyword,
+        keyword_uuid=keyword.uuid,
+        query=keyword.query,
         sources=[
             ContentSourceItem(
                 id=source.id,

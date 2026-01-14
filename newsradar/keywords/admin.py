@@ -6,9 +6,9 @@ from newsradar.executions.tasks import web_search_execution
 
 @admin.register(Keyword)
 class KeywordAdmin(admin.ModelAdmin):
-    list_display = ("text", "normalized_text", "provider", "created_at", "last_fetched_at")
+    list_display = ("text", "query", "provider", "created_at", "last_fetched_at")
     list_filter = ("provider", "last_fetched_at", "created_at")
-    search_fields = ("text", "normalized_text")
+    search_fields = ("text", "query")
     actions = ("run_web_search",)
 
     @admin.action(description="Run web search execution for selected keywords")
@@ -16,7 +16,7 @@ class KeywordAdmin(admin.ModelAdmin):
         task_ids = []
         for keyword in queryset:
             async_result = web_search_execution.delay(
-                keyword.normalized_text,
+                str(keyword.uuid),
                 origin_type="admin",
             )
             task_ids.append(async_result.id)

@@ -9,6 +9,6 @@ class ExecutionAdmin(admin.ModelAdmin):
     list_filter = ("status", "origin_type")
     search_fields = (
         "content_item__keyword__text",
-        "content_item__keyword__normalized_text",
+        "content_item__keyword__query",
     )
     list_select_related = ("content_item",)

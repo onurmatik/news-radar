@@ -11,7 +11,7 @@ api = NinjaAPI(title="Executions API", urls_namespace="executions")
 
 
 class WebSearchExecutionRequest(Schema):
-    normalized_keyword: str
+    keyword_uuid: str
     origin_type: str = "user"
 
 
@@ -77,7 +77,7 @@ def web_search_execution(request, payload: WebSearchExecutionRequest):
         )
     try:
         result = execute_web_search(
-            payload.normalized_keyword,
+            payload.keyword_uuid,
             origin_type=payload.origin_type,
         )
     except ValueError as exc:

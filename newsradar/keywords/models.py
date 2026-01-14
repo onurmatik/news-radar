@@ -12,7 +12,7 @@ from pgvector.django import VectorField, HnswIndex
 KEYWORD_NORMALIZE_RE = re.compile(r"\s+")
 
 
-def normalize_keyword_text(text: str) -> str:
+def normalize_keyword_query(text: str) -> str:
     return KEYWORD_NORMALIZE_RE.sub(" ", text).strip()
 
 
@@ -43,7 +43,7 @@ def validate_provider_config(value: dict | None) -> None:
 class Keyword(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     text = models.CharField(max_length=255)
-    normalized_text = models.TextField(unique=True, null=True, blank=True)
+    query = models.TextField(null=True, blank=True)
 
     provider = models.CharField(
         max_length=20,
@@ -117,27 +117,27 @@ class Keyword(models.Model):
         ordering = ["-last_fetched_at", "-created_at"]
 
     def __str__(self) -> str:
-        return f"{self.normalized_text}"
+        return f"{self.query or self.text}"
 
     def save(self, *args, **kwargs) -> None:
-        normalized_text = normalize_keyword_text(self.text)
+        normalized_query = normalize_keyword_query(self.text)
         needs_embedding = False
 
         if self.pk:
-            existing = Keyword.objects.filter(pk=self.pk).only("normalized_text").first()
-            if existing and existing.normalized_text != normalized_text:
+            existing = Keyword.objects.filter(pk=self.pk).only("query").first()
+            if existing and existing.query != normalized_query:
                 needs_embedding = True
         else:
             needs_embedding = True
 
-        if normalized_text != self.normalized_text:
-            self.normalized_text = normalized_text
+        if normalized_query != self.query:
+            self.query = normalized_query
 
-        if normalized_text and (self.embedding is None or needs_embedding):
+        if normalized_query and (self.embedding is None or needs_embedding):
             client = OpenAI()
             self.embedding = client.embeddings.create(
                 model="text-embedding-3-small",
-                input=normalized_text,
+                input=normalized_query,
             ).data[0].embedding
 
         super().save(*args, **kwargs)

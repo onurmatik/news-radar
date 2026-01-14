@@ -8,7 +8,7 @@ class Command(BaseCommand):
     help = "Run a web search execution for a keyword."
 
     def add_arguments(self, parser):
-        parser.add_argument("normalized_keyword")
+        parser.add_argument("keyword_uuid")
         parser.add_argument(
             "--async",
             action="store_true",
@@ -17,10 +17,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        normalized_keyword = options["normalized_keyword"]
+        keyword_uuid = options["keyword_uuid"]
         if options["run_async"]:
             async_result = web_search_execution.delay(
-                normalized_keyword,
+                keyword_uuid,
                 origin_type="cli",
             )
             self.stdout.write(
@@ -31,7 +31,7 @@ class Command(BaseCommand):
             return
 
         try:
-            result = execute_web_search(normalized_keyword, origin_type="cli")
+            result = execute_web_search(keyword_uuid, origin_type="cli")
         except ValueError as exc:
             raise CommandError(str(exc)) from exc
 
