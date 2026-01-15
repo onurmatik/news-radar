@@ -18,13 +18,13 @@ from django.contrib import admin
 from django.urls import path
 
 from newsradar.executions.api import api as executions_api
-from newsradar.keywords.api import api as keywords_api
+from newsradar.topics.api import api as topics_api
 
 
 urlpatterns = [
     path('nrAdmin/', admin.site.urls),
     path('api/executions/', executions_api.urls),
-    path('api/keywords/', keywords_api.urls),
+    path('api/topics/', topics_api.urls),
 ]
 
 

@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.db import models
 
 
@@ -8,32 +7,23 @@ class Execution(models.Model):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
 
-    class OriginType(models.TextChoices):
+    class Initiator(models.TextChoices):
         PERIODIC = "periodic", "Periodic"
         USER = "user", "User"
         ADMIN = "admin", "Admin"
         CLI = "cli", "CLI"
 
-    content_item = models.ForeignKey(
-        "content.ContentItem",
+    topic = models.ForeignKey(
+        "topics.Topic",
         on_delete=models.CASCADE,
         related_name="executions",
-        null=True,
-        blank=True,
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="executions",
-        null=True,
-        blank=True,
     )
 
-    raw_data = models.JSONField(blank=True, null=True)
-    origin_type = models.CharField(
+    response_payload = models.JSONField(blank=True, null=True)
+    initiator = models.CharField(
         max_length=20,
-        choices=OriginType.choices,
-        default=OriginType.USER,
+        choices=Initiator.choices,
+        default=Initiator.USER,
     )
     status = models.CharField(
         max_length=20,
@@ -41,8 +31,10 @@ class Execution(models.Model):
         default=Status.RUNNING,
     )
     error_message = models.TextField(blank=True, null=True)
-    llm_config = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.id}: {self.topic}"

@@ -35,7 +35,7 @@ export default function Dashboard() {
          source: "MarketWatch",
          timestamp: new Date(),
          relevanceScore: 99,
-         keywords: ["Renewable Energy", "Business"],
+         topics: ["Renewable Energy", "Business"],
          category: "business",
          url: "#"
       };
@@ -85,7 +85,7 @@ export default function Dashboard() {
            <Card className="bg-gradient-to-br from-primary/10 to-transparent border-primary/20">
               <CardContent className="p-6">
                  <div className="flex justify-between items-start mb-2">
-                    <p className="text-sm font-medium text-muted-foreground">Active Keywords</p>
+                    <p className="text-sm font-medium text-muted-foreground">Active Topics</p>
                     <Sparkles className="h-4 w-4 text-primary" />
                  </div>
                  <h3 className="text-3xl font-bold text-primary">12</h3>
@@ -156,7 +156,7 @@ export default function Dashboard() {
                       </p>
                       
                       <div className="flex items-center gap-2 pt-2 flex-wrap">
-                        {item.keywords.map(k => (
+                        {item.topics.map(k => (
                           <Badge key={k} variant="secondary" className="text-[10px] font-normal bg-muted/50">
                             #{k}
                           </Badge>

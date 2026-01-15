@@ -4,9 +4,9 @@ A high-performance AI-assisted news agenda monitoring dashboard.
 
 ## Features
 
-- **Real-time Monitoring**: Automated web scanning for user-defined keywords.
+- **Real-time Monitoring**: Automated web scanning for user-defined topics.
 - **AI Analysis**: Relevance scoring and summarization of news items.
-- **Keyword Management**: Easy add/remove interface for tracking topics.
+- **Topic Management**: Easy add/remove interface for tracking topics.
 - **Dashboard**: Aggregated view of high-priority news with sorting and filtering.
 - **Responsive Design**: Works on desktop and mobile.
 

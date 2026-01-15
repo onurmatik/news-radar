@@ -5,10 +5,10 @@ from newsradar.executions.tasks import web_search_execution
 
 
 class Command(BaseCommand):
-    help = "Run a web search execution for a keyword."
+    help = "Run a web search execution for a topic."
 
     def add_arguments(self, parser):
-        parser.add_argument("keyword_uuid")
+        parser.add_argument("topic_uuid")
         parser.add_argument(
             "--async",
             action="store_true",
@@ -17,11 +17,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        keyword_uuid = options["keyword_uuid"]
+        topic_uuid = options["topic_uuid"]
         if options["run_async"]:
             async_result = web_search_execution.delay(
-                keyword_uuid,
-                origin_type="cli",
+                topic_uuid,
+                initiator="cli",
             )
             self.stdout.write(
                 self.style.SUCCESS(
@@ -31,9 +31,13 @@ class Command(BaseCommand):
             return
 
         try:
-            result = execute_web_search(keyword_uuid, origin_type="cli")
+            result = execute_web_search(topic_uuid, initiator="cli")
         except ValueError as exc:
             raise CommandError(str(exc)) from exc
+
+        if result.get("content_item_id") is None:
+            self.stdout.write(self.style.WARNING("No content sources were returned."))
+            return
 
         self.stdout.write(
             self.style.SUCCESS(

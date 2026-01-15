@@ -2,24 +2,24 @@
 
 ### 1. Purpose
 
-The **News Radar** application monitors selected topics on the web, continuously aggregating and summarizing relevant news and signals based on user-defined keywords, with AI assistance for discovery, relevance filtering, and keyword optimization.
+The **News Radar** application monitors selected topics on the web, continuously aggregating and summarizing relevant news and signals based on user-defined topics, with AI assistance for discovery, relevance filtering, and topic optimization.
 
 ---
 
 ### 2. Core Features
 
-#### 2.1 Keyword Management
+#### 2.1 Topic Management
 
-* Users define an initial set of **tracking keywords** (single words or phrases).
-* Keywords are stored per user (or per project/board).
+* Users define an initial set of **tracking topics** (single words or phrases).
+* Topics are stored per user (or per project/board).
 * Support for:
 
-  * Add / remove / pause keywords
-  * Grouping keywords (optional, e.g. “Politics”, “Economy”, “Environment”)
+  * Add / remove / pause queries
+  * Grouping topics (optional, e.g. “Politics”, “Economy”, “Environment”)
 
 #### 2.2 AI-Assisted Web Search
 
-* Scheduled background jobs perform **AI-powered web searches** for each active keyword.
+* Scheduled background jobs perform **AI-powered web searches** for each active topic.
 * Search sources may include:
 
   * News sites
@@ -36,7 +36,7 @@ The **News Radar** application monitors selected topics on the web, continuously
   * Scored for relevance using AI embeddings or classifiers
 * Aggregation groups results by:
 
-  * Keyword
+  * Topic
   * Topic similarity
   * Time window
 * Metadata stored per result:
@@ -56,12 +56,12 @@ The **News Radar** application monitors selected topics on the web, continuously
   * Detect emerging subtopics
   * Identify trend intensity (e.g. spike detection)
 
-#### 2.5 Keyword Suggestions (AI-Assisted)
+#### 2.5 Topic Suggestions (AI-Assisted)
 
 * The system analyzes aggregated content to:
 
-  * Suggest **new keywords** (related entities, recurring terms)
-  * Recommend **removal or de-prioritization** of low-signal keywords
+  * Suggest **new topics** (related entities, recurring terms)
+  * Recommend **removal or de-prioritization** of low-signal topics
 * Suggestions are:
 
   * Non-destructive (user approval required)
@@ -73,17 +73,17 @@ The **News Radar** application monitors selected topics on the web, continuously
 
 * **Dashboard**
 
-  * Active keywords
+  * Active topics
   * Recent agenda items
   * Trend indicators
 * **Agenda Feed**
 
   * Chronological or relevance-sorted view
   * AI summaries with source links
-* **Keyword Insights Panel**
+* **Topic Insights Panel**
 
-  * Suggested keywords (add / ignore)
-  * Underperforming keywords (remove / keep)
+  * Suggested topics (add / ignore)
+  * Underperforming topics (remove / keep)
 
 ---
 
@@ -98,17 +98,17 @@ The **News Radar** application monitors selected topics on the web, continuously
 
 **Data Flow**
 
-1. User defines keywords
+1. User defines topics
 2. Scheduler triggers AI web searches
 3. Results collected and stored
 4. AI processing enriches and aggregates content
-5. User views agenda and keyword suggestions
+5. User views agenda and topic suggestions
 
 ---
 
 ### 5. Non-Functional Requirements
 
-* **Scalability:** keyword-based sharding and async processing
+* **Scalability:** topic-based sharding and async processing
 * **Cost Control:** configurable search frequency and AI usage limits
 * **Transparency:** clear source attribution for all items
 * **Extensibility:** support future sources (RSS, social media, official feeds)
@@ -122,4 +122,3 @@ The **News Radar** application monitors selected topics on the web, continuously
 * Topic timelines
 * Multi-user shared agendas
 * Export (PDF / CSV / API)
-

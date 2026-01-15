@@ -7,12 +7,12 @@ export interface NewsItem {
   source: string;
   timestamp: Date;
   relevanceScore: number;
-  keywords: string[];
+  topics: string[];
   category: "technology" | "business" | "science" | "politics" | "general";
   url: string;
 }
 
-export interface Keyword {
+export interface Topic {
   id: string;
   term: string;
   category: string;
@@ -20,7 +20,7 @@ export interface Keyword {
   lastSearch: Date | null;
 }
 
-export const MOCK_KEYWORDS: Keyword[] = [
+export const MOCK_TOPICS: Topic[] = [
   { id: "1", term: "Artificial Intelligence", category: "Technology", isActive: true, lastSearch: new Date() },
   { id: "2", term: "Quantum Computing", category: "Science", isActive: true, lastSearch: subMinutes(new Date(), 15) },
   { id: "3", term: "Renewable Energy", category: "Environment", isActive: true, lastSearch: subMinutes(new Date(), 45) },
@@ -36,7 +36,7 @@ export const MOCK_NEWS: NewsItem[] = [
     source: "TechCrunch",
     timestamp: subMinutes(new Date(), 5),
     relevanceScore: 98,
-    keywords: ["Renewable Energy", "Science"],
+    topics: ["Renewable Energy", "Science"],
     category: "science",
     url: "#"
   },
@@ -47,7 +47,7 @@ export const MOCK_NEWS: NewsItem[] = [
     source: "The Verge",
     timestamp: subMinutes(new Date(), 12),
     relevanceScore: 95,
-    keywords: ["Artificial Intelligence", "Technology"],
+    topics: ["Artificial Intelligence", "Technology"],
     category: "technology",
     url: "#"
   },
@@ -58,7 +58,7 @@ export const MOCK_NEWS: NewsItem[] = [
     source: "Wired",
     timestamp: subMinutes(new Date(), 25),
     relevanceScore: 89,
-    keywords: ["Quantum Computing", "Technology"],
+    topics: ["Quantum Computing", "Technology"],
     category: "technology",
     url: "#"
   },
@@ -69,7 +69,7 @@ export const MOCK_NEWS: NewsItem[] = [
     source: "Bloomberg",
     timestamp: subMinutes(new Date(), 40),
     relevanceScore: 75,
-    keywords: ["Renewable Energy", "Business"],
+    topics: ["Renewable Energy", "Business"],
     category: "business",
     url: "#"
   },
@@ -80,7 +80,7 @@ export const MOCK_NEWS: NewsItem[] = [
     source: "CoinDesk",
     timestamp: subMinutes(new Date(), 55),
     relevanceScore: 82,
-    keywords: ["Web3", "Technology"],
+    topics: ["Web3", "Technology"],
     category: "technology",
     url: "#"
   },
@@ -91,7 +91,7 @@ export const MOCK_NEWS: NewsItem[] = [
     source: "Reuters",
     timestamp: subMinutes(new Date(), 90),
     relevanceScore: 91,
-    keywords: ["Artificial Intelligence", "Politics"],
+    topics: ["Artificial Intelligence", "Politics"],
     category: "politics",
     url: "#"
   }

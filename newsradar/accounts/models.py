@@ -7,21 +7,3 @@ class Profile(models.Model):
 
     def __str__(self):
         return self.user.first_name.strip() or self.user.username
-
-
-class UserKeyword(models.Model):
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="keywords",
-    )
-    keyword = models.ForeignKey(
-        "keywords.Keyword",
-        on_delete=models.CASCADE,
-        related_name="keywords_by",
-    )
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["user", "keyword"], name="unique_user_keyword")
-        ]

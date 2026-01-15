@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
 
-from newsradar.accounts.models import Profile, UserKeyword
+from newsradar.accounts.models import Profile
 
 User = get_user_model()
 
@@ -13,10 +13,6 @@ class ProfileInline(admin.StackedInline):
     extra = 0
 
 
-class UserKeywordInline(admin.TabularInline):
-    model = UserKeyword
-    extra = 0
-    autocomplete_fields = ("keyword",)
 
 try:
     admin.site.unregister(User)
@@ -26,7 +22,7 @@ except admin.sites.NotRegistered:
 
 @admin.register(User)
 class AccountUserAdmin(UserAdmin):
-    inlines = (ProfileInline, UserKeywordInline)
+    inlines = (ProfileInline,)
     list_display = (
         "username",
         "email",
@@ -46,9 +42,3 @@ class ProfileAdmin(admin.ModelAdmin):
     search_fields = ("user__username", "user__email")
     list_select_related = ("user",)
 
-
-@admin.register(UserKeyword)
-class UserKeywordAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "keyword")
-    search_fields = ("user__username", "user__email", "keyword__text")
-    list_select_related = ("user", "keyword")

@@ -31,14 +31,19 @@ DEBUG = os.getenv("DJANGO_DEBUG", "0") == "1"
 
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if os.getenv("DJANGO_ALLOWED_HOSTS") else []
 
-SUPPORTED_WEB_SEARCH_PROVIDERS = {"openai", "perplexity"}
+WEB_SEARCH_MAX_RESULTS = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "10"))
+WEB_SEARCH_MAX_TOKENS = int(os.getenv("WEB_SEARCH_MAX_TOKENS", "25000"))
+WEB_SEARCH_MAX_TOKENS_PER_PAGE = int(os.getenv("WEB_SEARCH_MAX_TOKENS_PER_PAGE", "2048"))
 
-WEB_SEARCH_PROVIDER = os.getenv("WEB_SEARCH_PROVIDER", "openai").lower()
-if WEB_SEARCH_PROVIDER not in SUPPORTED_WEB_SEARCH_PROVIDERS:
-    raise ValueError(
-        "WEB_SEARCH_PROVIDER must be one of: "
-        f"{', '.join(sorted(SUPPORTED_WEB_SEARCH_PROVIDERS))}."
-    )
+
+def _validate_web_search_setting(value: int, min_value: int, max_value: int, name: str) -> None:
+    if value < min_value or value > max_value:
+        raise ValueError(f"{name} must be between {min_value} and {max_value}.")
+
+
+_validate_web_search_setting(WEB_SEARCH_MAX_RESULTS, 1, 20, "WEB_SEARCH_MAX_RESULTS")
+_validate_web_search_setting(WEB_SEARCH_MAX_TOKENS, 1, 1_000_000, "WEB_SEARCH_MAX_TOKENS")
+_validate_web_search_setting(WEB_SEARCH_MAX_TOKENS_PER_PAGE, 1, 1_000_000, "WEB_SEARCH_MAX_TOKENS_PER_PAGE")
 
 # Application definition
 
@@ -51,8 +56,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     "newsradar.accounts",
-    "newsradar.keywords",
-    "newsradar.content",
+    "newsradar.topics",
+    "newsradar.contents",
     "newsradar.executions",
 ]
 

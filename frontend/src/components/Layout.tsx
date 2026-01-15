@@ -14,7 +14,7 @@ export function Layout({ children }: SidebarProps) {
 
   const navItems = [
     { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-    { icon: Radio, label: 'Keywords', path: '/keywords' },
+    { icon: Radio, label: 'Topics', path: '/topics' },
     { icon: Settings, label: 'Settings', path: '/settings' },
   ];
 
@@ -106,7 +106,7 @@ export function Layout({ children }: SidebarProps) {
            <div className="flex items-center gap-3">
               <Button variant="outline" size="sm" className="hidden sm:flex gap-2">
                  <PlusCircle className="h-4 w-4" />
-                 <span>Add Keyword</span>
+                 <span>Add Topic</span>
               </Button>
               <Button variant="ghost" size="icon" className="relative">
                  <Bell className="h-5 w-5" />

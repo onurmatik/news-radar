@@ -1,31 +1,34 @@
 from datetime import datetime
 from typing import Any
 
+from django.db.models import OuterRef, Subquery
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 
+from newsradar.contents.models import Content
 from newsradar.executions.models import Execution
 from newsradar.executions.services import execute_web_search
+from newsradar.topics.models import Topic
 
 api = NinjaAPI(title="Executions API", urls_namespace="executions")
 
 
 class WebSearchExecutionRequest(Schema):
-    keyword_uuid: str
-    origin_type: str = "user"
+    topic_uuid: str
+    initiator: str = "user"
 
 
 class WebSearchExecutionResponse(Schema):
     execution_id: int
-    content_item_id: int
-    origin_type: str
+    content_item_id: int | None
+    initiator: str
     response: dict[str, Any]
 
 
 class ExecutionListItem(Schema):
     id: int
     status: str
-    origin_type: str
+    initiator: str
     created_at: datetime
     content_item_id: int | None
     error_message: str | None
@@ -39,7 +42,7 @@ class ExecutionListResponse(Schema):
 def list_executions(
     request,
     status: str | None = None,
-    origin_type: str | None = None,
+    initiator: str | None = None,
 ):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
@@ -48,14 +51,21 @@ def list_executions(
         if status not in Execution.Status.values:
             raise HttpError(400, "Invalid status.")
         execution_filter["status"] = status
-    if origin_type:
-        if origin_type not in Execution.OriginType.values:
-            raise HttpError(400, "Invalid origin_type.")
-        execution_filter["origin_type"] = origin_type
+    if initiator:
+        if initiator not in Execution.Initiator.values:
+            raise HttpError(400, "Invalid initiator.")
+        execution_filter["initiator"] = initiator
 
-    executions = Execution.objects.filter(
-        user=request.user,
-        **execution_filter,
+    executions = (
+        Execution.objects.filter(
+            topic__user=request.user,
+            **execution_filter,
+        )
+        .annotate(
+            content_item_id=Subquery(
+                Content.objects.filter(execution=OuterRef("pk")).values("id")[:1]
+            )
+        )
     )
 
     return ExecutionListResponse(
@@ -63,7 +73,7 @@ def list_executions(
             ExecutionListItem(
                 id=execution.id,
                 status=execution.status,
-                origin_type=execution.origin_type,
+                initiator=execution.initiator,
                 created_at=execution.created_at,
                 content_item_id=execution.content_item_id,
                 error_message=execution.error_message,
@@ -77,25 +87,23 @@ def list_executions(
 def web_search_execution(request, payload: WebSearchExecutionRequest):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
-    if payload.origin_type not in Execution.OriginType.values:
+    if payload.initiator not in Execution.Initiator.values:
         raise HttpError(
             400,
-            "Invalid origin_type."
+            "Invalid initiator."
         )
+    topic = Topic.objects.filter(uuid=payload.topic_uuid, user=request.user).first()
+    if not topic:
+        raise HttpError(404, "Topic not found for UUID.")
     try:
         result = execute_web_search(
-            payload.keyword_uuid,
-            origin_type=payload.origin_type,
+            payload.topic_uuid,
+            initiator=payload.initiator,
         )
     except ValueError as exc:
         raise HttpError(404, str(exc)) from exc
 
-    execution = Execution.objects.filter(id=result["execution_id"]).first()
-    if execution and execution.user_id != request.user.id:
-        execution.user = request.user
-        execution.save(update_fields=["user"])
-
     return WebSearchExecutionResponse(
         **result,
-        origin_type=payload.origin_type,
+        initiator=payload.initiator,
     )
