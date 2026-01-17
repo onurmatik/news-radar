@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { Radio, Settings, Search, Bell, User, PlusCircle, Plus } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Radio, Search, Bell, User, PlusCircle, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,12 +28,11 @@ interface SidebarProps {
  * The main Layout component for NewsRadar.
  * 
  * Features:
- * - 100% width top navbar with brand and settings.
+ * - 100% width top navbar with brand and controls.
  * - Split content area with a left topics column and main feed.
  * - Responsive design (sidebar collapses or hides on small screens).
  */
 export function Layout({ children }: SidebarProps) {
-  const location = useLocation();
   const navigate = useNavigate();
   const {
     isAuthenticated,
@@ -43,12 +42,12 @@ export function Layout({ children }: SidebarProps) {
     setAuthDialogOpen,
     signOut,
   } = useAuthDialog();
-  const { setSelectedGroupName } = useTopicGroup();
+  const { setSelectedGroupName, setSelectedGroupTopicCount } = useTopicGroup();
   const [topics, setTopics] = useState<TopicItem[]>([]);
   const [topicsError, setTopicsError] = useState<string | null>(null);
   const [groups, setGroups] = useState<ApiTopicGroupItem[]>([]);
   const [groupsError, setGroupsError] = useState<string | null>(null);
-  const [selectedGroupId, setSelectedGroupId] = useState("all");
+  const [selectedGroupId, setSelectedGroupId] = useState("");
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
@@ -111,21 +110,22 @@ export function Layout({ children }: SidebarProps) {
 
   useEffect(() => {
     if (isAuthenticated !== false) return;
-    if (selectedGroupId && selectedGroupId !== "all" && selectedGroupId !== "ungrouped") {
-      void loadTopics(selectedGroupId);
-    } else {
+    if (!selectedGroupId) {
       setTopics([]);
+      return;
     }
+    void loadTopics(selectedGroupId);
   }, [isAuthenticated, selectedGroupId]);
 
   const filteredTopics = useMemo(() => {
     if (isAuthenticated === false) return topics;
-    if (selectedGroupId === "all") return topics;
-    if (selectedGroupId === "ungrouped") {
-      return topics.filter((topic) => !topic.groupUuid);
-    }
+    if (!selectedGroupId) return topics;
     return topics.filter((topic) => topic.groupUuid === selectedGroupId);
   }, [isAuthenticated, selectedGroupId, topics]);
+
+  useEffect(() => {
+    setSelectedGroupTopicCount(filteredTopics.length);
+  }, [filteredTopics, setSelectedGroupTopicCount]);
 
   const groupedOptions = useMemo(() => {
     const mapped = groups.map((group) => ({
@@ -139,12 +139,8 @@ export function Layout({ children }: SidebarProps) {
         publicGroups: mapped.filter((group) => group.isPublic),
       };
     }
-    const baseGroups = [
-      { id: "all", name: "All topics", isPublic: false },
-      { id: "ungrouped", name: "Ungrouped", isPublic: false },
-    ];
     return {
-      yours: [...baseGroups, ...mapped.filter((group) => !group.isPublic)],
+      yours: mapped.filter((group) => !group.isPublic),
       publicGroups: mapped.filter((group) => group.isPublic),
     };
   }, [groups, isAuthenticated]);
@@ -154,23 +150,21 @@ export function Layout({ children }: SidebarProps) {
     if (isAuthenticated === false) {
       const publicGroups = groups.filter((group) => group.is_public);
       if (publicGroups.length === 0) {
-        setSelectedGroupId("all");
+        setSelectedGroupId("");
         return;
       }
       const firstPublicId = publicGroups[0].uuid;
       const isValidSelection = publicGroups.some(
         (group) => group.uuid === selectedGroupId
       );
-      if (!isValidSelection || selectedGroupId === "all" || selectedGroupId === "ungrouped") {
+      if (!isValidSelection) {
         setSelectedGroupId(firstPublicId);
       }
       return;
     }
-    if (selectedGroupId === "all" || selectedGroupId === "ungrouped") {
-      return;
-    }
     if (!groups.some((group) => group.uuid === selectedGroupId)) {
-      setSelectedGroupId("all");
+      const firstGroup = groups[0];
+      setSelectedGroupId(firstGroup ? firstGroup.uuid : "");
     }
   }, [groups, isAuthenticated, selectedGroupId]);
 
@@ -180,14 +174,8 @@ export function Layout({ children }: SidebarProps) {
       const group = groups.find((entry) => entry.uuid === selectedGroupId);
       nextName = group?.name ?? "Public topics";
     } else {
-      if (selectedGroupId === "all") {
-        nextName = "All topics";
-      } else if (selectedGroupId === "ungrouped") {
-        nextName = "Ungrouped";
-      } else {
-        const group = groups.find((entry) => entry.uuid === selectedGroupId);
-        nextName = group?.name ?? "Topics";
-      }
+      const group = groups.find((entry) => entry.uuid === selectedGroupId);
+      nextName = group?.name ?? "Topics";
     }
     setSelectedGroupName(nextName);
   }, [groups, isAuthenticated, selectedGroupId, setSelectedGroupName]);
@@ -254,7 +242,7 @@ export function Layout({ children }: SidebarProps) {
         {/* Top Navbar - 100% Width */}
         <header className="h-16 border-b border-border bg-background/80 backdrop-blur-md flex items-center justify-between px-6 z-20 sticky top-0 w-full shrink-0">
          <div className="flex items-center gap-4">
-            <NavLink to="/" className="flex items-center gap-3 group">
+            <a href="#/" className="flex items-center gap-3 group">
                <div className="relative flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary border border-primary/20 group-hover:bg-primary/20 transition-all duration-300">
                   <Radio className="h-5 w-5 animate-pulse" />
                   <div className="absolute inset-0 rounded-lg ring-1 ring-primary/50 animate-ping opacity-10 duration-1000"></div>
@@ -263,7 +251,7 @@ export function Layout({ children }: SidebarProps) {
                  <h1 className="font-bold text-base tracking-tight leading-none text-foreground">NewsRadar</h1>
                  <span className="text-[10px] text-muted-foreground font-mono mt-1 opacity-60 uppercase">Agenda Monitor</span>
                </div>
-            </NavLink>
+            </a>
          </div>
          
          <div className="flex items-center gap-4">
@@ -279,20 +267,6 @@ export function Layout({ children }: SidebarProps) {
             <div className="flex items-center gap-2 border-l border-border pl-4">
               {isAuthenticated ? (
                 <>
-                  <NavLink to="/settings">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className={cn(
-                        "h-9 w-9 rounded-full",
-                        location.pathname === "/settings"
-                          ? "bg-primary/10 text-primary"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                      )}
-                    >
-                      <Settings className="h-4 w-4" />
-                    </Button>
-                  </NavLink>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -346,17 +320,20 @@ export function Layout({ children }: SidebarProps) {
           {/* Left Topics Column */}
           <aside className="w-72 border-r border-border bg-card/30 hidden lg:flex flex-col shrink-0">
           <div className="p-4 border-b border-border bg-background/50">
-             <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
+             <Select
+               value={selectedGroupId || undefined}
+               onValueChange={setSelectedGroupId}
+             >
                 <SelectTrigger className="w-full bg-muted/30 border-border/50 text-xs h-9 rounded-none font-bold tracking-widest">
                   <SelectValue placeholder="Select group" />
                 </SelectTrigger>
                 <SelectContent className="rounded-none border-border">
-                  {groupedOptions.yours.length > 0 && (
-                    <SelectGroup>
-                      <SelectLabel className="text-[10px] uppercase text-muted-foreground/60 px-2 py-1.5">
-                        Yours
-                      </SelectLabel>
-                      {groupedOptions.yours.map((group) => (
+                  <SelectGroup>
+                    <SelectLabel className="text-[10px] uppercase text-muted-foreground/60 px-2 py-1.5">
+                      Yours
+                    </SelectLabel>
+                    {groupedOptions.yours.length > 0 ? (
+                      groupedOptions.yours.map((group) => (
                         <SelectItem
                           key={group.id}
                           value={group.id}
@@ -364,14 +341,16 @@ export function Layout({ children }: SidebarProps) {
                         >
                           {group.name}
                         </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  )}
+                      ))
+                    ) : (
+                      <div className="px-2 py-2 text-[10px] uppercase tracking-widest text-muted-foreground/60">
+                        No topic groups yet
+                      </div>
+                    )}
+                  </SelectGroup>
                   {groupedOptions.publicGroups.length > 0 && (
                     <>
-                      {groupedOptions.yours.length > 0 && (
-                        <SelectSeparator className="bg-border/50" />
-                      )}
+                      <SelectSeparator className="bg-border/50" />
                       <SelectGroup>
                         <SelectLabel className="text-[10px] uppercase text-muted-foreground/60 px-2 py-1.5">
                           Public
@@ -456,7 +435,7 @@ export function Layout({ children }: SidebarProps) {
                type="button"
              >
                <PlusCircle className="h-4 w-4 group-hover:scale-110 transition-transform" />
-               <span>Add Intelligence Topic</span>
+               <span>Add Topic</span>
              </button>
           </nav>
 

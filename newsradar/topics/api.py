@@ -44,6 +44,10 @@ class TopicListResponse(Schema):
 class TopicCreateRequest(Schema):
     queries: list[str]
     group_uuid: uuid.UUID | None = None
+    search_domain_allowlist: list[str] | None = None
+    search_domain_blocklist: list[str] | None = None
+    search_language_filter: list[str] | None = None
+    country: str | None = None
 
 
 class TopicCreateResponse(Schema):
@@ -171,10 +175,47 @@ def create_topic(request, payload: TopicCreateRequest):
         if not group:
             raise HttpError(404, "Topic group not found for UUID.")
 
+    def normalize_filter_list(values: list[str] | None, field_name: str) -> list[str] | None:
+        if values is None:
+            return None
+        if not isinstance(values, list):
+            raise HttpError(400, f"{field_name} must be a list of strings.")
+        cleaned: list[str] = []
+        for item in values:
+            if not isinstance(item, str):
+                raise HttpError(400, f"{field_name} must be a list of strings.")
+            trimmed = item.strip()
+            if trimmed:
+                cleaned.append(trimmed)
+        return cleaned or None
+
+    domain_allowlist = normalize_filter_list(
+        payload.search_domain_allowlist,
+        "search_domain_allowlist",
+    )
+    domain_blocklist = normalize_filter_list(
+        payload.search_domain_blocklist,
+        "search_domain_blocklist",
+    )
+    if domain_allowlist and domain_blocklist:
+        raise HttpError(400, "Provide either a domain allowlist or blocklist.")
+    language_filter = normalize_filter_list(
+        payload.search_language_filter,
+        "search_language_filter",
+    )
+
+    country = payload.country.strip().upper() if isinstance(payload.country, str) else None
+    if country and len(country) != 2:
+        raise HttpError(400, "Country must be a 2-letter code.")
+
     topic = Topic.objects.create(
         user=request.user,
         queries=normalized_queries,
         group=group,
+        search_domain_allowlist=domain_allowlist,
+        search_domain_blocklist=domain_blocklist,
+        search_language_filter=language_filter,
+        country=country or None,
     )
 
     return TopicCreateResponse(

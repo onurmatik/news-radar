@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { useAuthDialog } from '@/components/AuthDialogContext';
 import { useTopicGroup } from '@/components/TopicGroupContext';
@@ -7,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { createBookmark, deleteBookmark, listContentFeed } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
-import { RefreshCw, ExternalLink, Clock, Share2, Sparkles, Filter, Star } from 'lucide-react';
+import { RefreshCw, ExternalLink, Clock, Share2, Sparkles, Filter, Star, PlusCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -21,7 +22,8 @@ import { motion, AnimatePresence } from 'framer-motion';
  */
 export default function Dashboard() {
   const { isAuthenticated, openAuthDialog } = useAuthDialog();
-  const { selectedGroupName } = useTopicGroup();
+  const { selectedGroupName, selectedGroupTopicCount } = useTopicGroup();
+  const navigate = useNavigate();
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +119,15 @@ export default function Dashboard() {
   };
 
   const filteredNews = filter === "all" ? news : news.filter(item => item.category === filter);
+  const hasTopicsInGroup = selectedGroupTopicCount > 0;
+
+  const handleAddTopic = () => {
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
+    navigate('/topics');
+  };
 
   return (
     <Layout>
@@ -229,14 +240,40 @@ export default function Dashboard() {
              <div className="text-center py-24 border border-dashed border-border/50 rounded-2xl bg-muted/5">
                 <div className="flex justify-center mb-4">
                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-                      <Filter className="h-6 w-6 text-muted-foreground/40" />
+                      {hasTopicsInGroup ? (
+                        <Filter className="h-6 w-6 text-muted-foreground/40" />
+                      ) : (
+                        <PlusCircle className="h-6 w-6 text-muted-foreground/40" />
+                      )}
                    </div>
                 </div>
-                <h4 className="text-lg font-bold">No signals found</h4>
-                <p className="text-sm text-muted-foreground mt-1 mb-6">Adjust your filters or trigger a manual scan.</p>
-                <Button variant="outline" size="sm" onClick={() => setFilter("all")} className="rounded-full">
-                   Clear all filters
-                </Button>
+                <h4 className="text-lg font-bold">
+                  {hasTopicsInGroup ? "No signals found" : "No topics created"}
+                </h4>
+                <p className="text-sm text-muted-foreground mt-1 mb-6">
+                  {hasTopicsInGroup
+                    ? "Adjust your filters or trigger a manual scan."
+                    : "Create a topic to start monitoring this group."}
+                </p>
+                {hasTopicsInGroup ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFilter("all")}
+                    className="rounded-full"
+                  >
+                    Clear all filters
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddTopic}
+                    className="rounded-full"
+                  >
+                    Add a new topic
+                  </Button>
+                )}
              </div>
           )}
         </div>

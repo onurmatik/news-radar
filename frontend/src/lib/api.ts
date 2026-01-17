@@ -84,11 +84,24 @@ export async function listTopics(
 
 export async function createTopic(
   queries: string[],
-  groupUuid?: string | null
+  options?: {
+    groupUuid?: string | null;
+    domainAllowlist?: string[] | null;
+    domainBlocklist?: string[] | null;
+    languageFilter?: string[] | null;
+    country?: string | null;
+  }
 ): Promise<ApiTopicCreateResponse> {
   return requestJson<ApiTopicCreateResponse>("/api/topics/", {
     method: "POST",
-    body: JSON.stringify({ queries, group_uuid: groupUuid ?? null }),
+    body: JSON.stringify({
+      queries,
+      group_uuid: options?.groupUuid ?? null,
+      search_domain_allowlist: options?.domainAllowlist ?? null,
+      search_domain_blocklist: options?.domainBlocklist ?? null,
+      search_language_filter: options?.languageFilter ?? null,
+      country: options?.country ?? null,
+    }),
   });
 }
 
