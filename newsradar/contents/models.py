@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -25,3 +26,29 @@ class Content(models.Model):
 
     def __str__(self) -> str:
         return f"{self.id}: {self.url}"
+
+
+class Bookmark(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="content_bookmarks",
+    )
+    content = models.ForeignKey(
+        "contents.Content",
+        on_delete=models.CASCADE,
+        related_name="bookmarks",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "content"],
+                name="unique_user_content_bookmark",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id}: {self.content_id}"

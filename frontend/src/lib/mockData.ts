@@ -10,6 +10,7 @@ export interface NewsItem {
   topics: string[];
   category: "technology" | "business" | "science" | "politics" | "general";
   url: string;
+  isBookmarked: boolean;
 }
 
 export interface Topic {
@@ -38,7 +39,8 @@ export const MOCK_NEWS: NewsItem[] = [
     relevanceScore: 98,
     topics: ["Renewable Energy", "Science"],
     category: "science",
-    url: "#"
+    url: "#",
+    isBookmarked: false
   },
   {
     id: "2",
@@ -49,7 +51,8 @@ export const MOCK_NEWS: NewsItem[] = [
     relevanceScore: 95,
     topics: ["Artificial Intelligence", "Technology"],
     category: "technology",
-    url: "#"
+    url: "#",
+    isBookmarked: false
   },
   {
     id: "3",
@@ -60,7 +63,8 @@ export const MOCK_NEWS: NewsItem[] = [
     relevanceScore: 89,
     topics: ["Quantum Computing", "Technology"],
     category: "technology",
-    url: "#"
+    url: "#",
+    isBookmarked: false
   },
   {
     id: "4",
@@ -71,7 +75,8 @@ export const MOCK_NEWS: NewsItem[] = [
     relevanceScore: 75,
     topics: ["Renewable Energy", "Business"],
     category: "business",
-    url: "#"
+    url: "#",
+    isBookmarked: false
   },
   {
     id: "5",
@@ -82,7 +87,8 @@ export const MOCK_NEWS: NewsItem[] = [
     relevanceScore: 82,
     topics: ["Web3", "Technology"],
     category: "technology",
-    url: "#"
+    url: "#",
+    isBookmarked: false
   },
   {
     id: "6",
@@ -93,6 +99,7 @@ export const MOCK_NEWS: NewsItem[] = [
     relevanceScore: 91,
     topics: ["Artificial Intelligence", "Politics"],
     category: "politics",
-    url: "#"
+    url: "#",
+    isBookmarked: false
   }
 ];

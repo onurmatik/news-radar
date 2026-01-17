@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { MOCK_NEWS, NewsItem } from '@/lib/mockData';
-import { RefreshCw, ExternalLink, Clock, Share2, Sparkles, Filter, ChevronRight } from 'lucide-react';
+import { RefreshCw, ExternalLink, Clock, Share2, Sparkles, Filter, ChevronRight, Bookmark } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -37,11 +37,18 @@ export default function Dashboard() {
          relevanceScore: 99,
          topics: ["Renewable Energy", "Business"],
          category: "business",
-         url: "#"
+         url: "#",
+         isBookmarked: false
       };
       setNews(prev => [newItem, ...prev]);
       setLoading(false);
     }, 1500);
+  };
+
+  const toggleBookmark = (id: string) => {
+    setNews(prev => prev.map(item => (
+      item.id === id ? { ...item, isBookmarked: !item.isBookmarked } : item
+    )));
   };
 
   const filteredNews = filter === "all" ? news : news.filter(item => item.category === filter);
@@ -175,6 +182,19 @@ export default function Dashboard() {
                         </div>
                         
                         <div className="flex gap-2 sm:mt-2">
+                           <Button
+                             size="icon"
+                             variant="ghost"
+                             className={`h-8 w-8 ${item.isBookmarked ? 'text-primary hover:text-primary' : 'text-muted-foreground hover:text-primary'}`}
+                             onClick={() => toggleBookmark(item.id)}
+                             aria-pressed={item.isBookmarked}
+                             aria-label={item.isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+                           >
+                              <Bookmark
+                                className="h-4 w-4"
+                                fill={item.isBookmarked ? "currentColor" : "none"}
+                              />
+                           </Button>
                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground">
                               <Share2 className="h-4 w-4" />
                            </Button>
