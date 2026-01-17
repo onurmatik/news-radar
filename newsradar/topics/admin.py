@@ -1,13 +1,20 @@
 from django.contrib import admin
 
-from .models import Topic
+from .models import Topic, TopicGroup
 from newsradar.executions.tasks import web_search_execution
+
+
+@admin.register(TopicGroup)
+class TopicGroupAdmin(admin.ModelAdmin):
+    list_display = ("name", "user", "is_public", "created_at", "updated_at")
+    list_filter = ("user", "is_public", "created_at")
+    search_fields = ("name", "description", "user__username", "user__email")
 
 
 @admin.register(Topic)
 class TopicAdmin(admin.ModelAdmin):
-    list_display = ("uuid", "user", "primary_query", "created_at", "last_fetched_at")
-    list_filter = ("user", "last_fetched_at", "created_at")
+    list_display = ("uuid", "user", "primary_query", "group", "is_active", "created_at", "last_fetched_at")
+    list_filter = ("user", "group", "is_active", "last_fetched_at", "created_at")
     search_fields = ("queries", "user__username", "user__email")
     actions = ("run_web_search",)
 

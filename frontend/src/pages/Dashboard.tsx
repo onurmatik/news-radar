@@ -1,207 +1,223 @@
 import React, { useState, useEffect } from 'react';
 import { Layout } from '@/components/Layout';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { useAuthDialog } from '@/components/AuthDialogContext';
+import { useTopicGroup } from '@/components/TopicGroupContext';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { MOCK_NEWS, NewsItem } from '@/lib/mockData';
-import { RefreshCw, ExternalLink, Clock, Share2, Sparkles, Filter, ChevronRight, Bookmark } from 'lucide-react';
+import { createBookmark, deleteBookmark, listContentFeed } from '@/lib/api';
+import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
+import { RefreshCw, ExternalLink, Clock, Share2, Sparkles, Filter, Star } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
+/**
+ * Dashboard component serving as the main interface.
+ * 
+ * Displays:
+ * - Intelligence feed of captured content.
+ * - Global scanning controls.
+ * - Categorized filtering of the news radar.
+ */
 export default function Dashboard() {
+  const { isAuthenticated, openAuthDialog } = useAuthDialog();
+  const { selectedGroupName } = useTopicGroup();
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
 
-  useEffect(() => {
-    // Simulate loading initial data
-    setLoading(true);
-    const timer = setTimeout(() => {
-      setNews(MOCK_NEWS);
-      setLoading(false);
-    }, 800);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const handleRefresh = () => {
-    setLoading(true);
-    setTimeout(() => {
-      // Simulate adding a new item
-      const newItem: NewsItem = {
-         id: Math.random().toString(),
-         title: "Real-time Analysis: Market Shift Detected",
-         summary: "AI radar picked up significant movement in renewable energy sector stocks following the latest policy announcement.",
-         source: "MarketWatch",
-         timestamp: new Date(),
-         relevanceScore: 99,
-         topics: ["Renewable Energy", "Business"],
-         category: "business",
-         url: "#",
-         isBookmarked: false
-      };
-      setNews(prev => [newItem, ...prev]);
-      setLoading(false);
-    }, 1500);
+  const getSourceLabel = (item: ApiContentFeedItem) => {
+    if (item.source) return item.source;
+    try {
+      return new URL(item.url).hostname.replace(/^www\./, "");
+    } catch {
+      return "Unknown";
+    }
   };
 
-  const toggleBookmark = (id: string) => {
-    setNews(prev => prev.map(item => (
-      item.id === id ? { ...item, isBookmarked: !item.isBookmarked } : item
-    )));
+  const normalizeScore = (score: number | null) => {
+    if (score === null || Number.isNaN(score)) return 0;
+    if (score <= 1) return Math.round(score * 100);
+    return Math.round(score);
+  };
+
+  const mapNewsItem = (item: ApiContentFeedItem): NewsItem => {
+    const keywords = item.topic_queries?.length ? item.topic_queries : ["radar"];
+    const timestamp = new Date(item.published_at || item.created_at);
+    const safeTimestamp = Number.isNaN(timestamp.getTime()) ? new Date() : timestamp;
+    return {
+      id: item.id,
+      title: item.title || item.url,
+      summary: item.summary || "Summary not available.",
+      source: getSourceLabel(item),
+      timestamp: safeTimestamp,
+      relevanceScore: normalizeScore(item.relevance_score),
+      keywords,
+      category: "general",
+      url: item.url,
+      isBookmarked: item.is_bookmarked,
+    };
+  };
+
+  const loadFeed = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await listContentFeed();
+      setNews(response.items.map(mapNewsItem));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load feed.";
+      setError(message);
+      setNews([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      void loadFeed();
+    } else if (isAuthenticated === false) {
+      setNews([]);
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
+
+  const handleRefresh = () => {
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
+    void loadFeed();
+  };
+
+  const toggleBookmark = async (item: NewsItem) => {
+    const nextValue = !item.isBookmarked;
+    setNews((prev) =>
+      prev.map((entry) =>
+        entry.id === item.id ? { ...entry, isBookmarked: nextValue } : entry
+      )
+    );
+    try {
+      if (nextValue) {
+        await createBookmark(item.id);
+      } else {
+        await deleteBookmark(item.id);
+      }
+    } catch (error) {
+      setNews((prev) =>
+        prev.map((entry) =>
+          entry.id === item.id ? { ...entry, isBookmarked: item.isBookmarked } : entry
+        )
+      );
+      const message = error instanceof Error ? error.message : "Unable to update bookmark.";
+      setError(message);
+    }
   };
 
   const filteredNews = filter === "all" ? news : news.filter(item => item.category === filter);
 
   return (
     <Layout>
-      <div className="max-w-5xl mx-auto space-y-8">
+      <div className="mx-auto space-y-8 p-4 md:p-6 lg:p-10">
         
-        {/* Header Section */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        {/* Dashboard Header Area */}
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 border-b border-border/50 pb-8">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">Intelligence Feed</h2>
-            <p className="text-muted-foreground mt-1">Real-time agenda monitoring and AI analysis.</p>
+            <h2 className="text-4xl font-extrabold tracking-tight text-foreground">
+              {selectedGroupName}
+            </h2>
+            {error && (
+              <p className="text-sm text-destructive mt-3">{error}</p>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-             <div className="bg-card border border-border rounded-lg p-1 flex items-center">
-                {['all', 'technology', 'business', 'science'].map(f => (
-                   <button
-                     key={f}
-                     onClick={() => setFilter(f)}
-                     className={`px-3 py-1.5 text-xs font-medium rounded-md capitalize transition-colors ${filter === f ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                   >
-                     {f}
-                   </button>
-                ))}
-             </div>
+          
+          <div className="flex flex-col sm:flex-row items-center gap-3">
              <Button 
                onClick={handleRefresh} 
                disabled={loading}
                size="sm"
-               className={`gap-2 ${loading ? 'opacity-80' : ''}`}
+               className={`h-10 rounded-full px-6 bg-foreground text-background hover:bg-foreground/90 transition-all ${loading ? 'opacity-80' : ''}`}
              >
-               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                {loading ? 'Scanning...' : 'Scan Now'}
              </Button>
           </div>
         </div>
 
-        {/* Stats / Hero Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-           <Card className="bg-gradient-to-br from-primary/10 to-transparent border-primary/20">
-              <CardContent className="p-6">
-                 <div className="flex justify-between items-start mb-2">
-                    <p className="text-sm font-medium text-muted-foreground">Active Topics</p>
-                    <Sparkles className="h-4 w-4 text-primary" />
-                 </div>
-                 <h3 className="text-3xl font-bold text-primary">12</h3>
-                 <p className="text-xs text-muted-foreground mt-1">3 new added this week</p>
-              </CardContent>
-           </Card>
-           <Card>
-              <CardContent className="p-6">
-                 <div className="flex justify-between items-start mb-2">
-                    <p className="text-sm font-medium text-muted-foreground">Articles Analyzed</p>
-                    <div className="h-4 w-4 rounded-full bg-blue-500/20 text-blue-500 flex items-center justify-center text-[10px]">24h</div>
-                 </div>
-                 <h3 className="text-3xl font-bold">843</h3>
-                 <p className="text-xs text-muted-foreground mt-1">+12% from yesterday</p>
-              </CardContent>
-           </Card>
-           <Card>
-              <CardContent className="p-6">
-                 <div className="flex justify-between items-start mb-2">
-                    <p className="text-sm font-medium text-muted-foreground">Avg. Relevance</p>
-                    <div className="h-4 w-4 rounded-full bg-emerald-500/20 text-emerald-500 flex items-center justify-center text-[10px]">%</div>
-                 </div>
-                 <h3 className="text-3xl font-bold">92%</h3>
-                 <p className="text-xs text-muted-foreground mt-1">High signal-to-noise ratio</p>
-              </CardContent>
-           </Card>
-        </div>
-
-        {/* News Feed */}
-        <div className="space-y-4">
+        {/* Content Feed */}
+        <div className="space-y-6">
           <AnimatePresence mode="popLayout">
             {filteredNews.map((item, index) => (
               <motion.div
                 key={item.id}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.3, delay: index * 0.05 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.4, delay: index * 0.05, ease: "easeOut" }}
               >
-                <Card className="group hover:shadow-md transition-all duration-300 hover:border-primary/50 overflow-hidden relative">
-                  <div className={`absolute left-0 top-0 bottom-0 w-1 ${
-                    item.relevanceScore > 90 ? 'bg-primary' : 
-                    item.relevanceScore > 80 ? 'bg-blue-500' : 'bg-gray-500'
-                  }`}></div>
+                <Card className="group border-none bg-card/40 backdrop-blur-sm hover:bg-card/60 transition-all duration-300 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                     <Sparkles className="h-4 w-4 text-primary/40" />
+                  </div>
                   
-                  <div className="flex flex-col sm:flex-row sm:items-start p-6 gap-4">
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <Badge variant="outline" className="text-[10px] uppercase tracking-wider text-muted-foreground border-muted-foreground/30">
+                  <div className="flex flex-col sm:flex-row p-6 gap-6">
+                    <div className="flex-1 space-y-3">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="text-[10px] font-bold text-primary uppercase tracking-tighter bg-primary/10 px-2 py-0.5 rounded">
                           {item.source}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        </span>
+                        <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-medium">
                           <Clock className="h-3 w-3" />
                           {formatDistanceToNow(item.timestamp, { addSuffix: true })}
                         </span>
-                        {item.relevanceScore > 90 && (
-                          <Badge variant="default" className="text-[10px] h-5 bg-primary/10 text-primary hover:bg-primary/20 border-none shadow-none">
-                            High Priority
-                          </Badge>
-                        )}
+                        <div className="h-1 w-1 rounded-full bg-border"></div>
+                        <span className="text-[11px] text-muted-foreground/60 lowercase italic">
+                          captured from {item.keywords[0]}
+                        </span>
                       </div>
                       
-                      <h3 className="text-lg font-semibold leading-tight group-hover:text-primary transition-colors cursor-pointer">
+                      <h3 className="text-xl font-bold leading-tight group-hover:text-primary transition-colors cursor-pointer decoration-primary/30 decoration-2 underline-offset-4 hover:underline">
                         {item.title}
                       </h3>
-                      <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
+                      <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">
                         {item.summary}
                       </p>
                       
-                      <div className="flex items-center gap-2 pt-2 flex-wrap">
-                        {item.topics.map(k => (
-                          <Badge key={k} variant="secondary" className="text-[10px] font-normal bg-muted/50">
-                            #{k}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex sm:flex-col gap-2 mt-4 sm:mt-0 items-center justify-center sm:border-l sm:pl-4 border-border/50 min-w-[80px]">
-                        <div className="text-center">
-                           <div className={`text-xl font-bold ${
-                              item.relevanceScore > 90 ? 'text-primary' : 'text-foreground'
-                           }`}>
-                              {item.relevanceScore}
-                           </div>
-                           <div className="text-[10px] text-muted-foreground uppercase">Score</div>
+                      <div className="flex items-center justify-between pt-2">
+                        <div className="flex items-center gap-2">
+                          {item.keywords.map(k => (
+                            <Badge key={k} variant="outline" className="text-[9px] font-medium border-border/50 text-muted-foreground hover:bg-muted">
+                              #{k}
+                            </Badge>
+                          ))}
                         </div>
                         
-                        <div className="flex gap-2 sm:mt-2">
-                           <Button
-                             size="icon"
-                             variant="ghost"
-                             className={`h-8 w-8 ${item.isBookmarked ? 'text-primary hover:text-primary' : 'text-muted-foreground hover:text-primary'}`}
-                             onClick={() => toggleBookmark(item.id)}
-                             aria-pressed={item.isBookmarked}
-                             aria-label={item.isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+                        <div className="flex items-center gap-1">
+                           <Button 
+                             size="icon" 
+                             variant="ghost" 
+                             className={`h-8 w-8 rounded-full transition-colors ${item.isBookmarked ? 'text-yellow-500 bg-yellow-500/10 hover:bg-yellow-500/20' : 'text-muted-foreground hover:text-foreground'}`}
+                             onClick={() => toggleBookmark(item)}
                            >
-                              <Bookmark
-                                className="h-4 w-4"
-                                fill={item.isBookmarked ? "currentColor" : "none"}
-                              />
+                              <Star className={`h-3.5 w-3.5 ${item.isBookmarked ? 'fill-current' : ''}`} />
                            </Button>
-                           <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground">
-                              <Share2 className="h-4 w-4" />
+                           <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground">
+                              <Share2 className="h-3.5 w-3.5" />
                            </Button>
-                           <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-primary">
-                              <ExternalLink className="h-4 w-4" />
+                           <Button
+                             variant="ghost"
+                             size="sm"
+                             className="h-8 text-[11px] font-bold text-muted-foreground hover:text-primary hover:bg-primary/5 rounded-full px-3"
+                             asChild
+                           >
+                             <a href={item.url} target="_blank" rel="noreferrer">
+                               SOURCE <ExternalLink className="h-3 w-3 ml-1.5" />
+                             </a>
                            </Button>
                         </div>
+                      </div>
                     </div>
                   </div>
                 </Card>
@@ -210,9 +226,17 @@ export default function Dashboard() {
           </AnimatePresence>
           
           {filteredNews.length === 0 && !loading && (
-             <div className="text-center py-20 text-muted-foreground">
-                <p>No intelligence gathered for this filter.</p>
-                <Button variant="link" onClick={() => setFilter("all")}>Clear filters</Button>
+             <div className="text-center py-24 border border-dashed border-border/50 rounded-2xl bg-muted/5">
+                <div className="flex justify-center mb-4">
+                   <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+                      <Filter className="h-6 w-6 text-muted-foreground/40" />
+                   </div>
+                </div>
+                <h4 className="text-lg font-bold">No signals found</h4>
+                <p className="text-sm text-muted-foreground mt-1 mb-6">Adjust your filters or trigger a manual scan.</p>
+                <Button variant="outline" size="sm" onClick={() => setFilter("all")} className="rounded-full">
+                   Clear all filters
+                </Button>
              </div>
           )}
         </div>

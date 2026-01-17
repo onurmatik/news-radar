@@ -10,7 +10,7 @@ import { Save, Bell, Shield, Database, Cpu, Mail } from 'lucide-react';
 export default function Settings() {
   return (
     <Layout>
-      <div className="max-w-3xl mx-auto space-y-8">
+      <div className="mx-auto space-y-8 p-4 md:p-6 lg:p-10">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">System Configuration</h2>
           <p className="text-muted-foreground mt-1">Adjust radar sensitivity and notification preferences.</p>

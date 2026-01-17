@@ -4,40 +4,94 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { MOCK_TOPICS, Topic } from '@/lib/mockData';
+import { createTopic, deleteTopic, listTopics, updateTopic } from '@/lib/api';
+import type { ApiTopicListItem, TopicItem } from '@/lib/types';
 import { Plus, X, Search } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Topics() {
-  const [topics, setTopics] = useState<Topic[]>(MOCK_TOPICS);
+  const [topics, setTopics] = useState<TopicItem[]>([]);
   const [newTopic, setNewTopic] = useState("");
   const [category, setCategory] = useState("General");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const addTopic = () => {
+  const toTopicItem = (topic: ApiTopicListItem): TopicItem => ({
+    id: topic.id,
+    uuid: topic.uuid,
+    term: topic.queries?.[0] || "Untitled",
+    category: "General",
+    isActive: topic.is_active,
+    lastSearch: topic.last_fetched_at ? new Date(topic.last_fetched_at) : null,
+    hasNewItems: topic.content_source_count > 0,
+    groupUuid: topic.group_uuid,
+    groupName: topic.group_name,
+  });
+
+  const loadTopics = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await listTopics();
+      setTopics(response.topics.map(toTopicItem));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to load topics.";
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    void loadTopics();
+  }, []);
+
+  const addTopic = async () => {
     if (!newTopic.trim()) return;
-    const newItem: Topic = {
-      id: Math.random().toString(),
-      term: newTopic,
-      category: category,
-      isActive: true,
-      lastSearch: null
-    };
-    setTopics([newItem, ...topics]);
-    setNewTopic("");
+    setError(null);
+    try {
+      const response = await createTopic([newTopic.trim()]);
+      const created = toTopicItem(response.topic);
+      created.category = category;
+      setTopics((prev) => [created, ...prev]);
+      setNewTopic("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to add topic.";
+      setError(message);
+    }
   };
 
-  const removeTopic = (id: string) => {
-    setTopics(topics.filter(t => t.id !== id));
+  const removeTopic = async (topic: TopicItem) => {
+    setError(null);
+    try {
+      await deleteTopic(topic.uuid);
+      setTopics((prev) => prev.filter((item) => item.id !== topic.id));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to remove topic.";
+      setError(message);
+    }
   };
 
-  const toggleStatus = (id: string) => {
-    setTopics(topics.map(t => t.id === id ? { ...t, isActive: !t.isActive } : t));
+  const toggleStatus = async (topic: TopicItem) => {
+    const nextValue = !topic.isActive;
+    setTopics((prev) =>
+      prev.map((item) => (item.id === topic.id ? { ...item, isActive: nextValue } : item))
+    );
+    try {
+      await updateTopic(topic.uuid, nextValue);
+    } catch (err) {
+      setTopics((prev) =>
+        prev.map((item) => (item.id === topic.id ? { ...item, isActive: topic.isActive } : item))
+      );
+      const message = err instanceof Error ? err.message : "Unable to update topic.";
+      setError(message);
+    }
   };
 
   return (
     <Layout>
-      <div className="max-w-4xl mx-auto space-y-8">
+      <div className="mx-auto space-y-8 p-4 md:p-6 lg:p-10">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Topic Protocol</h2>
           <p className="text-muted-foreground mt-1">Manage monitoring targets and AI search parameters.</p>
@@ -55,7 +109,7 @@ export default function Topics() {
                       placeholder="Enter topic or phrase (e.g. 'Solid State Batteries')" 
                       value={newTopic}
                       onChange={(e) => setNewTopic(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && addTopic()}
+                      onKeyDown={(e) => e.key === 'Enter' && void addTopic()}
                     />
                  </div>
                  <div className="w-full sm:w-48">
@@ -72,12 +126,15 @@ export default function Topics() {
                        <option>General</option>
                     </select>
                  </div>
-                 <Button onClick={addTopic} className="gap-2">
+                 <Button onClick={() => void addTopic()} className="gap-2" disabled={loading}>
                     <Plus className="h-4 w-4" /> Add
                  </Button>
               </div>
            </CardContent>
         </Card>
+        {error && (
+          <div className="text-sm text-destructive">{error}</div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
            <AnimatePresence>
@@ -96,7 +153,7 @@ export default function Topics() {
                           variant="ghost" 
                           size="icon" 
                           className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                          onClick={() => removeTopic(topic.id)}
+                          onClick={() => void removeTopic(topic)}
                         >
                           <X className="h-3 w-3" />
                        </Button>
@@ -108,7 +165,7 @@ export default function Topics() {
                              {topic.category}
                           </Badge>
                           <div 
-                             onClick={() => toggleStatus(topic.id)}
+                             onClick={() => void toggleStatus(topic)}
                              className={`cursor-pointer h-2 w-2 rounded-full ${topic.isActive ? 'bg-primary animate-pulse' : 'bg-destructive'}`}
                              title={topic.isActive ? "Active" : "Paused"}
                           />

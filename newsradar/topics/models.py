@@ -53,6 +53,14 @@ class Topic(models.Model):
         related_name="topics",
     )
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    group = models.ForeignKey(
+        "topics.TopicGroup",
+        on_delete=models.SET_NULL,
+        related_name="topics",
+        null=True,
+        blank=True,
+    )
+    is_active = models.BooleanField(default=True)
     queries = models.JSONField(
         default=list,
         validators=[validate_topic_queries],
@@ -156,3 +164,29 @@ class Topic(models.Model):
             ).data[0].embedding
 
         super().save(*args, **kwargs)
+
+
+class TopicGroup(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="topic_groups",
+    )
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    name = models.CharField(max_length=120)
+    description = models.TextField(blank=True)
+    is_public = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "name"],
+                name="unique_topic_group_name",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return self.name

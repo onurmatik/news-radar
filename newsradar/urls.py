@@ -17,6 +17,8 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
+from newsradar.accounts.api import api as accounts_api
+from newsradar.accounts.views import SesameLoginView
 from newsradar.contents.api import api as contents_api
 from newsradar.executions.api import api as executions_api
 from newsradar.topics.api import api as topics_api
@@ -24,6 +26,8 @@ from newsradar.topics.api import api as topics_api
 
 urlpatterns = [
     path('nrAdmin/', admin.site.urls),
+    path('api/auth/sesame/', SesameLoginView.as_view(), name='sesame-login'),
+    path('api/auth/', accounts_api.urls),
     path('api/contents/', contents_api.urls),
     path('api/executions/', executions_api.urls),
     path('api/topics/', topics_api.urls),

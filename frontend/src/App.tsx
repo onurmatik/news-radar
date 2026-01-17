@@ -1,4 +1,4 @@
-import { NewsRadar } from "./Component";
+import { NewsRadar } from './Component';
 
 export default function App() {
   return (
