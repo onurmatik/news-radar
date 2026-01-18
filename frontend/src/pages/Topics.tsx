@@ -1,19 +1,21 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { useTopicGroup } from '@/components/TopicGroupContext';
+import { useTopics } from '@/components/TopicsContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { createTopic, deleteTopic, listTopics, updateTopic } from '@/lib/api';
+import { createTopic, updateTopic } from '@/lib/api';
 import type { ApiTopicListItem, TopicItem } from '@/lib/types';
-import { Plus, X, Search, PlusCircle } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Plus, X, PlusCircle } from 'lucide-react';
 
 export default function Topics() {
-  const { selectedGroupName } = useTopicGroup();
-  const [topics, setTopics] = useState<TopicItem[]>([]);
+  const { selectedGroupName, selectedGroupId } = useTopicGroup();
+  const { topics, setTopics } = useTopics();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const editingTopicId = searchParams.get("edit");
+  const [isEditing, setIsEditing] = useState(false);
   const [queries, setQueries] = useState<string[]>([""]);
   const [domainInput, setDomainInput] = useState("");
   const [domainMode, setDomainMode] = useState<"allow" | "block">("allow");
@@ -25,6 +27,7 @@ export default function Topics() {
   const toTopicItem = (topic: ApiTopicListItem): TopicItem => ({
     id: topic.id,
     uuid: topic.uuid,
+    queries: topic.queries ?? [],
     term: topic.queries?.[0] || "Untitled",
     category: "General",
     isActive: topic.is_active,
@@ -32,25 +35,12 @@ export default function Topics() {
     hasNewItems: topic.content_source_count > 0,
     groupUuid: topic.group_uuid,
     groupName: topic.group_name,
+    domainAllowlist: topic.search_domain_allowlist,
+    domainBlocklist: topic.search_domain_blocklist,
+    languageFilter: topic.search_language_filter,
+    country: topic.country,
+    searchRecencyFilter: topic.search_recency_filter,
   });
-
-  const loadTopics = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await listTopics();
-      setTopics(response.topics.map(toTopicItem));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to load topics.";
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  React.useEffect(() => {
-    void loadTopics();
-  }, []);
 
   const updateQuery = (index: number, value: string) => {
     setQueries((prev) => prev.map((query, i) => (i === index ? value : query)));
@@ -70,14 +60,63 @@ export default function Topics() {
       .map((entry) => entry.trim())
       .filter(Boolean);
 
+  const resetForm = () => {
+    setQueries([""]);
+    setDomainInput("");
+    setDomainMode("allow");
+    setLanguageInput("");
+    setCountry("");
+  };
+
+  const applyTopicToForm = (topic: TopicItem) => {
+    setQueries(topic.queries.length ? topic.queries : [""]);
+    if (topic.domainAllowlist?.length) {
+      setDomainMode("allow");
+      setDomainInput(topic.domainAllowlist.join(", "));
+    } else if (topic.domainBlocklist?.length) {
+      setDomainMode("block");
+      setDomainInput(topic.domainBlocklist.join(", "));
+    } else {
+      setDomainMode("allow");
+      setDomainInput("");
+    }
+    setLanguageInput(topic.languageFilter?.join(", ") ?? "");
+    setCountry(topic.country ?? "");
+  };
+
+  const clearEditMode = () => {
+    setIsEditing(false);
+    resetForm();
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("edit");
+    setSearchParams(nextParams);
+  };
+
+  useEffect(() => {
+    if (!editingTopicId) {
+      if (isEditing) {
+        resetForm();
+      }
+      setIsEditing(false);
+      return;
+    }
+    const topic = topics.find((entry) => entry.uuid === editingTopicId);
+    if (topic) {
+      setIsEditing(true);
+      applyTopicToForm(topic);
+    }
+  }, [editingTopicId, isEditing, topics]);
+
   const addTopic = async () => {
     const normalizedQueries = queries.map((query) => query.trim()).filter(Boolean);
     if (!normalizedQueries.length) return;
     setError(null);
+    setLoading(true);
     try {
       const domainList = parseCommaList(domainInput);
       const languageList = parseCommaList(languageInput);
       const response = await createTopic(normalizedQueries, {
+        groupUuid: selectedGroupId || null,
         domainAllowlist: domainMode === "allow" ? domainList : null,
         domainBlocklist: domainMode === "block" ? domainList : null,
         languageFilter: languageList,
@@ -85,40 +124,42 @@ export default function Topics() {
       });
       const created = toTopicItem(response.topic);
       setTopics((prev) => [created, ...prev]);
-      setQueries([""]);
-      setDomainInput("");
-      setLanguageInput("");
-      setCountry("");
+      resetForm();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to add topic.";
       setError(message);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const removeTopic = async (topic: TopicItem) => {
+  const saveTopic = async () => {
+    if (!editingTopicId) return;
+    const normalizedQueries = queries.map((query) => query.trim()).filter(Boolean);
+    if (!normalizedQueries.length) return;
     setError(null);
+    setLoading(true);
     try {
-      await deleteTopic(topic.uuid);
-      setTopics((prev) => prev.filter((item) => item.id !== topic.id));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to remove topic.";
-      setError(message);
-    }
-  };
-
-  const toggleStatus = async (topic: TopicItem) => {
-    const nextValue = !topic.isActive;
-    setTopics((prev) =>
-      prev.map((item) => (item.id === topic.id ? { ...item, isActive: nextValue } : item))
-    );
-    try {
-      await updateTopic(topic.uuid, nextValue);
-    } catch (err) {
+      const domainList = parseCommaList(domainInput);
+      const languageList = parseCommaList(languageInput);
+      const response = await updateTopic(editingTopicId, {
+        queries: normalizedQueries,
+        domainAllowlist: domainMode === "allow" ? domainList : null,
+        domainBlocklist: domainMode === "block" ? domainList : null,
+        languageFilter: languageList,
+        country: country ? country : null,
+      });
+      const updated = toTopicItem(response);
       setTopics((prev) =>
-        prev.map((item) => (item.id === topic.id ? { ...item, isActive: topic.isActive } : item))
+        prev.map((item) => (item.uuid === updated.uuid ? updated : item))
       );
+      clearEditMode();
+      resetForm();
+    } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to update topic.";
       setError(message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -132,8 +173,12 @@ export default function Topics() {
 
         <Card>
            <CardHeader>
-              <CardTitle>Add New Topic</CardTitle>
-              <CardDescription>Configure a new topic for the AI radar to monitor.</CardDescription>
+              <CardTitle>{isEditing ? "Edit Topic" : "Add New Topic"}</CardTitle>
+              <CardDescription>
+                {isEditing
+                  ? "Update the topic queries and filters for this group."
+                  : "Configure a new topic for the AI radar to monitor."}
+              </CardDescription>
            </CardHeader>
            <CardContent className="space-y-6">
               <div className="space-y-4">
@@ -157,7 +202,9 @@ export default function Topics() {
                         placeholder="Enter a topic query"
                         value={query}
                         onChange={(e) => updateQuery(index, e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && void addTopic()}
+                        onKeyDown={(e) =>
+                          e.key === "Enter" && void (isEditing ? saveTopic() : addTopic())
+                        }
                       />
                       <Button
                         variant="ghost"
@@ -260,9 +307,18 @@ export default function Topics() {
                 </div>
               </div>
 
-              <div className="flex justify-end">
-                <Button onClick={() => void addTopic()} className="gap-2" disabled={loading}>
-                  <Plus className="h-4 w-4" /> Add
+              <div className="flex justify-end gap-2">
+                {isEditing && (
+                  <Button variant="outline" onClick={clearEditMode} disabled={loading}>
+                    Cancel
+                  </Button>
+                )}
+                <Button
+                  onClick={() => void (isEditing ? saveTopic() : addTopic())}
+                  className="gap-2"
+                  disabled={loading}
+                >
+                  <Plus className="h-4 w-4" /> {isEditing ? "Save" : "Add"}
                 </Button>
               </div>
            </CardContent>
@@ -270,54 +326,6 @@ export default function Topics() {
         {error && (
           <div className="text-sm text-destructive">{error}</div>
         )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-           <AnimatePresence>
-           {topics.map((topic) => (
-              <motion.div
-                 key={topic.id}
-                 layout
-                 initial={{ opacity: 0, scale: 0.9 }}
-                 animate={{ opacity: 1, scale: 1 }}
-                 exit={{ opacity: 0, scale: 0.9 }}
-                 transition={{ duration: 0.2 }}
-              >
-                 <Card className={`relative overflow-hidden transition-all duration-200 ${!topic.isActive ? 'opacity-60 grayscale' : 'hover:border-primary/50'}`}>
-                    <div className="absolute top-2 right-2 flex gap-1">
-                       <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                          onClick={() => void removeTopic(topic)}
-                        >
-                          <X className="h-3 w-3" />
-                       </Button>
-                    </div>
-                    
-                    <CardContent className="p-5">
-                       <div className="flex items-center justify-between mb-4">
-                          <Badge variant={topic.isActive ? "default" : "secondary"} className="text-[10px]">
-                             {topic.category}
-                          </Badge>
-                          <div 
-                             onClick={() => void toggleStatus(topic)}
-                             className={`cursor-pointer h-2 w-2 rounded-full ${topic.isActive ? 'bg-primary animate-pulse' : 'bg-destructive'}`}
-                             title={topic.isActive ? "Active" : "Paused"}
-                          />
-                       </div>
-                       
-                       <h3 className="font-bold text-lg mb-1">{topic.term}</h3>
-                       
-                       <div className="flex items-center text-xs text-muted-foreground gap-2 mt-4">
-                          <Search className="h-3 w-3" />
-                          <span>Last scan: {topic.lastSearch ? formatDistanceToNow(topic.lastSearch, { addSuffix: true }) : 'Never'}</span>
-                       </div>
-                    </CardContent>
-                 </Card>
-              </motion.div>
-           ))}
-           </AnimatePresence>
-        </div>
       </div>
     </Layout>
   );

@@ -7,6 +7,11 @@ export interface ApiTopicListItem {
   is_active: boolean;
   group_uuid: string | null;
   group_name: string | null;
+  search_domain_allowlist: string[] | null;
+  search_domain_blocklist: string[] | null;
+  search_language_filter: string[] | null;
+  country: string | null;
+  search_recency_filter: "day" | "week" | "month" | "year" | null;
 }
 
 export interface ApiTopicListResponse {
@@ -62,6 +67,7 @@ export interface ApiContentFeedResponse {
 export interface TopicItem {
   id: number;
   uuid: string;
+  queries: string[];
   term: string;
   category: string;
   isActive: boolean;
@@ -69,6 +75,11 @@ export interface TopicItem {
   hasNewItems: boolean;
   groupUuid: string | null;
   groupName: string | null;
+  domainAllowlist: string[] | null;
+  domainBlocklist: string[] | null;
+  languageFilter: string[] | null;
+  country: string | null;
+  searchRecencyFilter: "day" | "week" | "month" | "year" | null;
 }
 
 export interface NewsItem {

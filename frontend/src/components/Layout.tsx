@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Radio, Search, Bell, User, PlusCircle, Plus } from 'lucide-react';
+import { Radio, Search, Bell, User, PlusCircle, Plus, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,6 +19,7 @@ import type { ApiTopicGroupItem, ApiTopicListItem, TopicItem } from '@/lib/types
 import { AuthDialog } from '@/components/AuthDialog';
 import { useAuthDialog } from '@/components/AuthDialogContext';
 import { useTopicGroup } from '@/components/TopicGroupContext';
+import { useTopics } from '@/components/TopicsContext';
 
 interface SidebarProps {
   children: React.ReactNode;
@@ -42,12 +43,16 @@ export function Layout({ children }: SidebarProps) {
     setAuthDialogOpen,
     signOut,
   } = useAuthDialog();
-  const { setSelectedGroupName, setSelectedGroupTopicCount } = useTopicGroup();
-  const [topics, setTopics] = useState<TopicItem[]>([]);
+  const {
+    selectedGroupId,
+    setSelectedGroupId,
+    setSelectedGroupName,
+    setSelectedGroupTopicCount,
+  } = useTopicGroup();
+  const { topics, setTopics } = useTopics();
   const [topicsError, setTopicsError] = useState<string | null>(null);
   const [groups, setGroups] = useState<ApiTopicGroupItem[]>([]);
   const [groupsError, setGroupsError] = useState<string | null>(null);
-  const [selectedGroupId, setSelectedGroupId] = useState("");
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
@@ -63,6 +68,7 @@ export function Layout({ children }: SidebarProps) {
   const toTopicItem = (topic: ApiTopicListItem): TopicItem => ({
     id: topic.id,
     uuid: topic.uuid,
+    queries: topic.queries ?? [],
     term: topic.queries?.[0] || "Untitled",
     category: "General",
     isActive: topic.is_active,
@@ -70,6 +76,11 @@ export function Layout({ children }: SidebarProps) {
     hasNewItems: topic.content_source_count > 0,
     groupUuid: topic.group_uuid,
     groupName: topic.group_name,
+    domainAllowlist: topic.search_domain_allowlist,
+    domainBlocklist: topic.search_domain_blocklist,
+    languageFilter: topic.search_language_filter,
+    country: topic.country,
+    searchRecencyFilter: topic.search_recency_filter,
   });
 
   const loadTopics = async (groupUuid?: string | null) => {
@@ -236,9 +247,31 @@ export function Layout({ children }: SidebarProps) {
     navigate('/topics');
   };
 
+  const handleEditTopic = (topic: TopicItem) => {
+    if (!requireAuth()) {
+      return;
+    }
+    navigate(`/topics?edit=${topic.uuid}`);
+  };
+
+  const formatRecency = (value: TopicItem["searchRecencyFilter"]) => {
+    switch (value) {
+      case "day":
+        return "Daily";
+      case "week":
+        return "Weekly";
+      case "month":
+        return "Monthly";
+      case "year":
+        return "Yearly";
+      default:
+        return "Manual";
+    }
+  };
+
   return (
-    <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans flex-col">
-      <AuthDialog isOpen={authDialogOpen} onOpenChange={setAuthDialogOpen} />
+      <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans flex-col">
+        <AuthDialog isOpen={authDialogOpen} onOpenChange={setAuthDialogOpen} />
         {/* Top Navbar - 100% Width */}
         <header className="h-16 border-b border-border bg-background/80 backdrop-blur-md flex items-center justify-between px-6 z-20 sticky top-0 w-full shrink-0">
          <div className="flex items-center gap-4">
@@ -400,20 +433,25 @@ export function Layout({ children }: SidebarProps) {
                             <span className="flex h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse"></span>
                          )}
                       </div>
-                      {topic.lastSearch && (
-                         <span className="text-[10px] text-muted-foreground/60 font-mono tabular-nums">
-                            {formatDistanceToNow(topic.lastSearch, { addSuffix: false })}
-                         </span>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 rounded-full text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
+                        onClick={() => handleEditTopic(topic)}
+                        type="button"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
                    </div>
                    <div className="flex items-center justify-between">
-                      <span className="text-[9px] font-bold text-muted-foreground/70 uppercase tracking-tighter bg-muted/80 px-1.5 py-0.5 rounded border border-border/30">
-                         {topic.category}
+                      <span className="text-[10px] text-muted-foreground/60 font-mono tabular-nums">
+                        {topic.lastSearch
+                          ? `Last scan ${formatDistanceToNow(topic.lastSearch, { addSuffix: true })}`
+                          : "Last scan never"}
                       </span>
-                      <div className={cn(
-                         "h-1 w-4 rounded-full transition-colors",
-                         topic.isActive ? "bg-primary/40" : "bg-muted"
-                      )}></div>
+                      <span className="text-[9px] font-bold text-muted-foreground/70 tracking-tighter">
+                        {formatRecency(topic.searchRecencyFilter)}
+                      </span>
                      </div>
                 </div>
              ))}
@@ -449,6 +487,6 @@ export function Layout({ children }: SidebarProps) {
             </div>
           </main>
         </div>
-    </div>
+      </div>
   );
 }

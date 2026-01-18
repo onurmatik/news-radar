@@ -105,10 +105,29 @@ export async function createTopic(
   });
 }
 
-export async function updateTopic(uuid: string, isActive: boolean): Promise<void> {
-  await requestJson(`/api/topics/${uuid}`, {
+export async function updateTopic(
+  uuid: string,
+  payload: {
+    isActive?: boolean;
+    queries?: string[];
+    domainAllowlist?: string[] | null;
+    domainBlocklist?: string[] | null;
+    languageFilter?: string[] | null;
+    country?: string | null;
+    searchRecencyFilter?: string | null;
+  }
+): Promise<ApiTopicListItem> {
+  return requestJson<ApiTopicListItem>(`/api/topics/${uuid}`, {
     method: "PATCH",
-    body: JSON.stringify({ is_active: isActive }),
+    body: JSON.stringify({
+      is_active: payload.isActive,
+      queries: payload.queries,
+      search_domain_allowlist: payload.domainAllowlist ?? null,
+      search_domain_blocklist: payload.domainBlocklist ?? null,
+      search_language_filter: payload.languageFilter ?? null,
+      country: payload.country ?? null,
+      search_recency_filter: payload.searchRecencyFilter ?? null,
+    }),
   });
 }
 

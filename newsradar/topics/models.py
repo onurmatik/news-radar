@@ -91,6 +91,7 @@ class Topic(models.Model):
             ("month", "month"),
             ("year", "year"),
         ],
+        default="day",
     )
     search_after_date = models.DateField(blank=True, null=True)
     search_before_date = models.DateField(blank=True, null=True)

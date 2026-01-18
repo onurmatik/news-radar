@@ -35,6 +35,11 @@ class TopicListItem(Schema):
     is_active: bool
     group_uuid: uuid.UUID | None
     group_name: str | None
+    search_domain_allowlist: list[str] | None
+    search_domain_blocklist: list[str] | None
+    search_language_filter: list[str] | None
+    country: str | None
+    search_recency_filter: str | None
 
 
 class TopicListResponse(Schema):
@@ -56,6 +61,12 @@ class TopicCreateResponse(Schema):
 
 class TopicUpdateRequest(Schema):
     is_active: bool | None = None
+    queries: list[str] | None = None
+    search_domain_allowlist: list[str] | None = None
+    search_domain_blocklist: list[str] | None = None
+    search_language_filter: list[str] | None = None
+    country: str | None = None
+    search_recency_filter: str | None = None
 
 
 class TopicGroupItem(Schema):
@@ -144,6 +155,11 @@ def list_topics(
                 is_active=topic.is_active,
                 group_uuid=topic.group.uuid if topic.group else None,
                 group_name=topic.group.name if topic.group else None,
+                search_domain_allowlist=topic.search_domain_allowlist,
+                search_domain_blocklist=topic.search_domain_blocklist,
+                search_language_filter=topic.search_language_filter,
+                country=topic.country,
+                search_recency_filter=topic.search_recency_filter,
             )
             for topic in topics
         ]
@@ -228,6 +244,11 @@ def create_topic(request, payload: TopicCreateRequest):
             is_active=topic.is_active,
             group_uuid=topic.group.uuid if topic.group else None,
             group_name=topic.group.name if topic.group else None,
+            search_domain_allowlist=topic.search_domain_allowlist,
+            search_domain_blocklist=topic.search_domain_blocklist,
+            search_language_filter=topic.search_language_filter,
+            country=topic.country,
+            search_recency_filter=topic.search_recency_filter,
         )
     )
 
@@ -385,11 +406,86 @@ def update_topic(request, topic_uuid: uuid.UUID, payload: TopicUpdateRequest):
     if not topic:
         raise HttpError(404, "Topic not found for UUID.")
 
-    if payload.is_active is None:
+    updates: dict[str, object] = {}
+
+    if payload.is_active is not None:
+        updates["is_active"] = payload.is_active
+
+    if payload.queries is not None:
+        normalized_queries: list[str] = []
+        seen = set()
+        for item in payload.queries:
+            if not isinstance(item, str):
+                raise HttpError(400, "Topic queries must be strings.")
+            normalized_item = normalize_topic_query(item)
+            if not normalized_item or normalized_item in seen:
+                continue
+            seen.add(normalized_item)
+            normalized_queries.append(normalized_item)
+        if not normalized_queries:
+            raise HttpError(400, "Topic queries cannot be empty.")
+        updates["queries"] = normalized_queries
+
+    def normalize_filter_list(values: list[str] | None, field_name: str) -> list[str] | None:
+        if values is None:
+            return None
+        if not isinstance(values, list):
+            raise HttpError(400, f"{field_name} must be a list of strings.")
+        cleaned: list[str] = []
+        for item in values:
+            if not isinstance(item, str):
+                raise HttpError(400, f"{field_name} must be a list of strings.")
+            trimmed = item.strip()
+            if trimmed:
+                cleaned.append(trimmed)
+        return cleaned or None
+
+    allowlist_provided = payload.search_domain_allowlist is not None
+    blocklist_provided = payload.search_domain_blocklist is not None
+    domain_allowlist = normalize_filter_list(
+        payload.search_domain_allowlist,
+        "search_domain_allowlist",
+    )
+    domain_blocklist = normalize_filter_list(
+        payload.search_domain_blocklist,
+        "search_domain_blocklist",
+    )
+    if domain_allowlist and domain_blocklist:
+        raise HttpError(400, "Provide either a domain allowlist or blocklist.")
+    if allowlist_provided:
+        updates["search_domain_allowlist"] = domain_allowlist
+        if not blocklist_provided:
+            updates["search_domain_blocklist"] = None
+    if blocklist_provided:
+        updates["search_domain_blocklist"] = domain_blocklist
+        if not allowlist_provided:
+            updates["search_domain_allowlist"] = None
+
+    if payload.search_language_filter is not None:
+        updates["search_language_filter"] = normalize_filter_list(
+            payload.search_language_filter,
+            "search_language_filter",
+        )
+
+    if payload.country is not None:
+        country = payload.country.strip().upper()
+        if country and len(country) != 2:
+            raise HttpError(400, "Country must be a 2-letter code.")
+        updates["country"] = country or None
+
+    if payload.search_recency_filter is not None:
+        updates["search_recency_filter"] = payload.search_recency_filter or None
+
+    if not updates:
         raise HttpError(400, "Provide at least one field to update.")
 
-    topic.is_active = payload.is_active
-    topic.save(update_fields=["is_active"])
+    for field, value in updates.items():
+        setattr(topic, field, value)
+
+    if "queries" in updates:
+        topic.save()
+    else:
+        topic.save(update_fields=list(updates.keys()))
 
     content_source_count = (
         Topic.objects.filter(pk=topic.pk)
@@ -413,6 +509,11 @@ def update_topic(request, topic_uuid: uuid.UUID, payload: TopicUpdateRequest):
         is_active=topic.is_active,
         group_uuid=topic.group.uuid if topic.group else None,
         group_name=topic.group.name if topic.group else None,
+        search_domain_allowlist=topic.search_domain_allowlist,
+        search_domain_blocklist=topic.search_domain_blocklist,
+        search_language_filter=topic.search_language_filter,
+        country=topic.country,
+        search_recency_filter=topic.search_recency_filter,
     )
 
 
