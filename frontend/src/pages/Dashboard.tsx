@@ -30,11 +30,10 @@ export default function Dashboard() {
   const [filter, setFilter] = useState("all");
 
   const getSourceLabel = (item: ApiContentFeedItem) => {
-    if (item.source) return item.source;
     try {
       return new URL(item.url).hostname.replace(/^www\./, "");
     } catch {
-      return "Unknown";
+      return item.source || "Unknown";
     }
   };
 
@@ -176,16 +175,16 @@ export default function Dashboard() {
                   <div className="flex flex-col sm:flex-row p-6 gap-6">
                     <div className="flex-1 space-y-3">
                       <div className="flex items-center gap-3 flex-wrap">
-                        <span className="text-[10px] font-bold text-primary uppercase tracking-tighter bg-primary/10 px-2 py-0.5 rounded">
+                        <Badge className="text-[9px] font-medium border-border/50 text-muted-foreground bg-light hover:bg-muted">
                           {item.source}
-                        </span>
+                        </Badge>
                         <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-medium">
                           <Clock className="h-3 w-3" />
                           {formatDistanceToNow(item.timestamp, { addSuffix: true })}
                         </span>
                         <div className="h-1 w-1 rounded-full bg-border"></div>
                         <span className="text-[11px] text-muted-foreground/60 lowercase italic">
-                          captured from {item.keywords[0]}
+                          {item.keywords[0]}
                         </span>
                       </div>
                       

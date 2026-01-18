@@ -1,7 +1,5 @@
 from datetime import datetime
 from uuid import UUID
-from urllib.parse import urlparse
-
 from django.db.models import Exists, OuterRef
 from django.utils.dateparse import parse_datetime
 from ninja import NinjaAPI, Schema
@@ -19,21 +17,6 @@ def _extract_summary(metadata: dict | None) -> str:
         value = metadata.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    return ""
-
-
-def _extract_source(metadata: dict | None, url: str) -> str:
-    if isinstance(metadata, dict):
-        for key in ("source", "publisher", "site", "provider"):
-            value = metadata.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    try:
-        parsed = urlparse(url)
-        if parsed.netloc:
-            return parsed.netloc.replace("www.", "")
-    except ValueError:
-        pass
     return ""
 
 
@@ -143,7 +126,7 @@ def list_content(
                 url=content.url,
                 title=content.title or "",
                 summary=_extract_summary(content.metadata),
-                source=_extract_source(content.metadata, content.url),
+                source=content.normalized_domain(),
                 created_at=content.created_at,
                 published_at=_extract_published_at(content.metadata),
                 topic_uuid=content.execution.topic.uuid,

@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from django.conf import settings
 from django.db import models
 
@@ -26,6 +28,21 @@ class Content(models.Model):
 
     def __str__(self) -> str:
         return f"{self.id}: {self.url}"
+
+    def normalized_domain(self) -> str:
+        try:
+            parsed = urlparse(self.url or "")
+        except ValueError:
+            return ""
+        netloc = parsed.netloc.lower()
+        if not netloc:
+            return ""
+        if "@" in netloc:
+            netloc = netloc.split("@", 1)[1]
+        host = netloc.split(":", 1)[0]
+        if host.startswith("www."):
+            host = host[4:]
+        return host
 
 
 class Bookmark(models.Model):
