@@ -130,7 +130,7 @@ export default function Dashboard() {
 
   return (
     <Layout>
-      <div className="mx-auto space-y-8 p-4 md:p-6 lg:p-10">
+      <div className="mx-auto space-y-3 p-4 md:p-6 lg:p-10">
         
         {/* Dashboard Header Area */}
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 border-b border-border/50 pb-8">
@@ -157,7 +157,7 @@ export default function Dashboard() {
         </div>
 
         {/* Content Feed */}
-        <div className="space-y-6">
+        <div className="space-y-1">
           <AnimatePresence mode="popLayout">
             {filteredNews.map((item, index) => (
               <motion.div
