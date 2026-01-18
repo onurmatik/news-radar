@@ -28,6 +28,9 @@ export interface ApiTopicGroupItem {
   name: string;
   description: string;
   is_public: boolean;
+  default_search_recency_filter: "day" | "week" | "month" | "year" | null;
+  default_search_language_filter: string[] | null;
+  default_country: string | null;
   created_at: string;
   updated_at: string;
 }

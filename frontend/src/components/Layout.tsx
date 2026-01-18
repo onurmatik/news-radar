@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Radio, Search, Bell, User, PlusCircle, Plus, Pencil } from 'lucide-react';
+import { Radio, Search, Bell, User, PlusCircle, Plus, MoreVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,8 +14,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { formatDistanceToNow } from 'date-fns';
-import { createTopicGroup, listTopicGroups, listTopics } from '@/lib/api';
-import type { ApiTopicGroupItem, ApiTopicListItem, TopicItem } from '@/lib/types';
+import { createTopicGroup, listTopicGroups, listTopics, runTopicScan, updateTopic } from '@/lib/api';
+import type { ApiTopicListItem, TopicItem } from '@/lib/types';
 import { AuthDialog } from '@/components/AuthDialog';
 import { useAuthDialog } from '@/components/AuthDialogContext';
 import { useTopicGroup } from '@/components/TopicGroupContext';
@@ -48,14 +48,19 @@ export function Layout({ children }: SidebarProps) {
     setSelectedGroupId,
     setSelectedGroupName,
     setSelectedGroupTopicCount,
+    selectedTopicUuid,
+    setSelectedTopicUuid,
+    groups,
+    setGroups,
   } = useTopicGroup();
   const { topics, setTopics } = useTopics();
   const [topicsError, setTopicsError] = useState<string | null>(null);
-  const [groups, setGroups] = useState<ApiTopicGroupItem[]>([]);
   const [groupsError, setGroupsError] = useState<string | null>(null);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const [topicMenuOpenId, setTopicMenuOpenId] = useState<string | null>(null);
+  const topicMenuRef = useRef<HTMLDivElement | null>(null);
 
   const requireAuth = () => {
     if (isAuthenticated) {
@@ -120,6 +125,12 @@ export function Layout({ children }: SidebarProps) {
   }, [isAuthenticated]);
 
   useEffect(() => {
+    if (selectedGroupId) {
+      setSelectedTopicUuid(null);
+    }
+  }, [selectedGroupId, setSelectedTopicUuid]);
+
+  useEffect(() => {
     if (isAuthenticated !== false) return;
     if (!selectedGroupId) {
       setTopics([]);
@@ -127,6 +138,17 @@ export function Layout({ children }: SidebarProps) {
     }
     void loadTopics(selectedGroupId);
   }, [isAuthenticated, selectedGroupId]);
+
+  useEffect(() => {
+    if (!selectedTopicUuid) return;
+    if (!selectedGroupId) return;
+    const matchesGroup = topics.some(
+      (topic) => topic.uuid === selectedTopicUuid && topic.groupUuid === selectedGroupId
+    );
+    if (!matchesGroup) {
+      setSelectedTopicUuid(null);
+    }
+  }, [selectedGroupId, selectedTopicUuid, setSelectedTopicUuid, topics]);
 
   const filteredTopics = useMemo(() => {
     if (isAuthenticated === false) return topics;
@@ -211,6 +233,26 @@ export function Layout({ children }: SidebarProps) {
     };
   }, [profileMenuOpen]);
 
+  useEffect(() => {
+    if (!topicMenuOpenId) return;
+    const handleClick = (event: MouseEvent) => {
+      if (!topicMenuRef.current?.contains(event.target as Node)) {
+        setTopicMenuOpenId(null);
+      }
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setTopicMenuOpenId(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [topicMenuOpenId]);
+
   const handleLogout = async () => {
     await signOut();
     setProfileMenuOpen(false);
@@ -251,21 +293,84 @@ export function Layout({ children }: SidebarProps) {
     if (!requireAuth()) {
       return;
     }
+    setSelectedTopicUuid(topic.uuid);
     navigate(`/topics?edit=${topic.uuid}`);
   };
 
   const formatRecency = (value: TopicItem["searchRecencyFilter"]) => {
     switch (value) {
       case "day":
-        return "Daily";
+        return "daily";
       case "week":
-        return "Weekly";
+        return "weekly";
       case "month":
-        return "Monthly";
+        return "monthly";
       case "year":
-        return "Yearly";
+        return "yearly";
       default:
-        return "Manual";
+        return "manually";
+    }
+  };
+
+  const handleTopicScanNow = async (topic: TopicItem) => {
+    if (!requireAuth()) {
+      return;
+    }
+    setTopicsError(null);
+    try {
+      await runTopicScan(topic.uuid);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to start scan.";
+      setTopicsError(message);
+    } finally {
+      setTopicMenuOpenId(null);
+    }
+  };
+
+  const handleTopicRecency = async (
+    topic: TopicItem,
+    recency: TopicItem["searchRecencyFilter"]
+  ) => {
+    if (!requireAuth()) {
+      return;
+    }
+    setTopicsError(null);
+    try {
+      const updated = await updateTopic(topic.uuid, {
+        searchRecencyFilter: recency,
+        isActive: true,
+      });
+      const mapped = toTopicItem(updated);
+      setTopics((prev) =>
+        prev.map((item) => (item.uuid === mapped.uuid ? mapped : item))
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to update scan cadence.";
+      setTopicsError(message);
+    } finally {
+      setTopicMenuOpenId(null);
+    }
+  };
+
+  const handleTopicPause = async (topic: TopicItem) => {
+    if (!requireAuth()) {
+      return;
+    }
+    setTopicsError(null);
+    try {
+      const updated = await updateTopic(topic.uuid, {
+        isActive: false,
+      });
+      const mapped = toTopicItem(updated);
+      setTopics((prev) =>
+        prev.map((item) => (item.uuid === mapped.uuid ? mapped : item))
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to pause topic.";
+      setTopicsError(message);
+    } finally {
+      setTopicMenuOpenId(null);
     }
   };
 
@@ -351,7 +456,7 @@ export function Layout({ children }: SidebarProps) {
         {/* Split Content Area */}
         <div className="flex flex-1 overflow-hidden">
           {/* Left Topics Column */}
-          <aside className="w-72 border-r border-border bg-card/30 hidden lg:flex flex-col shrink-0">
+          <aside className="w-80 border-r border-border bg-card/30 hidden lg:flex flex-col shrink-0">
           <div className="p-4 border-b border-border bg-background/50">
              <Select
                value={selectedGroupId || undefined}
@@ -423,35 +528,107 @@ export function Layout({ children }: SidebarProps) {
                    key={topic.id} 
                    className={cn(
                       "group flex flex-col gap-1.5 px-3 py-3 rounded-lg text-sm transition-all duration-200 cursor-pointer relative border border-transparent",
+                      topic.uuid === selectedTopicUuid ? "bg-muted/50 border-border/60" : "",
                       topic.isActive ? "hover:bg-muted/50 hover:border-border/50" : "opacity-40 grayscale"
                    )}
+                   onClick={() => {
+                     setTopicMenuOpenId(null);
+                     setSelectedTopicUuid(topic.uuid);
+                     navigate('/');
+                   }}
                 >
                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                         <span className="font-semibold text-foreground truncate max-w-[130px]">{topic.term}</span>
-                         {topic.hasNewItems && (
-                            <span className="flex h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse"></span>
-                         )}
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 rounded-full text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
-                        onClick={() => handleEditTopic(topic)}
-                        type="button"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
+                      <span className="font-semibold text-foreground truncate max-w-[160px]">
+                        {topic.term}
+                      </span>
+                      {topic.hasNewItems && (
+                         <span className="flex h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse"></span>
+                      )}
                    </div>
                    <div className="flex items-center justify-between">
                       <span className="text-[10px] text-muted-foreground/60 font-mono tabular-nums">
                         {topic.lastSearch
                           ? `Last scan ${formatDistanceToNow(topic.lastSearch, { addSuffix: true })}`
                           : "Last scan never"}
+                        ; updated {formatRecency(topic.searchRecencyFilter)}
                       </span>
-                      <span className="text-[9px] font-bold text-muted-foreground/70 tracking-tighter">
-                        {formatRecency(topic.searchRecencyFilter)}
-                      </span>
+                      <div
+                        className="relative"
+                        ref={topic.uuid === topicMenuOpenId ? topicMenuRef : null}
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 rounded-full text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setTopicMenuOpenId((prev) =>
+                              prev === topic.uuid ? null : topic.uuid
+                            );
+                          }}
+                          type="button"
+                          aria-haspopup="menu"
+                          aria-expanded={topicMenuOpenId === topic.uuid}
+                        >
+                          <MoreVertical className="h-3.5 w-3.5" />
+                        </Button>
+                        {topicMenuOpenId === topic.uuid && (
+                          <div
+                            className="absolute right-0 mt-2 w-48 rounded-xl border border-border bg-background shadow-lg p-2 z-50"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <p className="px-3 pt-2 text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                              Scan
+                            </p>
+                            <button
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                              onClick={() => void handleTopicScanNow(topic)}
+                              type="button"
+                            >
+                              Now
+                            </button>
+                            <button
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                              onClick={() => void handleTopicRecency(topic, "day")}
+                              type="button"
+                            >
+                              Daily
+                            </button>
+                            <button
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                              onClick={() => void handleTopicRecency(topic, "week")}
+                              type="button"
+                            >
+                              Weekly
+                            </button>
+                            <button
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                              onClick={() => void handleTopicRecency(topic, null)}
+                              type="button"
+                            >
+                              Manually
+                            </button>
+                            <div className="h-px bg-border/70 my-2" />
+                            <button
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                              onClick={() => void handleTopicPause(topic)}
+                              type="button"
+                            >
+                              Pause
+                            </button>
+                            <button
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                              onClick={() => {
+                                setTopicMenuOpenId(null);
+                                handleEditTopic(topic);
+                              }}
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        )}
+                      </div>
                      </div>
                 </div>
              ))}

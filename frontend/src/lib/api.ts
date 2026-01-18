@@ -145,6 +145,9 @@ export async function createTopicGroup(payload: {
   name: string;
   description?: string;
   isPublic?: boolean;
+  defaultRecencyFilter?: "day" | "week" | "month" | "year" | null;
+  defaultLanguageFilter?: string[] | null;
+  defaultCountry?: string | null;
 }): Promise<ApiTopicGroupCreateResponse> {
   return requestJson<ApiTopicGroupCreateResponse>("/api/topics/groups", {
     method: "POST",
@@ -152,6 +155,9 @@ export async function createTopicGroup(payload: {
       name: payload.name,
       description: payload.description ?? "",
       is_public: payload.isPublic ?? false,
+      default_search_recency_filter: payload.defaultRecencyFilter ?? null,
+      default_search_language_filter: payload.defaultLanguageFilter ?? null,
+      default_country: payload.defaultCountry ?? null,
     }),
   });
 }
@@ -162,6 +168,9 @@ export async function updateTopicGroup(
     name?: string;
     description?: string;
     isPublic?: boolean;
+    defaultRecencyFilter?: "day" | "week" | "month" | "year" | null;
+    defaultLanguageFilter?: string[] | null;
+    defaultCountry?: string | null;
   }
 ): Promise<void> {
   await requestJson(`/api/topics/groups/${uuid}`, {
@@ -170,6 +179,9 @@ export async function updateTopicGroup(
       name: payload.name,
       description: payload.description,
       is_public: payload.isPublic,
+      default_search_recency_filter: payload.defaultRecencyFilter ?? null,
+      default_search_language_filter: payload.defaultLanguageFilter ?? null,
+      default_country: payload.defaultCountry ?? null,
     }),
   });
 }
@@ -191,6 +203,21 @@ export async function listContentFeed(params?: {
   if (params?.offset) search.set("offset", String(params.offset));
   const query = search.toString();
   return requestJson<ApiContentFeedResponse>(`/api/contents/${query ? `?${query}` : ""}`);
+}
+
+export async function runTopicScan(topicUuid: string): Promise<{
+  execution_id: number;
+  content_item_id: number | null;
+  initiator: string;
+  response: Record<string, unknown>;
+}> {
+  return requestJson("/api/executions/web-search", {
+    method: "POST",
+    body: JSON.stringify({
+      topic_uuid: topicUuid,
+      initiator: "user",
+    }),
+  });
 }
 
 export async function createBookmark(contentId: number): Promise<void> {

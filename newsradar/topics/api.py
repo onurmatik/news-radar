@@ -53,6 +53,7 @@ class TopicCreateRequest(Schema):
     search_domain_blocklist: list[str] | None = None
     search_language_filter: list[str] | None = None
     country: str | None = None
+    search_recency_filter: str | None = None
 
 
 class TopicCreateResponse(Schema):
@@ -75,6 +76,9 @@ class TopicGroupItem(Schema):
     name: str
     description: str
     is_public: bool
+    default_search_recency_filter: str | None
+    default_search_language_filter: list[str] | None
+    default_country: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -87,6 +91,9 @@ class TopicGroupCreateRequest(Schema):
     name: str
     description: str | None = None
     is_public: bool | None = None
+    default_search_recency_filter: str | None = None
+    default_search_language_filter: list[str] | None = None
+    default_country: str | None = None
 
 
 class TopicGroupCreateResponse(Schema):
@@ -97,6 +104,9 @@ class TopicGroupUpdateRequest(Schema):
     name: str | None = None
     description: str | None = None
     is_public: bool | None = None
+    default_search_recency_filter: str | None = None
+    default_search_language_filter: list[str] | None = None
+    default_country: str | None = None
 
 
 @api.get("/", response=TopicListResponse)
@@ -224,6 +234,22 @@ def create_topic(request, payload: TopicCreateRequest):
     if country and len(country) != 2:
         raise HttpError(400, "Country must be a 2-letter code.")
 
+    recency_filter = payload.search_recency_filter
+    if recency_filter is not None:
+        recency_filter = recency_filter.strip()
+        if recency_filter and recency_filter not in {"day", "week", "month", "year"}:
+            raise HttpError(400, "Invalid recency filter value.")
+        if recency_filter == "":
+            recency_filter = None
+
+    if group:
+        if language_filter is None:
+            language_filter = group.default_search_language_filter
+        if country is None:
+            country = group.default_country
+        if recency_filter is None:
+            recency_filter = group.default_search_recency_filter
+
     topic = Topic.objects.create(
         user=request.user,
         queries=normalized_queries,
@@ -232,6 +258,7 @@ def create_topic(request, payload: TopicCreateRequest):
         search_domain_blocklist=domain_blocklist,
         search_language_filter=language_filter,
         country=country or None,
+        search_recency_filter=recency_filter,
     )
 
     return TopicCreateResponse(
@@ -268,6 +295,9 @@ def list_topic_groups(request):
                 name=group.name,
                 description=group.description or "",
                 is_public=group.is_public,
+                default_search_recency_filter=group.default_search_recency_filter,
+                default_search_language_filter=group.default_search_language_filter,
+                default_country=group.default_country,
                 created_at=group.created_at,
                 updated_at=group.updated_at,
             )
@@ -296,6 +326,9 @@ def get_topic_group(request, group_uuid: uuid.UUID):
         name=group.name,
         description=group.description or "",
         is_public=group.is_public,
+        default_search_recency_filter=group.default_search_recency_filter,
+        default_search_language_filter=group.default_search_language_filter,
+        default_country=group.default_country,
         created_at=group.created_at,
         updated_at=group.updated_at,
     )
@@ -309,12 +342,44 @@ def create_topic_group(request, payload: TopicGroupCreateRequest):
     if not name:
         raise HttpError(400, "Group name cannot be empty.")
 
+    def normalize_filter_list(values: list[str] | None, field_name: str) -> list[str] | None:
+        if values is None:
+            return None
+        if not isinstance(values, list):
+            raise HttpError(400, f"{field_name} must be a list of strings.")
+        cleaned: list[str] = []
+        for item in values:
+            if not isinstance(item, str):
+                raise HttpError(400, f"{field_name} must be a list of strings.")
+            trimmed = item.strip()
+            if trimmed:
+                cleaned.append(trimmed)
+        return cleaned or None
+
+    default_language_filter = normalize_filter_list(
+        payload.default_search_language_filter,
+        "default_search_language_filter",
+    )
+    default_country = payload.default_country.strip().upper() if isinstance(payload.default_country, str) else None
+    if default_country and len(default_country) != 2:
+        raise HttpError(400, "Country must be a 2-letter code.")
+    default_recency = payload.default_search_recency_filter
+    if default_recency is not None:
+        default_recency = default_recency.strip()
+        if default_recency and default_recency not in {"day", "week", "month", "year"}:
+            raise HttpError(400, "Invalid recency filter value.")
+        if default_recency == "":
+            default_recency = None
+
     try:
         group = TopicGroup.objects.create(
             user=request.user,
             name=name,
             description=payload.description or "",
             is_public=bool(payload.is_public) if payload.is_public is not None else False,
+            default_search_recency_filter=default_recency,
+            default_search_language_filter=default_language_filter,
+            default_country=default_country,
         )
     except IntegrityError as exc:
         raise HttpError(400, "Group name already exists.") from exc
@@ -326,6 +391,9 @@ def create_topic_group(request, payload: TopicGroupCreateRequest):
             name=group.name,
             description=group.description or "",
             is_public=group.is_public,
+            default_search_recency_filter=group.default_search_recency_filter,
+            default_search_language_filter=group.default_search_language_filter,
+            default_country=group.default_country,
             created_at=group.created_at,
             updated_at=group.updated_at,
         )
@@ -357,6 +425,35 @@ def update_topic_group(
         updates["description"] = payload.description
     if payload.is_public is not None:
         updates["is_public"] = payload.is_public
+    def normalize_filter_list(values: list[str] | None, field_name: str) -> list[str] | None:
+        if values is None:
+            return None
+        if not isinstance(values, list):
+            raise HttpError(400, f"{field_name} must be a list of strings.")
+        cleaned: list[str] = []
+        for item in values:
+            if not isinstance(item, str):
+                raise HttpError(400, f"{field_name} must be a list of strings.")
+            trimmed = item.strip()
+            if trimmed:
+                cleaned.append(trimmed)
+        return cleaned or None
+
+    if payload.default_search_recency_filter is not None:
+        recency = payload.default_search_recency_filter.strip()
+        if recency and recency not in {"day", "week", "month", "year"}:
+            raise HttpError(400, "Invalid recency filter value.")
+        updates["default_search_recency_filter"] = recency or None
+    if payload.default_search_language_filter is not None:
+        updates["default_search_language_filter"] = normalize_filter_list(
+            payload.default_search_language_filter,
+            "default_search_language_filter",
+        )
+    if payload.default_country is not None:
+        country = payload.default_country.strip().upper()
+        if country and len(country) != 2:
+            raise HttpError(400, "Country must be a 2-letter code.")
+        updates["default_country"] = country or None
 
     if not updates:
         raise HttpError(400, "Provide at least one field to update.")
@@ -375,6 +472,9 @@ def update_topic_group(
         name=group.name,
         description=group.description or "",
         is_public=group.is_public,
+        default_search_recency_filter=group.default_search_recency_filter,
+        default_search_language_filter=group.default_search_language_filter,
+        default_country=group.default_country,
         created_at=group.created_at,
         updated_at=group.updated_at,
     )

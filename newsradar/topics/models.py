@@ -177,6 +177,23 @@ class TopicGroup(models.Model):
     name = models.CharField(max_length=120)
     description = models.TextField(blank=True)
     is_public = models.BooleanField(default=False)
+    default_search_recency_filter = models.CharField(
+        max_length=5,
+        blank=True,
+        null=True,
+        choices=[
+            ("day", "day"),
+            ("week", "week"),
+            ("month", "month"),
+            ("year", "year"),
+        ],
+    )
+    default_search_language_filter = models.JSONField(
+        blank=True,
+        null=True,
+        validators=[validate_language_filter],
+    )
+    default_country = models.CharField(max_length=2, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
