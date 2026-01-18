@@ -168,42 +168,22 @@ export default function Dashboard() {
                 transition={{ duration: 0.4, delay: index * 0.05, ease: "easeOut" }}
               >
                 <Card className="group border-none bg-card/40 backdrop-blur-sm hover:bg-card/60 transition-all duration-300 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                     <Sparkles className="h-4 w-4 text-primary/40" />
-                  </div>
-                  
                   <div className="flex flex-col sm:flex-row p-6 gap-6">
                     <div className="flex-1 space-y-3">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <Badge className="text-[9px] font-medium border-border/50 text-muted-foreground bg-light hover:bg-muted">
-                          {item.source}
-                        </Badge>
-                        <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-medium">
-                          <Clock className="h-3 w-3" />
-                          {formatDistanceToNow(item.timestamp, { addSuffix: true })}
-                        </span>
-                        <div className="h-1 w-1 rounded-full bg-border"></div>
-                        <span className="text-[11px] text-muted-foreground/60 lowercase italic">
-                          {item.keywords[0]}
-                        </span>
-                      </div>
-                      
-                      <h3 className="text-xl font-bold leading-tight group-hover:text-primary transition-colors cursor-pointer decoration-primary/30 decoration-2 underline-offset-4 hover:underline">
-                        {item.title}
-                      </h3>
-                      <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">
-                        {item.summary}
-                      </p>
-                      
-                      <div className="flex items-center justify-between pt-2">
-                        <div className="flex items-center gap-2">
-                          {item.keywords.map(k => (
-                            <Badge key={k} variant="outline" className="text-[9px] font-medium border-border/50 text-muted-foreground hover:bg-muted">
-                              #{k}
-                            </Badge>
-                          ))}
+                      <div className="flex items-center justify-between gap-4 flex-wrap">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <Badge className="text-[9px] font-medium border-border/50 text-muted-foreground bg-light hover:bg-muted">
+                            {item.source}
+                          </Badge>
+                          <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-medium">
+                            <Clock className="h-3 w-3" />
+                            {formatDistanceToNow(item.timestamp, { addSuffix: true })}
+                          </span>
+                          <div className="h-1 w-1 rounded-full bg-border"></div>
+                          <span className="text-[11px] text-muted-foreground/60 lowercase italic">
+                            {item.keywords[0]}
+                          </span>
                         </div>
-                        
                         <div className="flex items-center gap-1">
                            <Button 
                              size="icon" 
@@ -223,11 +203,19 @@ export default function Dashboard() {
                              asChild
                            >
                              <a href={item.url} target="_blank" rel="noreferrer">
-                               SOURCE <ExternalLink className="h-3 w-3 ml-1.5" />
+                               <ExternalLink className="h-3 w-3 ml-1.5" />
                              </a>
                            </Button>
                         </div>
                       </div>
+                      
+                      <h3 className="text-xl font-bold leading-tight group-hover:text-primary transition-colors cursor-pointer decoration-primary/30 decoration-2 underline-offset-4 hover:underline">
+                        {item.title}
+                      </h3>
+                      <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">
+                        {item.summary}
+                      </p>
+                      
                     </div>
                   </div>
                 </Card>
