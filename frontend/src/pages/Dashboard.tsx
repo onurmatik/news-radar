@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { createBookmark, deleteBookmark, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
+import { createBookmark, deleteBookmark, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
 import { TopicForm } from '@/components/TopicForm';
 import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle } from 'lucide-react';
@@ -49,6 +49,7 @@ export default function Dashboard() {
   const [groupCountry, setGroupCountry] = useState("");
   const [groupSaving, setGroupSaving] = useState(false);
   const [groupError, setGroupError] = useState<string | null>(null);
+  const [apiPanelOpen, setApiPanelOpen] = useState(false);
 
   const selectedGroup = groups.find((group) => group.uuid === selectedGroupId) ?? null;
   const selectedTopic = selectedTopicUuid
@@ -57,6 +58,13 @@ export default function Dashboard() {
   const contentTitle = selectedTopic
     ? `${selectedGroupName} / ${selectedTopic.term}`
     : selectedGroupName;
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
+  const topicEndpoint = selectedTopicUuid
+    ? `${apiBaseUrl}/api/contents/topics/${selectedTopicUuid}`
+    : null;
+  const groupEndpoint = selectedGroupId
+    ? `${apiBaseUrl}/api/contents/groups/${selectedGroupId}`
+    : null;
 
   const getSourceLabel = (item: ApiContentFeedItem) => {
     try {
@@ -124,23 +132,12 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const response = await listContentFeed(
-        selectedTopicUuid ? { topicUuid: selectedTopicUuid } : undefined
-      );
-      let items = response.items;
-      if (!selectedTopicUuid && selectedGroupId) {
-        const groupTopicUuids = new Set(
-          topics
-            .filter((topic) => topic.groupUuid === selectedGroupId)
-            .map((topic) => topic.uuid)
-        );
-        if (groupTopicUuids.size > 0) {
-          items = items.filter((item) => groupTopicUuids.has(item.topic_uuid));
-        } else {
-          items = [];
-        }
-      }
-      setNews(items.map(mapNewsItem));
+      const response = selectedTopicUuid
+        ? await listContentFeed({ topicUuid: selectedTopicUuid })
+        : selectedGroupId
+          ? await listContentByGroup(selectedGroupId)
+          : await listContentFeed();
+      setNews(response.items.map(mapNewsItem));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to load feed.";
       setError(message);
@@ -157,7 +154,7 @@ export default function Dashboard() {
       setNews([]);
       setLoading(false);
     }
-  }, [isAuthenticated, selectedGroupId, selectedTopicUuid, topics]);
+  }, [isAuthenticated, selectedGroupId, selectedTopicUuid]);
 
   const toggleBookmark = async (item: NewsItem) => {
     const nextValue = !item.isBookmarked;
@@ -311,7 +308,7 @@ export default function Dashboard() {
                 className="rounded-full px-4"
                 onClick={() => handleViewModeChange("read")}
               >
-                Read
+                Content
               </Button>
               <Button
                 size="sm"
@@ -319,11 +316,64 @@ export default function Dashboard() {
                 className="rounded-full px-4"
                 onClick={() => handleViewModeChange("edit")}
               >
-                Edit
+                Config
               </Button>
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full px-5"
+              onClick={() => setApiPanelOpen((prev) => !prev)}
+            >
+              API
+            </Button>
           </div>
         </div>
+
+        {apiPanelOpen && (
+          <Card className="border border-border/60 bg-card/40">
+            <CardContent className="space-y-4 p-6">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                  API endpoints
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Use these URLs to fetch content for the current selection.
+                </p>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Topic group content
+                  </p>
+                  {groupEndpoint ? (
+                    <div className="mt-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs font-mono text-foreground">
+                      {groupEndpoint}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Select a topic group to see the group endpoint.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Topic content
+                  </p>
+                  {topicEndpoint ? (
+                    <div className="mt-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs font-mono text-foreground">
+                      {topicEndpoint}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Select a topic to see the topic endpoint.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {contentViewMode === "read" ? (
           <div className="space-y-1">

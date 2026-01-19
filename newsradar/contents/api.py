@@ -139,6 +139,69 @@ def list_content(
     )
 
 
+@api.get("/topics/{topic_uuid}", response=ContentFeedResponse)
+def list_content_by_topic(
+    request,
+    topic_uuid: UUID,
+    limit: int = 50,
+    offset: int = 0,
+):
+    return list_content(
+        request,
+        topic_uuid=topic_uuid,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@api.get("/groups/{group_uuid}", response=ContentFeedResponse)
+def list_content_by_group(
+    request,
+    group_uuid: UUID,
+    limit: int = 50,
+    offset: int = 0,
+):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    queryset = Content.objects.filter(
+        execution__topic__user=request.user,
+        execution__topic__group__uuid=group_uuid,
+    )
+
+    bookmark_subquery = Bookmark.objects.filter(
+        user=request.user,
+        content_id=OuterRef("pk"),
+    )
+
+    contents = (
+        queryset.select_related("execution", "execution__topic")
+        .annotate(is_bookmarked=Exists(bookmark_subquery))
+        .order_by("-created_at", "-id")[offset : offset + limit]
+    )
+
+    return ContentFeedResponse(
+        items=[
+            ContentFeedItem(
+                id=content.id,
+                url=content.url,
+                title=content.title or "",
+                summary=_extract_summary(content.metadata),
+                source=content.normalized_domain(),
+                created_at=content.created_at,
+                published_at=_extract_published_at(content.metadata),
+                topic_uuid=content.execution.topic.uuid,
+                topic_queries=content.execution.topic.queries or [],
+                relevance_score=_extract_relevance_score(content.metadata),
+                is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
+            )
+            for content in contents
+        ]
+    )
+
+
 @api.get("/bookmarks", response=BookmarkListResponse)
 def list_bookmarks(request):
     if not request.user.is_authenticated:

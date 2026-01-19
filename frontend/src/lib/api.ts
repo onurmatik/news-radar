@@ -198,11 +198,31 @@ export async function listContentFeed(params?: {
   offset?: number;
 }): Promise<ApiContentFeedResponse> {
   const search = new URLSearchParams();
-  if (params?.topicUuid) search.set("topic_uuid", params.topicUuid);
   if (params?.limit) search.set("limit", String(params.limit));
   if (params?.offset) search.set("offset", String(params.offset));
   const query = search.toString();
+  if (params?.topicUuid) {
+    return requestJson<ApiContentFeedResponse>(
+      `/api/contents/topics/${params.topicUuid}${query ? `?${query}` : ""}`
+    );
+  }
   return requestJson<ApiContentFeedResponse>(`/api/contents/${query ? `?${query}` : ""}`);
+}
+
+export async function listContentByGroup(
+  groupUuid: string,
+  params?: {
+    limit?: number;
+    offset?: number;
+  }
+): Promise<ApiContentFeedResponse> {
+  const search = new URLSearchParams();
+  if (params?.limit) search.set("limit", String(params.limit));
+  if (params?.offset) search.set("offset", String(params.offset));
+  const query = search.toString();
+  return requestJson<ApiContentFeedResponse>(
+    `/api/contents/groups/${groupUuid}${query ? `?${query}` : ""}`
+  );
 }
 
 export async function runTopicScan(topicUuid: string): Promise<{
