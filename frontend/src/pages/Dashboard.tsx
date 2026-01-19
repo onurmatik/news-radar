@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { useAuthDialog } from '@/components/AuthDialogContext';
 import { useTopicGroup } from '@/components/TopicGroupContext';
@@ -530,12 +530,14 @@ export default function Dashboard() {
                           </div>
                         </div>
                         
-                        <h3 className="text-xl font-bold leading-tight group-hover:text-primary transition-colors cursor-pointer decoration-primary/30 decoration-2 underline-offset-4 hover:underline">
-                          {item.title}
-                        </h3>
-                        <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">
-                          {item.summary}
-                        </p>
+                        <Link to={`/content/${item.id}/full`} className="contents">
+                          <h3 className="text-xl font-bold leading-tight group-hover:text-primary transition-colors cursor-pointer decoration-primary/30 decoration-2 underline-offset-4 hover:underline">
+                            {item.title}
+                          </h3>
+                          <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">
+                            {item.summary}
+                          </p>
+                        </Link>
                         
                       </div>
                     </div>
