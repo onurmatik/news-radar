@@ -7,7 +7,7 @@ import { useTopics } from '@/components/TopicsContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { createBookmark, deleteBookmark, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
@@ -51,6 +51,9 @@ export default function Dashboard() {
   const [groupSaving, setGroupSaving] = useState(false);
   const [groupError, setGroupError] = useState<string | null>(null);
   const [apiPanelOpen, setApiPanelOpen] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareUrl, setShareUrl] = useState("");
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
 
   const selectedGroup = groups.find((group) => group.uuid === selectedGroupId) ?? null;
   const selectedTopic = selectedTopicUuid
@@ -72,6 +75,13 @@ export default function Dashboard() {
   const groupRssEndpoint = selectedGroupId
     ? `${apiBaseUrl}/contents/groups/${selectedGroupId}/rss`
     : null;
+
+  const buildShareUrl = (contentId: number) => {
+    if (typeof window === "undefined") {
+      return `#/content/${contentId}/full`;
+    }
+    return `${window.location.origin}${window.location.pathname}#/content/${contentId}/full`;
+  };
 
   const getSourceLabel = (item: ApiContentFeedItem) => {
     try {
@@ -196,6 +206,25 @@ export default function Dashboard() {
       return;
     }
     navigate('/topics');
+  };
+
+  const handleShare = (item: NewsItem) => {
+    const url = buildShareUrl(item.id);
+    setShareUrl(url);
+    setShareStatus(null);
+    setShareDialogOpen(true);
+  };
+
+  const handleCopyShare = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareStatus("Link copied to clipboard.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to copy the link.";
+      setShareStatus(message);
+    }
   };
 
   const handleFetchNow = async () => {
@@ -416,6 +445,34 @@ export default function Dashboard() {
           </DialogContent>
         </Dialog>
 
+        <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+          <DialogContent className="sm:max-w-[520px] border-border bg-background">
+            <DialogHeader className="space-y-2">
+              <DialogTitle className="text-xl font-semibold">Share content</DialogTitle>
+              <DialogDescription>
+                Copy the link to the full content detail view.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs font-mono text-foreground break-all">
+                {shareUrl || "Select a content item to share."}
+              </div>
+              {shareStatus && (
+                <p className="text-xs text-muted-foreground">{shareStatus}</p>
+              )}
+            </div>
+            <DialogFooter className="gap-2">
+              <Button
+                variant="outline"
+                onClick={() => void handleCopyShare()}
+                disabled={!shareUrl}
+              >
+                Copy link
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {contentViewMode === "read" ? (
           <div className="space-y-1">
             <AnimatePresence mode="popLayout">
@@ -452,8 +509,12 @@ export default function Dashboard() {
                              >
                                 <Star className={`h-3.5 w-3.5 ${item.isBookmarked ? 'fill-current' : ''}`} />
                              </Button>
-                             <Button size="icon" variant="ghost"
-                                     className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10">
+                             <Button
+                               size="icon"
+                               variant="ghost"
+                               className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
+                               onClick={() => handleShare(item)}
+                             >
                                 <Share2 className="h-3.5 w-3.5" />
                              </Button>
                              <Button

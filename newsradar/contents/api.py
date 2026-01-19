@@ -25,6 +25,16 @@ def _extract_summary(metadata: dict | None) -> str:
     return ""
 
 
+def _extract_full_content(metadata: dict | None) -> str:
+    if not isinstance(metadata, dict):
+        return ""
+    for key in ("content", "description", "summary", "snippet"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
 def _extract_published_at(metadata: dict | None) -> datetime | None:
     if not isinstance(metadata, dict):
         return None
@@ -112,6 +122,21 @@ class ContentFeedItem(Schema):
     is_bookmarked: bool
 
 
+class ContentDetailItem(Schema):
+    id: int
+    url: str
+    title: str
+    summary: str
+    content: str
+    source: str
+    created_at: datetime
+    published_at: datetime | None
+    topic_uuid: UUID
+    topic_queries: list[str]
+    relevance_score: float | None
+    is_bookmarked: bool
+
+
 class ContentFeedResponse(Schema):
     items: list[ContentFeedItem]
 
@@ -141,6 +166,81 @@ class BookmarkCreateResponse(Schema):
 
 class BookmarkDeleteResponse(Schema):
     deleted: bool
+
+
+@api.get("/items/{content_id}", response=ContentFeedItem)
+def get_content_item(request, content_id: int):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+
+    bookmark_subquery = Bookmark.objects.filter(
+        user=request.user,
+        content_id=OuterRef("pk"),
+    )
+
+    content = (
+        Content.objects.filter(
+            id=content_id,
+            execution__topic__user=request.user,
+        )
+        .select_related("execution", "execution__topic")
+        .annotate(is_bookmarked=Exists(bookmark_subquery))
+        .first()
+    )
+    if not content:
+        raise HttpError(404, "Content not found.")
+
+    return ContentFeedItem(
+        id=content.id,
+        url=content.url,
+        title=content.title or "",
+        summary=_extract_summary(content.metadata),
+        source=content.normalized_domain(),
+        created_at=content.created_at,
+        published_at=_extract_published_at(content.metadata),
+        topic_uuid=content.execution.topic.uuid,
+        topic_queries=content.execution.topic.queries or [],
+        relevance_score=_extract_relevance_score(content.metadata),
+        is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
+    )
+
+
+@api.get("/items/{content_id}/detail", response=ContentDetailItem)
+def get_content_detail(request, content_id: int):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+
+    bookmark_subquery = Bookmark.objects.filter(
+        user=request.user,
+        content_id=OuterRef("pk"),
+    )
+
+    content = (
+        Content.objects.filter(
+            id=content_id,
+            execution__topic__user=request.user,
+        )
+        .select_related("execution", "execution__topic")
+        .annotate(is_bookmarked=Exists(bookmark_subquery))
+        .first()
+    )
+    if not content:
+        raise HttpError(404, "Content not found.")
+
+    return ContentDetailItem(
+        id=content.id,
+        url=content.url,
+        title=content.title or "",
+        summary=_extract_summary(content.metadata),
+        content=_extract_full_content(content.metadata),
+        source=content.normalized_domain(),
+        created_at=content.created_at,
+        published_at=_extract_published_at(content.metadata),
+        topic_uuid=content.execution.topic.uuid,
+        topic_queries=content.execution.topic.queries or [],
+        relevance_score=_extract_relevance_score(content.metadata),
+        is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
+    )
 
 
 @api.get("/", response=ContentFeedResponse)

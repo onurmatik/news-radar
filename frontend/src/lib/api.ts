@@ -1,4 +1,6 @@
 import type {
+  ApiContentDetailItem,
+  ApiContentFeedItem,
   ApiContentFeedResponse,
   ApiCurrentUser,
   ApiTopicCreateResponse,
@@ -223,6 +225,14 @@ export async function listContentByGroup(
   return requestJson<ApiContentFeedResponse>(
     `/api/contents/groups/${groupUuid}${query ? `?${query}` : ""}`
   );
+}
+
+export async function getContentItem(contentId: number): Promise<ApiContentFeedItem> {
+  return requestJson<ApiContentFeedItem>(`/api/contents/items/${contentId}`);
+}
+
+export async function getContentDetail(contentId: number): Promise<ApiContentDetailItem> {
+  return requestJson<ApiContentDetailItem>(`/api/contents/items/${contentId}/detail`);
 }
 
 export async function runTopicScan(topicUuid: string): Promise<{

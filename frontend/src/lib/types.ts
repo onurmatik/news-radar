@@ -63,6 +63,10 @@ export interface ApiContentFeedItem {
   is_bookmarked: boolean;
 }
 
+export interface ApiContentDetailItem extends ApiContentFeedItem {
+  content: string;
+}
+
 export interface ApiContentFeedResponse {
   items: ApiContentFeedItem[];
 }
