@@ -531,7 +531,7 @@ export default function Dashboard() {
                         </div>
                         
                         <Link to={`/content/${item.id}/full`} className="contents">
-                          <h3 className="text-xl font-bold leading-tight group-hover:text-primary transition-colors cursor-pointer decoration-primary/30 decoration-2 underline-offset-4 hover:underline">
+                          <h3 className="text-xl font-bold leading-tight group-hover:text-primary transition-colors cursor-pointer">
                             {item.title}
                           </h3>
                           <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">
