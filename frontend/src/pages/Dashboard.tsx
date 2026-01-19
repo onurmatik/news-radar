@@ -7,6 +7,7 @@ import { useTopics } from '@/components/TopicsContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { createBookmark, deleteBookmark, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
@@ -64,6 +65,12 @@ export default function Dashboard() {
     : null;
   const groupEndpoint = selectedGroupId
     ? `${apiBaseUrl}/api/contents/groups/${selectedGroupId}`
+    : null;
+  const topicRssEndpoint = selectedTopicUuid
+    ? `${apiBaseUrl}/contents/topics/${selectedTopicUuid}/rss`
+    : null;
+  const groupRssEndpoint = selectedGroupId
+    ? `${apiBaseUrl}/contents/groups/${selectedGroupId}/rss`
     : null;
 
   const getSourceLabel = (item: ApiContentFeedItem) => {
@@ -323,25 +330,26 @@ export default function Dashboard() {
               size="sm"
               variant="outline"
               className="rounded-full px-5"
-              onClick={() => setApiPanelOpen((prev) => !prev)}
+              onClick={() => setApiPanelOpen(true)}
             >
               API
             </Button>
           </div>
         </div>
 
-        {apiPanelOpen && (
-          <Card className="border border-border/60 bg-card/40">
-            <CardContent className="space-y-4 p-6">
-              <div>
+        <Dialog open={apiPanelOpen} onOpenChange={setApiPanelOpen}>
+          <DialogContent className="sm:max-w-[680px] border-border bg-background">
+            <DialogHeader className="space-y-2">
+              <DialogTitle className="text-xl font-semibold">API & RSS</DialogTitle>
+              <DialogDescription>
+                Use these URLs to fetch content for the current selection.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-6">
+              <div className="space-y-3">
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
                   API endpoints
                 </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Use these URLs to fetch content for the current selection.
-                </p>
-              </div>
-              <div className="space-y-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Topic group content
@@ -371,9 +379,42 @@ export default function Dashboard() {
                   )}
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        )}
+              <div className="space-y-3">
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                  RSS feeds
+                </p>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Topic group RSS
+                  </p>
+                  {groupRssEndpoint ? (
+                    <div className="mt-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs font-mono text-foreground">
+                      {groupRssEndpoint}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Select a topic group to see the RSS feed.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Topic RSS
+                  </p>
+                  {topicRssEndpoint ? (
+                    <div className="mt-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs font-mono text-foreground">
+                      {topicRssEndpoint}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Select a topic to see the RSS feed.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {contentViewMode === "read" ? (
           <div className="space-y-1">

@@ -1,11 +1,16 @@
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
+from email.utils import format_datetime
 from uuid import UUID
+from xml.sax.saxutils import escape
 from django.db.models import Exists, OuterRef
+from django.http import HttpResponse
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 
 from newsradar.contents.models import Bookmark, Content
+from newsradar.topics.models import Topic, TopicGroup
 
 api = NinjaAPI(title="Contents API", urls_namespace="contents")
 
@@ -45,6 +50,52 @@ def _extract_relevance_score(metadata: dict | None) -> float | None:
             except ValueError:
                 continue
     return None
+
+
+def _format_rss_datetime(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    if timezone.is_naive(value):
+        value = timezone.make_aware(value, dt_timezone.utc)
+    return format_datetime(value)
+
+
+def _build_rss_feed(
+    *,
+    title: str,
+    link: str,
+    description: str,
+    contents: list[Content],
+) -> str:
+    items = []
+    for content in contents:
+        item_title = content.title or content.url
+        item_link = content.url
+        item_description = _extract_summary(content.metadata) or ""
+        published_at = _extract_published_at(content.metadata) or content.created_at
+        pub_date = _format_rss_datetime(published_at)
+        pub_date_xml = f"<pubDate>{escape(pub_date)}</pubDate>" if pub_date else ""
+        items.append(
+            "<item>"
+            f"<title>{escape(item_title)}</title>"
+            f"<link>{escape(item_link)}</link>"
+            f"<guid isPermaLink=\"true\">{escape(item_link)}</guid>"
+            f"<description>{escape(item_description)}</description>"
+            f"{pub_date_xml}"
+            "</item>"
+        )
+
+    return (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<rss version=\"2.0\">"
+        "<channel>"
+        f"<title>{escape(title)}</title>"
+        f"<link>{escape(link)}</link>"
+        f"<description>{escape(description)}</description>"
+        f"{''.join(items)}"
+        "</channel>"
+        "</rss>"
+    )
 
 
 class ContentFeedItem(Schema):
@@ -154,6 +205,43 @@ def list_content_by_topic(
     )
 
 
+@api.get("/topics/{topic_uuid}/rss")
+def list_content_by_topic_rss(
+    request,
+    topic_uuid: UUID,
+    limit: int = 50,
+    offset: int = 0,
+):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    topic = Topic.objects.filter(uuid=topic_uuid, user=request.user).first()
+    if not topic:
+        raise HttpError(404, "Topic not found.")
+
+    contents = (
+        Content.objects.filter(
+            execution__topic__user=request.user,
+            execution__topic__uuid=topic_uuid,
+        )
+        .select_related("execution", "execution__topic")
+        .order_by("-created_at", "-id")[offset : offset + limit]
+    )
+
+    title = f"NewsRadar Topic: {topic.primary_query or 'Topic'}"
+    link = request.build_absolute_uri()
+    description = f"Content feed for topic {topic.primary_query or topic.uuid}."
+    feed = _build_rss_feed(
+        title=title,
+        link=link,
+        description=description,
+        contents=list(contents),
+    )
+    return HttpResponse(feed, content_type="application/rss+xml")
+
+
 @api.get("/groups/{group_uuid}", response=ContentFeedResponse)
 def list_content_by_group(
     request,
@@ -200,6 +288,43 @@ def list_content_by_group(
             for content in contents
         ]
     )
+
+
+@api.get("/groups/{group_uuid}/rss")
+def list_content_by_group_rss(
+    request,
+    group_uuid: UUID,
+    limit: int = 50,
+    offset: int = 0,
+):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    group = TopicGroup.objects.filter(uuid=group_uuid, user=request.user).first()
+    if not group:
+        raise HttpError(404, "Topic group not found.")
+
+    contents = (
+        Content.objects.filter(
+            execution__topic__user=request.user,
+            execution__topic__group__uuid=group_uuid,
+        )
+        .select_related("execution", "execution__topic")
+        .order_by("-created_at", "-id")[offset : offset + limit]
+    )
+
+    title = f"NewsRadar Group: {group.name}"
+    link = request.build_absolute_uri()
+    description = f"Content feed for topic group {group.name}."
+    feed = _build_rss_feed(
+        title=title,
+        link=link,
+        description=description,
+        contents=list(contents),
+    )
+    return HttpResponse(feed, content_type="application/rss+xml")
 
 
 @api.get("/bookmarks", response=BookmarkListResponse)
