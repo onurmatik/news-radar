@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, formatDistanceToNowStrict } from 'date-fns';
 import { createTopicGroup, listTopicGroups, listTopics, runTopicScan, updateTopic } from '@/lib/api';
 import type { ApiTopicListItem, TopicItem } from '@/lib/types';
 import { AuthDialog } from '@/components/AuthDialog';
@@ -529,7 +529,7 @@ export function Layout({ children }: SidebarProps) {
                    className={cn(
                       "group flex flex-col gap-1.5 px-3 py-3 rounded-lg text-sm transition-all duration-200 cursor-pointer relative border border-transparent",
                       topic.uuid === selectedTopicUuid ? "bg-muted/50 border-border/60" : "",
-                      topic.isActive ? "hover:bg-muted/50 hover:border-border/50" : "opacity-40 grayscale"
+                      topic.isActive ? "hover:bg-muted/50 hover:border-border/50" : "bg-muted/20 border-border/40"
                    )}
                    onClick={() => {
                      setTopicMenuOpenId(null);
@@ -538,19 +538,36 @@ export function Layout({ children }: SidebarProps) {
                    }}
                 >
                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-foreground truncate max-w-[160px]">
+                      <span
+                        className={cn(
+                          "font-semibold text-foreground truncate max-w-[160px]",
+                          topic.isActive ? "" : "text-muted-foreground/70"
+                        )}
+                      >
                         {topic.term}
                       </span>
                       {topic.hasNewItems && (
-                         <span className="flex h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse"></span>
+                         <span
+                           className={cn(
+                             "flex h-1.5 w-1.5 rounded-full",
+                             topic.isActive
+                               ? "bg-primary shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse"
+                               : "bg-muted-foreground/40"
+                           )}
+                         ></span>
                       )}
                    </div>
                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-muted-foreground/60 font-mono tabular-nums">
+                      <span
+                        className={cn(
+                          "text-[10px] text-muted-foreground/60 font-mono tabular-nums",
+                          topic.isActive ? "" : "text-muted-foreground/50"
+                        )}
+                      >
                         {topic.lastSearch
-                          ? `Last scan ${formatDistanceToNow(topic.lastSearch, { addSuffix: true })}`
-                          : "Last scan never"}
-                        ; updated {formatRecency(topic.searchRecencyFilter)}
+                          ? `Scanned ${formatDistanceToNowStrict(topic.lastSearch, { addSuffix: true })}`
+                          : "Never scanned"}
+                        ; updates {formatRecency(topic.searchRecencyFilter)}
                       </span>
                       <div
                         className="relative"

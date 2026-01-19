@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { createBookmark, deleteBookmark, listContentFeed, updateTopicGroup } from '@/lib/api';
+import { createBookmark, deleteBookmark, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
 import { TopicForm } from '@/components/TopicForm';
 import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle } from 'lucide-react';
@@ -30,6 +30,7 @@ export default function Dashboard() {
     selectedGroupName,
     selectedGroupTopicCount,
     selectedTopicUuid,
+    setSelectedTopicUuid,
     contentViewMode,
     setContentViewMode,
     groups,
@@ -193,6 +194,27 @@ export default function Dashboard() {
     navigate('/topics');
   };
 
+  const handleFetchNow = async () => {
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
+    if (!selectedTopicUuid) {
+      void loadFeed();
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await runTopicScan(selectedTopicUuid);
+      await loadFeed();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to fetch content.";
+      setError(message);
+      setLoading(false);
+    }
+  };
+
   const handleViewModeChange = (mode: "read" | "edit") => {
     if (mode === contentViewMode) return;
     if (mode === "edit" && !isAuthenticated) {
@@ -257,7 +279,24 @@ export default function Dashboard() {
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 border-b border-border/50 pb-8">
           <div>
             <h2 className="text-4xl font-extrabold tracking-tight text-foreground">
-              {contentTitle}
+              {selectedTopic ? (
+                <span className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    className="text-foreground hover:text-primary transition-colors"
+                    onClick={() => {
+                      setSelectedTopicUuid(null);
+                      navigate('/');
+                    }}
+                  >
+                    {selectedGroupName}
+                  </button>
+                  <span className="text-muted-foreground/60">/</span>
+                  <span>{selectedTopic.term}</span>
+                </span>
+              ) : (
+                contentTitle
+              )}
             </h2>
             {error && (
               <p className="text-sm text-destructive mt-3">{error}</p>
@@ -365,22 +404,40 @@ export default function Dashboard() {
                      </div>
                   </div>
                   <h4 className="text-lg font-bold">
-                    {hasTopicsInGroup ? "No signals found" : "No topics created"}
+                    {hasTopicsInGroup
+                      ? selectedTopic
+                        ? "No content found"
+                        : "No signals found"
+                      : "No topics created"}
                   </h4>
                   <p className="text-sm text-muted-foreground mt-1 mb-6">
                     {hasTopicsInGroup
-                      ? "Adjust your filters or check back after the next scan."
+                      ? selectedTopic
+                        ? "Fetch now to populate this topic."
+                        : "Adjust your filters or check back after the next scan."
                       : "Create a topic to start monitoring this group."}
                   </p>
                   {hasTopicsInGroup ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setFilter("all")}
-                      className="rounded-full"
-                    >
-                      Clear all filters
-                    </Button>
+                    selectedTopic ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleFetchNow()}
+                        className="rounded-full"
+                        disabled={loading}
+                      >
+                        Fetch now
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setFilter("all")}
+                        className="rounded-full"
+                      >
+                        Clear all filters
+                      </Button>
+                    )
                   ) : (
                     <Button
                       variant="outline"
