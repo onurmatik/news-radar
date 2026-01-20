@@ -166,28 +166,47 @@ def execute_web_search(
         content_sources = _extract_content_sources(response_payload)
         content_items: list[Content] = []
         if content_sources:
-            unique_by_url: dict[str, dict] = {}
-            ordered_urls: list[str] = []
+            seen_entries: set[tuple[str, datetime | None, datetime | None]] = set()
+            ordered_entries: list[dict] = []
             for src in content_sources:
                 url = src["url"]
-                if url in unique_by_url:
+                date_value = src.get("date")
+                last_updated = src.get("last_updated")
+                entry_key = (url, date_value, last_updated)
+                if entry_key in seen_entries:
                     continue
-                unique_by_url[url] = src
-                ordered_urls.append(url)
+                seen_entries.add(entry_key)
+                ordered_entries.append(src)
 
-            content_items = Content.objects.bulk_create(
-                [
-                    Content(
-                        execution=execution,
-                        url=url,
-                        title=unique_by_url[url].get("title") or "",
-                        date=unique_by_url[url].get("date"),
-                        last_updated=unique_by_url[url].get("last_updated"),
-                        snippet=unique_by_url[url].get("snippet"),
-                    )
-                    for url in ordered_urls
-                ]
+            urls = {entry["url"] for entry in ordered_entries}
+            existing_entries = set(
+                Content.objects.filter(url__in=urls).values_list(
+                    "url",
+                    "date",
+                    "last_updated",
+                )
             )
+            new_entries = [
+                entry
+                for entry in ordered_entries
+                if (entry["url"], entry.get("date"), entry.get("last_updated"))
+                not in existing_entries
+            ]
+            if new_entries:
+                content_items = Content.objects.bulk_create(
+                    [
+                        Content(
+                            execution=execution,
+                            url=entry["url"],
+                            title=entry.get("title") or "",
+                            date=entry.get("date"),
+                            last_updated=entry.get("last_updated"),
+                            snippet=entry.get("snippet"),
+                        )
+                        for entry in new_entries
+                    ],
+                    ignore_conflicts=True,
+                )
 
         topic.last_fetched_at = timezone.now()
         topic.save(update_fields=["last_fetched_at"])
