@@ -4,7 +4,7 @@ import { Layout } from '@/components/Layout';
 import { useAuthDialog } from '@/components/AuthDialogContext';
 import { useTopicGroup } from '@/components/TopicGroupContext';
 import { useTopics } from '@/components/TopicsContext';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -32,8 +32,6 @@ export default function Dashboard() {
     selectedGroupTopicCount,
     selectedTopicUuid,
     setSelectedTopicUuid,
-    contentViewMode,
-    setContentViewMode,
     groups,
     setGroups,
   } = useTopicGroup();
@@ -54,6 +52,7 @@ export default function Dashboard() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [configDialogOpen, setConfigDialogOpen] = useState(false);
 
   const selectedGroup = groups.find((group) => group.uuid === selectedGroupId) ?? null;
   const selectedTopic = selectedTopicUuid
@@ -138,12 +137,6 @@ export default function Dashboard() {
     setGroupCountry(selectedGroup.default_country ?? "");
     setGroupError(null);
   }, [selectedGroup]);
-
-  useEffect(() => {
-    if (isAuthenticated === false && contentViewMode === "edit") {
-      setContentViewMode("read");
-    }
-  }, [contentViewMode, isAuthenticated, setContentViewMode]);
 
   const loadFeed = async () => {
     setLoading(true);
@@ -248,14 +241,6 @@ export default function Dashboard() {
     }
   };
 
-  const handleViewModeChange = (mode: "read" | "edit") => {
-    if (mode === contentViewMode) return;
-    if (mode === "edit" && !isAuthenticated) {
-      openAuthDialog();
-      return;
-    }
-    setContentViewMode(mode);
-  };
 
   const handleSaveGroup = async () => {
     if (!selectedGroup) return;
@@ -337,24 +322,6 @@ export default function Dashboard() {
           </div>
           
           <div className="flex flex-col sm:flex-row items-center gap-3">
-            <div className="flex items-center gap-1 rounded-full border border-border/60 bg-muted/30 p-1">
-              <Button
-                size="sm"
-                variant={contentViewMode === "read" ? "secondary" : "ghost"}
-                className="rounded-full px-4"
-                onClick={() => handleViewModeChange("read")}
-              >
-                Content
-              </Button>
-              <Button
-                size="sm"
-                variant={contentViewMode === "edit" ? "secondary" : "ghost"}
-                className="rounded-full px-4"
-                onClick={() => handleViewModeChange("edit")}
-              >
-                Config
-              </Button>
-            </div>
             <Button
               size="sm"
               variant="outline"
@@ -362,6 +329,20 @@ export default function Dashboard() {
               onClick={() => setApiPanelOpen(true)}
             >
               API
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="rounded-full px-5"
+              onClick={() => {
+                if (!isAuthenticated) {
+                  openAuthDialog();
+                  return;
+                }
+                setConfigDialogOpen(true);
+              }}
+            >
+              Config
             </Button>
           </div>
         </div>
@@ -473,8 +454,149 @@ export default function Dashboard() {
           </DialogContent>
         </Dialog>
 
-        {contentViewMode === "read" ? (
-          <div className="space-y-1">
+        <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
+          <DialogContent className="sm:max-w-[720px] border-border bg-background">
+            {selectedTopic ? (
+              <TopicForm
+                mode="edit"
+                topicUuid={selectedTopic.uuid}
+                onCancel={() => setConfigDialogOpen(false)}
+                onSaved={() => setConfigDialogOpen(false)}
+                className="border-none bg-transparent shadow-none"
+              />
+            ) : selectedGroup ? (
+              <Card className="border-none bg-transparent shadow-none">
+                <CardHeader>
+                  <CardTitle>Edit Topic Group</CardTitle>
+                  <CardDescription>
+                    Update default filters, visibility, and naming for this group.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Topic group name
+                    </label>
+                    <Input
+                      placeholder="Enter topic group name"
+                      value={groupName}
+                      onChange={(event) => setGroupName(event.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Default update frequency
+                      </label>
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        value={groupRecency}
+                        onChange={(event) =>
+                          setGroupRecency(event.target.value as typeof groupRecency)
+                        }
+                      >
+                        <option value="">Manual</option>
+                        <option value="day">Daily</option>
+                        <option value="week">Weekly</option>
+                        <option value="month">Monthly</option>
+                        <option value="year">Yearly</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Visibility
+                      </label>
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        value={groupIsPublic ? "public" : "private"}
+                        onChange={(event) => setGroupIsPublic(event.target.value === "public")}
+                      >
+                        <option value="private">Private</option>
+                        <option value="public">Public</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Default languages
+                      </label>
+                      <Input
+                        placeholder="en, fr, de"
+                        value={groupLanguageInput}
+                        onChange={(event) => setGroupLanguageInput(event.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Default country
+                      </label>
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        value={groupCountry}
+                        onChange={(event) => setGroupCountry(event.target.value)}
+                      >
+                        <option value="">All countries</option>
+                        <option value="AU">Australia</option>
+                        <option value="BR">Brazil</option>
+                        <option value="CA">Canada</option>
+                        <option value="CN">China</option>
+                        <option value="FR">France</option>
+                        <option value="DE">Germany</option>
+                        <option value="IN">India</option>
+                        <option value="IE">Ireland</option>
+                        <option value="IL">Israel</option>
+                        <option value="IT">Italy</option>
+                        <option value="JP">Japan</option>
+                        <option value="MX">Mexico</option>
+                        <option value="NL">Netherlands</option>
+                        <option value="NZ">New Zealand</option>
+                        <option value="NO">Norway</option>
+                        <option value="PL">Poland</option>
+                        <option value="SG">Singapore</option>
+                        <option value="ZA">South Africa</option>
+                        <option value="ES">Spain</option>
+                        <option value="SE">Sweden</option>
+                        <option value="CH">Switzerland</option>
+                        <option value="TR">Turkey</option>
+                        <option value="AE">United Arab Emirates</option>
+                        <option value="GB">United Kingdom</option>
+                        <option value="US">United States</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {groupError && (
+                    <p className="text-sm text-destructive">{groupError}</p>
+                  )}
+
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setConfigDialogOpen(false)}
+                    >
+                      Close
+                    </Button>
+                    <Button
+                      onClick={() => void handleSaveGroup()}
+                      disabled={groupSaving}
+                    >
+                      Save changes
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Select a topic group to update its configuration.
+              </p>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        <div className="space-y-1">
             <AnimatePresence mode="popLayout">
               {filteredNews.map((item, index) => (
                 <motion.div
@@ -605,126 +727,6 @@ export default function Dashboard() {
                </div>
             )}
           </div>
-        ) : (
-          <div className="space-y-6">
-            {selectedTopic ? (
-              <TopicForm mode="edit" topicUuid={selectedTopic.uuid} />
-            ) : selectedGroup ? (
-              <Card className="border border-border/60 bg-card/40">
-                <CardContent className="space-y-6 p-6">
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Topic group name
-                    </label>
-                    <Input
-                      value={groupName}
-                      onChange={(event) => setGroupName(event.target.value)}
-                      placeholder="Enter topic group name"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Default update frequency
-                      </label>
-                      <select
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        value={groupRecency}
-                        onChange={(event) =>
-                          setGroupRecency(event.target.value as "" | "day" | "week" | "month" | "year")
-                        }
-                      >
-                        <option value="">Manual</option>
-                        <option value="day">Daily</option>
-                        <option value="week">Weekly</option>
-                        <option value="month">Monthly</option>
-                        <option value="year">Yearly</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Visibility
-                      </label>
-                      <select
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        value={groupIsPublic ? "public" : "private"}
-                        onChange={(event) => setGroupIsPublic(event.target.value === "public")}
-                      >
-                        <option value="private">Private</option>
-                        <option value="public">Public</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Default languages
-                      </label>
-                      <Input
-                        value={groupLanguageInput}
-                        onChange={(event) => setGroupLanguageInput(event.target.value)}
-                        placeholder="en, fr, de"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Default country
-                      </label>
-                      <select
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        value={groupCountry}
-                        onChange={(event) => setGroupCountry(event.target.value)}
-                      >
-                        <option value="">All countries</option>
-                        <option value="AU">Australia</option>
-                        <option value="BR">Brazil</option>
-                        <option value="CA">Canada</option>
-                        <option value="CN">China</option>
-                        <option value="FR">France</option>
-                        <option value="DE">Germany</option>
-                        <option value="IN">India</option>
-                        <option value="IE">Ireland</option>
-                        <option value="IL">Israel</option>
-                        <option value="IT">Italy</option>
-                        <option value="JP">Japan</option>
-                        <option value="MX">Mexico</option>
-                        <option value="NL">Netherlands</option>
-                        <option value="NZ">New Zealand</option>
-                        <option value="NO">Norway</option>
-                        <option value="PL">Poland</option>
-                        <option value="SG">Singapore</option>
-                        <option value="ZA">South Africa</option>
-                        <option value="ES">Spain</option>
-                        <option value="SE">Sweden</option>
-                        <option value="CH">Switzerland</option>
-                        <option value="TR">Turkey</option>
-                        <option value="AE">United Arab Emirates</option>
-                        <option value="GB">United Kingdom</option>
-                        <option value="US">United States</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {groupError && (
-                    <p className="text-sm text-destructive">{groupError}</p>
-                  )}
-
-                  <div className="flex justify-end">
-                    <Button onClick={() => void handleSaveGroup()} disabled={groupSaving}>
-                      Save changes
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="text-sm text-muted-foreground">
-                No topic group selected.
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </Layout>
   );

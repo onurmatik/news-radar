@@ -32,6 +32,7 @@ export function TopicForm({
   const activeTopic = isEditing
     ? topics.find((entry) => entry.uuid === topicUuid) ?? null
     : null;
+  const [topicName, setTopicName] = useState("");
   const [queries, setQueries] = useState<string[]>([""]);
   const [domainInput, setDomainInput] = useState("");
   const [domainMode, setDomainMode] = useState<"allow" | "block">("allow");
@@ -65,6 +66,7 @@ export function TopicForm({
       .filter(Boolean);
 
   const resetForm = () => {
+    setTopicName("");
     setQueries([""]);
     setDomainInput("");
     setDomainMode("allow");
@@ -74,7 +76,9 @@ export function TopicForm({
   };
 
   const applyTopicToForm = (topic: TopicItem) => {
-    setQueries(topic.queries.length ? topic.queries : [""]);
+    setTopicName(topic.queries[0] ?? "");
+    const additionalQueries = topic.queries.slice(1);
+    setQueries(additionalQueries.length ? additionalQueries : [""]);
     if (topic.domainAllowlist?.length) {
       setDomainMode("allow");
       setDomainInput(topic.domainAllowlist.join(", "));
@@ -113,7 +117,9 @@ export function TopicForm({
   };
 
   const addTopic = async () => {
-    const normalizedQueries = queries.map((query) => query.trim()).filter(Boolean);
+    const normalizedQueries = [topicName, ...queries]
+      .map((query) => query.trim())
+      .filter(Boolean);
     if (!normalizedQueries.length) return;
     setError(null);
     setLoading(true);
@@ -141,7 +147,9 @@ export function TopicForm({
 
   const saveTopic = async () => {
     if (!topicUuid) return;
-    const normalizedQueries = queries.map((query) => query.trim()).filter(Boolean);
+    const normalizedQueries = [topicName, ...queries]
+      .map((query) => query.trim())
+      .filter(Boolean);
     if (!normalizedQueries.length) return;
     setError(null);
     setLoading(true);
@@ -190,8 +198,18 @@ export function TopicForm({
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Topic name
+            </label>
+            <Input
+              placeholder="Enter a topic name"
+              value={topicName}
+              onChange={(event) => setTopicName(event.target.value)}
+            />
+          </div>
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-foreground">Queries</p>
+            <p className="text-sm font-semibold text-foreground">Additional queries</p>
             <Button
               variant="outline"
               size="sm"
