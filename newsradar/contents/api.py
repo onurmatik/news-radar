@@ -5,7 +5,6 @@ from xml.sax.saxutils import escape
 from django.db.models import Exists, OuterRef
 from django.http import HttpResponse
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 
@@ -13,53 +12,6 @@ from newsradar.contents.models import Bookmark, Content
 from newsradar.topics.models import Topic, TopicGroup
 
 api = NinjaAPI(title="Contents API", urls_namespace="contents")
-
-
-def _extract_summary(metadata: dict | None) -> str:
-    if not isinstance(metadata, dict):
-        return ""
-    for key in ("summary", "snippet", "description", "content"):
-        value = metadata.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
-
-
-def _extract_full_content(metadata: dict | None) -> str:
-    if not isinstance(metadata, dict):
-        return ""
-    for key in ("content", "description", "summary", "snippet"):
-        value = metadata.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
-
-
-def _extract_published_at(metadata: dict | None) -> datetime | None:
-    if not isinstance(metadata, dict):
-        return None
-    for key in ("published_date", "published_at", "date", "published"):
-        value = metadata.get(key)
-        if isinstance(value, str):
-            parsed = parse_datetime(value)
-            if parsed:
-                return parsed
-    return None
-
-
-def _extract_relevance_score(metadata: dict | None) -> float | None:
-    if not isinstance(metadata, dict):
-        return None
-    for key in ("relevance_score", "score", "relevance"):
-        value = metadata.get(key)
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            try:
-                return float(value)
-            except ValueError:
-                continue
-    return None
 
 
 def _format_rss_datetime(value: datetime | None) -> str:
@@ -81,8 +33,8 @@ def _build_rss_feed(
     for content in contents:
         item_title = content.title or content.url
         item_link = content.url
-        item_description = _extract_summary(content.metadata) or ""
-        published_at = _extract_published_at(content.metadata) or content.created_at
+        item_description = (content.snippet or "").strip()
+        published_at = content.date or content.last_updated or content.created_at
         pub_date = _format_rss_datetime(published_at)
         pub_date_xml = f"<pubDate>{escape(pub_date)}</pubDate>" if pub_date else ""
         items.append(
@@ -194,13 +146,13 @@ def get_content_item(request, content_id: int):
         id=content.id,
         url=content.url,
         title=content.title or "",
-        summary=_extract_summary(content.metadata),
+        summary=(content.snippet or "").strip(),
         source=content.normalized_domain(),
         created_at=content.created_at,
-        published_at=_extract_published_at(content.metadata),
+        published_at=content.date or content.last_updated or content.created_at,
         topic_uuid=content.execution.topic.uuid,
         topic_queries=content.execution.topic.queries or [],
-        relevance_score=_extract_relevance_score(content.metadata),
+        relevance_score=None,
         is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
     )
 
@@ -231,14 +183,14 @@ def get_content_detail(request, content_id: int):
         id=content.id,
         url=content.url,
         title=content.title or "",
-        summary=_extract_summary(content.metadata),
-        content=_extract_full_content(content.metadata),
+        summary=(content.snippet or "").strip(),
+        content=(content.snippet or "").strip(),
         source=content.normalized_domain(),
         created_at=content.created_at,
-        published_at=_extract_published_at(content.metadata),
+        published_at=content.date or content.last_updated or content.created_at,
         topic_uuid=content.execution.topic.uuid,
         topic_queries=content.execution.topic.queries or [],
-        relevance_score=_extract_relevance_score(content.metadata),
+        relevance_score=None,
         is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
     )
 
@@ -276,13 +228,13 @@ def list_content(
                 id=content.id,
                 url=content.url,
                 title=content.title or "",
-                summary=_extract_summary(content.metadata),
+                summary=(content.snippet or "").strip(),
                 source=content.normalized_domain(),
                 created_at=content.created_at,
-                published_at=_extract_published_at(content.metadata),
+                published_at=content.date or content.last_updated or content.created_at,
                 topic_uuid=content.execution.topic.uuid,
                 topic_queries=content.execution.topic.queries or [],
-                relevance_score=_extract_relevance_score(content.metadata),
+                relevance_score=None,
                 is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
             )
             for content in contents
@@ -376,13 +328,13 @@ def list_content_by_group(
                 id=content.id,
                 url=content.url,
                 title=content.title or "",
-                summary=_extract_summary(content.metadata),
+                summary=(content.snippet or "").strip(),
                 source=content.normalized_domain(),
                 created_at=content.created_at,
-                published_at=_extract_published_at(content.metadata),
+                published_at=content.date or content.last_updated or content.created_at,
                 topic_uuid=content.execution.topic.uuid,
                 topic_queries=content.execution.topic.queries or [],
-                relevance_score=_extract_relevance_score(content.metadata),
+                relevance_score=None,
                 is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
             )
             for content in contents

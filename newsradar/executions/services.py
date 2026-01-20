@@ -1,8 +1,10 @@
 import uuid
+from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from django.conf import settings
+from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from perplexity import Perplexity
 
@@ -60,7 +62,8 @@ def _normalize_source_url(url: str) -> str:
 def _extract_content_sources(response_payload: dict) -> list[dict]:
     """
     Returns list of:
-      {"url": str, "title": str, "metadata": dict|None}
+      {"url": str, "title": str, "date": datetime|None,
+       "last_updated": datetime|None, "snippet": str}
     """
     if not response_payload:
         return []
@@ -70,6 +73,24 @@ def _extract_content_sources(response_payload: dict) -> list[dict]:
         return []
 
     sources: list[dict] = []
+    def extract_datetime(keys: tuple[str, ...], source: dict) -> datetime | None:
+        for key in keys:
+            value = source.get(key)
+            if isinstance(value, datetime):
+                return value
+            if isinstance(value, str):
+                parsed = parse_datetime(value)
+                if parsed:
+                    return parsed
+        return None
+
+    def extract_snippet(source: dict) -> str:
+        for key in ("snippet", "description", "content", "summary"):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
     for item in results:
         if not isinstance(item, dict):
             continue
@@ -77,17 +98,23 @@ def _extract_content_sources(response_payload: dict) -> list[dict]:
         if not url:
             continue
         title = item.get("title") or ""
-        metadata = {"provider": "perplexity"}
-        for k, v in item.items():
-            if k in {"url", "title"}:
-                continue
-            metadata[k] = v
+        date_value = extract_datetime(
+            ("published_date", "published_at", "date", "published"),
+            item,
+        )
+        last_updated_value = extract_datetime(
+            ("last_updated", "updated_at", "last_update"),
+            item,
+        )
+        snippet = extract_snippet(item)
 
         sources.append(
             {
                 "url": _normalize_source_url(url),
                 "title": title,
-                "metadata": metadata or None,
+                "date": date_value,
+                "last_updated": last_updated_value,
+                "snippet": snippet,
             }
         )
     return sources
@@ -154,7 +181,9 @@ def execute_web_search(
                         execution=execution,
                         url=url,
                         title=unique_by_url[url].get("title") or "",
-                        metadata=unique_by_url[url].get("metadata"),
+                        date=unique_by_url[url].get("date"),
+                        last_updated=unique_by_url[url].get("last_updated"),
+                        snippet=unique_by_url[url].get("snippet"),
                     )
                     for url in ordered_urls
                 ]

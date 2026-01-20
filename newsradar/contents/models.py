@@ -11,12 +11,11 @@ class Content(models.Model):
         related_name="content_items",
     )
 
-    title = models.CharField(max_length=2048, blank=True)
-
-    metadata = models.JSONField(blank=True, null=True)
     url = models.URLField(max_length=2048)
+    title = models.CharField(max_length=2048, blank=True)
     date = models.DateTimeField(blank=True, null=True)
     last_updated = models.DateTimeField(blank=True, null=True)
+    snippet = models.TextField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
