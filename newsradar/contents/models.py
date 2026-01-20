@@ -23,8 +23,8 @@ class Content(models.Model):
         ordering = ["-created_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["execution", "url", "last_updated"],
-                name="unique_execution_url",
+                fields=["url", "date", "last_updated"],
+                name="unique_content",
             )
         ]
 
