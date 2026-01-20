@@ -10,18 +10,21 @@ class Content(models.Model):
         on_delete=models.CASCADE,
         related_name="content_items",
     )
-    url = models.URLField(max_length=2048)
+
     title = models.CharField(max_length=2048, blank=True)
+
     metadata = models.JSONField(blank=True, null=True)
+    url = models.URLField(max_length=2048)
+    date = models.DateTimeField(blank=True, null=True)
+    last_updated = models.DateTimeField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ["-updated_at", "-created_at"]
+        ordering = ["-created_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["execution", "url"],
+                fields=["execution", "url", "last_updated"],
                 name="unique_execution_url",
             )
         ]
