@@ -20,6 +20,7 @@ class Execution(models.Model):
     )
 
     response_payload = models.JSONField(blank=True, null=True)
+    request_payload = models.JSONField(blank=True, null=True)
     initiator = models.CharField(
         max_length=20,
         choices=Initiator.choices,

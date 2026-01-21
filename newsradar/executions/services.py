@@ -153,6 +153,9 @@ def execute_web_search(
         )
     try:
         payload = _build_perplexity_search_payload(topic, search_query)
+        execution.request_payload = payload
+        execution.save(update_fields=["request_payload"])
+
         client = Perplexity()
         response_obj = client.search.create(
             **payload,
@@ -165,6 +168,7 @@ def execute_web_search(
         execution.error_message = None
         execution.save(
             update_fields=[
+                "request_payload",
                 "response_payload",
                 "status",
                 "error_message",
