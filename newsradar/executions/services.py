@@ -121,6 +121,7 @@ def _extract_content_sources(response_payload: dict) -> list[dict]:
 def execute_web_search(
     topic_uuid: str | uuid.UUID,
     initiator: str = Execution.Initiator.USER,
+    execution_id: int | None = None,
 ) -> dict:
     if isinstance(topic_uuid, str):
         try:
@@ -131,16 +132,25 @@ def execute_web_search(
     if not topic:
         raise ValueError("Topic not found for UUID.")
 
+    execution = None
+    if execution_id is not None:
+        execution = Execution.objects.filter(id=execution_id).first()
+        if not execution:
+            raise ValueError("Execution not found.")
+        if execution.topic_id != topic.id:
+            raise ValueError("Execution does not match topic.")
+
     queries = [query for query in (topic.queries or []) if query][:5]
     if not queries:
         raise ValueError("Topic queries are required for web search.")
     search_query: str | list[str] = queries[0] if len(queries) == 1 else queries
 
-    execution = Execution.objects.create(
-        topic=topic,
-        initiator=initiator,
-        status=Execution.Status.RUNNING,
-    )
+    if execution is None:
+        execution = Execution.objects.create(
+            topic=topic,
+            initiator=initiator,
+            status=Execution.Status.RUNNING,
+        )
     try:
         payload = _build_perplexity_search_payload(topic, search_query)
         client = Perplexity()

@@ -7,5 +7,10 @@ from newsradar.executions.services import execute_web_search
 def web_search_execution(
     topic_uuid: str,
     initiator: str = "user",
+    execution_id: int | None = None,
 ) -> dict:
-    return execute_web_search(topic_uuid, initiator=initiator)
+    return execute_web_search(
+        topic_uuid,
+        initiator=initiator,
+        execution_id=execution_id,
+    )

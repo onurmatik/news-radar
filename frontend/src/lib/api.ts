@@ -239,9 +239,7 @@ export async function getContentDetail(contentId: number): Promise<ApiContentDet
 
 export async function runTopicScan(topicUuid: string): Promise<{
   execution_id: number;
-  content_item_id: number | null;
-  initiator: string;
-  response: Record<string, unknown>;
+  task_id: string;
 }> {
   return requestJson("/api/executions/web-search", {
     method: "POST",
