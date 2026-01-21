@@ -1,12 +1,13 @@
 import React from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { useTopicGroup } from '@/components/TopicGroupContext';
 import { TopicForm } from '@/components/TopicForm';
 
 export default function Topics() {
-  const { selectedGroupName } = useTopicGroup();
+  const { selectedGroupName, setSelectedTopicUuid } = useTopicGroup();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const editingTopicId = searchParams.get("edit");
   const mode = editingTopicId ? "edit" : "create";
 
@@ -14,6 +15,11 @@ export default function Topics() {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("edit");
     setSearchParams(nextParams);
+  };
+
+  const closeCreateMode = () => {
+    setSelectedTopicUuid(null);
+    navigate('/');
   };
 
   return (
@@ -27,7 +33,7 @@ export default function Topics() {
         <TopicForm
           mode={mode}
           topicUuid={editingTopicId}
-          onCancel={mode === "edit" ? clearEditMode : undefined}
+          onCancel={mode === "edit" ? clearEditMode : closeCreateMode}
           onSaved={(topic, savedMode) => {
             if (savedMode === "edit") {
               clearEditMode();
