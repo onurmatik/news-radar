@@ -154,6 +154,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@newsradar.local")
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "")
 LOGIN_REDIRECT_URL = os.getenv("LOGIN_REDIRECT_URL", "/")
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.smtp.EmailBackend",
+)
 if DEBUG:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
