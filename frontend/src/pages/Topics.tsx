@@ -37,7 +37,10 @@ export default function Topics() {
           onSaved={(topic, savedMode) => {
             if (savedMode === "edit") {
               clearEditMode();
+              return;
             }
+            setSelectedTopicUuid(topic.uuid);
+            navigate('/');
           }}
         />
       </div>

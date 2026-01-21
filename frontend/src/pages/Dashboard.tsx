@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { useAuthDialog } from '@/components/AuthDialogContext';
@@ -55,6 +55,9 @@ export default function Dashboard() {
   const [shareUrl, setShareUrl] = useState("");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const feedCache = useRef<Map<string, NewsItem[]>>(new Map());
+  const latestRequestId = useRef(0);
+  const pageTopRef = useRef<HTMLDivElement | null>(null);
 
   const selectedGroup = groups.find((group) => group.uuid === selectedGroupId) ?? null;
   const selectedTopic = selectedTopicUuid
@@ -140,7 +143,8 @@ export default function Dashboard() {
     setGroupError(null);
   }, [selectedGroup]);
 
-  const loadFeed = async () => {
+  const loadFeed = async (cacheKey: string) => {
+    const requestId = ++latestRequestId.current;
     setLoading(true);
     setError(null);
     try {
@@ -149,26 +153,46 @@ export default function Dashboard() {
         : selectedGroupId
           ? await listContentByGroup(selectedGroupId)
           : await listContentFeed();
-      setNews(response.items.map(mapNewsItem));
+      if (requestId !== latestRequestId.current) return;
+      const mapped = response.items.map(mapNewsItem);
+      feedCache.current.set(cacheKey, mapped);
+      setNews(mapped);
     } catch (error) {
+      if (requestId !== latestRequestId.current) return;
       const message = error instanceof Error ? error.message : "Unable to load feed.";
       setError(message);
       setNews([]);
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestId.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     if (isAuthenticated) {
-      setNews([]);
+      const cacheKey = selectedTopicUuid
+        ? `topic:${selectedTopicUuid}`
+        : selectedGroupId
+          ? `group:${selectedGroupId}`
+          : "all";
+      const cached = feedCache.current.get(cacheKey);
+      if (cached) {
+        setNews(cached);
+      } else {
+        setNews([]);
+      }
       setError(null);
-      void loadFeed();
+      void loadFeed(cacheKey);
     } else if (isAuthenticated === false) {
       setNews([]);
       setLoading(false);
     }
   }, [isAuthenticated, selectedGroupId, selectedTopicUuid]);
+
+  useEffect(() => {
+    pageTopRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
+  }, [selectedGroupId, selectedTopicUuid]);
 
   const toggleBookmark = async (item: NewsItem) => {
     const nextValue = !item.isBookmarked;
@@ -229,15 +253,20 @@ export default function Dashboard() {
       openAuthDialog();
       return;
     }
+    const cacheKey = selectedTopicUuid
+      ? `topic:${selectedTopicUuid}`
+      : selectedGroupId
+        ? `group:${selectedGroupId}`
+        : "all";
     if (!selectedTopicUuid) {
-      void loadFeed();
+      void loadFeed(cacheKey);
       return;
     }
     setLoading(true);
     setError(null);
     try {
       await runTopicScan(selectedTopicUuid);
-      await loadFeed();
+      await loadFeed(cacheKey);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to fetch content.";
       setError(message);
@@ -295,7 +324,7 @@ export default function Dashboard() {
 
   return (
     <Layout>
-      <div className="mx-auto space-y-3 p-4 md:p-6 lg:p-10">
+      <div className="mx-auto space-y-3 p-4 md:p-6 lg:p-10" ref={pageTopRef}>
         
         {/* Dashboard Header Area */}
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 border-b border-border/50 pb-8">
