@@ -126,11 +126,22 @@ export default function ContentFullDetail() {
     }
   };
 
+  const handleBack = () => {
+    if (item) {
+      setSelectedTopicUuid(item.topic_uuid);
+      const match = topics.find((topic) => topic.uuid === item.topic_uuid);
+      if (match?.groupUuid) {
+        setSelectedGroupId(match.groupUuid);
+      }
+    }
+    navigate('/');
+  };
+
   return (
     <Layout>
       <div className="mx-auto space-y-6 p-4 md:p-6 lg:p-10">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
+          <Button variant="ghost" size="sm" onClick={handleBack}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
           </Button>

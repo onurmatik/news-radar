@@ -44,8 +44,8 @@ export default function Dashboard() {
   const [groupName, setGroupName] = useState("");
   const [groupIsPublic, setGroupIsPublic] = useState(false);
   const [groupUpdateFrequency, setGroupUpdateFrequency] = useState<
-    "" | "day" | "week" | "manual"
-  >("");
+    "day" | "week" | "manual"
+  >("manual");
   const [groupLanguageInput, setGroupLanguageInput] = useState("");
   const [groupCountry, setGroupCountry] = useState("");
   const [groupSaving, setGroupSaving] = useState(false);
@@ -126,7 +126,7 @@ export default function Dashboard() {
     if (!selectedGroup) {
       setGroupName("");
       setGroupIsPublic(false);
-      setGroupUpdateFrequency("");
+      setGroupUpdateFrequency("manual");
       setGroupLanguageInput("");
       setGroupCountry("");
       setGroupError(null);
@@ -134,7 +134,7 @@ export default function Dashboard() {
     }
     setGroupName(selectedGroup.name ?? "");
     setGroupIsPublic(selectedGroup.is_public);
-    setGroupUpdateFrequency(selectedGroup.default_update_frequency ?? "");
+    setGroupUpdateFrequency(selectedGroup.default_update_frequency ?? "manual");
     setGroupLanguageInput(selectedGroup.default_search_language_filter?.join(", ") ?? "");
     setGroupCountry(selectedGroup.default_country ?? "");
     setGroupError(null);
@@ -161,6 +161,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (isAuthenticated) {
+      setNews([]);
+      setError(null);
       void loadFeed();
     } else if (isAuthenticated === false) {
       setNews([]);
@@ -262,7 +264,7 @@ export default function Dashboard() {
       await updateTopicGroup(selectedGroup.uuid, {
         name: trimmedName,
         isPublic: groupIsPublic,
-        defaultUpdateFrequency: groupUpdateFrequency || null,
+        defaultUpdateFrequency: groupUpdateFrequency,
         defaultLanguageFilter: normalizedLanguages.length ? normalizedLanguages : null,
         defaultCountry: groupCountry || null,
       });
@@ -273,7 +275,7 @@ export default function Dashboard() {
                 ...group,
                 name: trimmedName,
                 is_public: groupIsPublic,
-                default_update_frequency: groupUpdateFrequency || null,
+                default_update_frequency: groupUpdateFrequency,
                 default_search_language_filter: normalizedLanguages.length
                   ? normalizedLanguages
                   : null,
@@ -498,11 +500,9 @@ export default function Dashboard() {
                           setGroupUpdateFrequency(event.target.value as typeof groupUpdateFrequency)
                         }
                       >
-                        <option value="">Manual</option>
+                        <option value="manual">Manual</option>
                         <option value="day">Daily</option>
                         <option value="week">Weekly</option>
-                        <option value="month">Monthly</option>
-                        <option value="year">Yearly</option>
                       </select>
                     </div>
                     <div className="space-y-2">

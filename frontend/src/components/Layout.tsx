@@ -124,11 +124,11 @@ export function Layout({ children }: SidebarProps) {
     }
   }, [isAuthenticated]);
 
-  useEffect(() => {
-    if (selectedGroupId) {
-      setSelectedTopicUuid(null);
-    }
-  }, [selectedGroupId, setSelectedTopicUuid]);
+  const handleGroupChange = (groupId: string) => {
+    setSelectedGroupId(groupId);
+    setSelectedTopicUuid(null);
+    navigate('/');
+  };
 
   useEffect(() => {
     if (isAuthenticated !== false) return;
@@ -456,7 +456,7 @@ export function Layout({ children }: SidebarProps) {
           <div className="p-4 border-b border-border bg-background/50">
              <Select
                value={selectedGroupId || undefined}
-               onValueChange={setSelectedGroupId}
+               onValueChange={handleGroupChange}
              >
                 <SelectTrigger className="w-full bg-muted/30 border-border/50 text-xs h-9 rounded-none font-bold tracking-widest">
                   <SelectValue placeholder="Select group" />
