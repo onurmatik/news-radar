@@ -7,7 +7,7 @@ from ninja.errors import HttpError
 
 from newsradar.contents.models import Content
 from newsradar.executions.models import Execution
-from newsradar.executions.services import execute_web_search
+from newsradar.executions.tasks import web_search_execution as web_search_execution_task
 from newsradar.topics.models import Topic
 
 api = NinjaAPI(title="Executions API", urls_namespace="executions")
@@ -20,9 +20,7 @@ class WebSearchExecutionRequest(Schema):
 
 class WebSearchExecutionResponse(Schema):
     execution_id: int
-    content_item_id: int | None
-    initiator: str
-    response: dict[str, Any]
+    task_id: str
 
 
 class ExecutionListItem(Schema):
@@ -95,15 +93,18 @@ def web_search_execution(request, payload: WebSearchExecutionRequest):
     topic = Topic.objects.filter(uuid=payload.topic_uuid, user=request.user).first()
     if not topic:
         raise HttpError(404, "Topic not found for UUID.")
-    try:
-        result = execute_web_search(
-            payload.topic_uuid,
-            initiator=payload.initiator,
-        )
-    except ValueError as exc:
-        raise HttpError(404, str(exc)) from exc
+    execution = Execution.objects.create(
+        topic=topic,
+        initiator=payload.initiator,
+        status=Execution.Status.RUNNING,
+    )
+    async_result = web_search_execution_task.delay(
+        str(topic.uuid),
+        initiator=payload.initiator,
+        execution_id=execution.id,
+    )
 
     return WebSearchExecutionResponse(
-        **result,
-        initiator=payload.initiator,
+        execution_id=execution.id,
+        task_id=async_result.id,
     )
