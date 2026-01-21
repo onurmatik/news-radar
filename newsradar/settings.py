@@ -55,6 +55,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
+    'sesame',
+
     "newsradar.accounts",
     "newsradar.topics",
     "newsradar.contents",
