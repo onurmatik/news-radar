@@ -21,3 +21,5 @@ sqlparse
 gunicorn
 fabric
 PyJWT
+boto3
+requests
