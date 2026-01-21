@@ -180,7 +180,7 @@ def execute_web_search(
 
             urls = {entry["url"] for entry in ordered_entries}
             existing_entries = set(
-                Content.objects.filter(url__in=urls).values_list(
+                Content.objects.filter(url__in=urls, topic=topic).values_list(
                     "url",
                     "date",
                     "last_updated",
@@ -197,6 +197,7 @@ def execute_web_search(
                     [
                         Content(
                             execution=execution,
+                            topic=topic,
                             url=entry["url"],
                             title=entry.get("title") or "",
                             date=entry.get("date"),
