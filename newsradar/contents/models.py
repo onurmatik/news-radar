@@ -11,6 +11,13 @@ class Content(models.Model):
         related_name="content_items",
     )
 
+    # de-normalization for the unique constraint
+    topic = models.ForeignKey(
+        "topics.Topic",
+        on_delete=models.CASCADE,
+        related_name="content_items",
+    )
+
     url = models.URLField(max_length=2048)
     title = models.CharField(max_length=2048, blank=True)
     date = models.DateTimeField(blank=True, null=True)
@@ -23,7 +30,7 @@ class Content(models.Model):
         ordering = ["-created_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["url", "date", "last_updated"],
+                fields=["url", "date", "last_updated", "topic"],
                 name="unique_content",
             )
         ]
