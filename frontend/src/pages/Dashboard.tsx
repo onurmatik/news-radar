@@ -43,7 +43,9 @@ export default function Dashboard() {
   const [filter, setFilter] = useState("all");
   const [groupName, setGroupName] = useState("");
   const [groupIsPublic, setGroupIsPublic] = useState(false);
-  const [groupRecency, setGroupRecency] = useState<"" | "day" | "week" | "month" | "year">("");
+  const [groupUpdateFrequency, setGroupUpdateFrequency] = useState<
+    "" | "day" | "week" | "manual"
+  >("");
   const [groupLanguageInput, setGroupLanguageInput] = useState("");
   const [groupCountry, setGroupCountry] = useState("");
   const [groupSaving, setGroupSaving] = useState(false);
@@ -124,7 +126,7 @@ export default function Dashboard() {
     if (!selectedGroup) {
       setGroupName("");
       setGroupIsPublic(false);
-      setGroupRecency("");
+      setGroupUpdateFrequency("");
       setGroupLanguageInput("");
       setGroupCountry("");
       setGroupError(null);
@@ -132,7 +134,7 @@ export default function Dashboard() {
     }
     setGroupName(selectedGroup.name ?? "");
     setGroupIsPublic(selectedGroup.is_public);
-    setGroupRecency(selectedGroup.default_search_recency_filter ?? "");
+    setGroupUpdateFrequency(selectedGroup.default_update_frequency ?? "");
     setGroupLanguageInput(selectedGroup.default_search_language_filter?.join(", ") ?? "");
     setGroupCountry(selectedGroup.default_country ?? "");
     setGroupError(null);
@@ -260,7 +262,7 @@ export default function Dashboard() {
       await updateTopicGroup(selectedGroup.uuid, {
         name: trimmedName,
         isPublic: groupIsPublic,
-        defaultRecencyFilter: groupRecency || null,
+        defaultUpdateFrequency: groupUpdateFrequency || null,
         defaultLanguageFilter: normalizedLanguages.length ? normalizedLanguages : null,
         defaultCountry: groupCountry || null,
       });
@@ -271,7 +273,7 @@ export default function Dashboard() {
                 ...group,
                 name: trimmedName,
                 is_public: groupIsPublic,
-                default_search_recency_filter: groupRecency || null,
+                default_update_frequency: groupUpdateFrequency || null,
                 default_search_language_filter: normalizedLanguages.length
                   ? normalizedLanguages
                   : null,
@@ -491,9 +493,9 @@ export default function Dashboard() {
                       </label>
                       <select
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        value={groupRecency}
+                        value={groupUpdateFrequency}
                         onChange={(event) =>
-                          setGroupRecency(event.target.value as typeof groupRecency)
+                          setGroupUpdateFrequency(event.target.value as typeof groupUpdateFrequency)
                         }
                       >
                         <option value="">Manual</option>

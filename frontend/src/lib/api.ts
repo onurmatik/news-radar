@@ -92,6 +92,7 @@ export async function createTopic(
     domainBlocklist?: string[] | null;
     languageFilter?: string[] | null;
     country?: string | null;
+    updateFrequency?: "day" | "week" | "manual" | null;
   }
 ): Promise<ApiTopicCreateResponse> {
   return requestJson<ApiTopicCreateResponse>("/api/topics/", {
@@ -103,6 +104,7 @@ export async function createTopic(
       search_domain_blocklist: options?.domainBlocklist ?? null,
       search_language_filter: options?.languageFilter ?? null,
       country: options?.country ?? null,
+      update_frequency: options?.updateFrequency ?? null,
     }),
   });
 }
@@ -116,7 +118,7 @@ export async function updateTopic(
     domainBlocklist?: string[] | null;
     languageFilter?: string[] | null;
     country?: string | null;
-    searchRecencyFilter?: string | null;
+    updateFrequency?: "day" | "week" | "manual" | null;
   }
 ): Promise<ApiTopicListItem> {
   return requestJson<ApiTopicListItem>(`/api/topics/${uuid}`, {
@@ -128,7 +130,7 @@ export async function updateTopic(
       search_domain_blocklist: payload.domainBlocklist ?? null,
       search_language_filter: payload.languageFilter ?? null,
       country: payload.country ?? null,
-      search_recency_filter: payload.searchRecencyFilter ?? null,
+      update_frequency: payload.updateFrequency ?? null,
     }),
   });
 }
@@ -147,7 +149,7 @@ export async function createTopicGroup(payload: {
   name: string;
   description?: string;
   isPublic?: boolean;
-  defaultRecencyFilter?: "day" | "week" | "month" | "year" | null;
+  defaultUpdateFrequency?: "day" | "week" | "manual" | null;
   defaultLanguageFilter?: string[] | null;
   defaultCountry?: string | null;
 }): Promise<ApiTopicGroupCreateResponse> {
@@ -157,7 +159,7 @@ export async function createTopicGroup(payload: {
       name: payload.name,
       description: payload.description ?? "",
       is_public: payload.isPublic ?? false,
-      default_search_recency_filter: payload.defaultRecencyFilter ?? null,
+      default_update_frequency: payload.defaultUpdateFrequency ?? null,
       default_search_language_filter: payload.defaultLanguageFilter ?? null,
       default_country: payload.defaultCountry ?? null,
     }),
@@ -170,7 +172,7 @@ export async function updateTopicGroup(
     name?: string;
     description?: string;
     isPublic?: boolean;
-    defaultRecencyFilter?: "day" | "week" | "month" | "year" | null;
+    defaultUpdateFrequency?: "day" | "week" | "manual" | null;
     defaultLanguageFilter?: string[] | null;
     defaultCountry?: string | null;
   }
@@ -181,7 +183,7 @@ export async function updateTopicGroup(
       name: payload.name,
       description: payload.description,
       is_public: payload.isPublic,
-      default_search_recency_filter: payload.defaultRecencyFilter ?? null,
+      default_update_frequency: payload.defaultUpdateFrequency ?? null,
       default_search_language_filter: payload.defaultLanguageFilter ?? null,
       default_country: payload.defaultCountry ?? null,
     }),

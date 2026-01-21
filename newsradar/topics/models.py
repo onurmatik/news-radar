@@ -61,6 +61,16 @@ class Topic(models.Model):
         blank=True,
     )
     is_active = models.BooleanField(default=True)
+    update_frequency = models.CharField(
+        max_length=6,
+        choices=[
+            ("day", "day"),
+            ("week", "week"),
+            ("manual", "manual"),
+        ],
+        default="manual",
+    )
+
     queries = models.JSONField(
         default=list,
         validators=[validate_topic_queries],
@@ -81,18 +91,6 @@ class Topic(models.Model):
         validators=[validate_language_filter],
     )
     country = models.CharField(max_length=2, blank=True, null=True)
-    search_recency_filter = models.CharField(
-        max_length=5,
-        blank=True,
-        null=True,
-        choices=[
-            ("day", "day"),
-            ("week", "week"),
-            ("month", "month"),
-            ("year", "year"),
-        ],
-        default="day",
-    )
     search_after_date = models.DateField(blank=True, null=True)
     search_before_date = models.DateField(blank=True, null=True)
     last_updated_after_filter = models.DateField(blank=True, null=True)
@@ -177,15 +175,14 @@ class TopicGroup(models.Model):
     name = models.CharField(max_length=120)
     description = models.TextField(blank=True)
     is_public = models.BooleanField(default=False)
-    default_search_recency_filter = models.CharField(
-        max_length=5,
+    default_update_frequency = models.CharField(
+        max_length=6,
         blank=True,
         null=True,
         choices=[
             ("day", "day"),
             ("week", "week"),
-            ("month", "month"),
-            ("year", "year"),
+            ("manual", "manual"),
         ],
     )
     default_search_language_filter = models.JSONField(

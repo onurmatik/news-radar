@@ -56,7 +56,7 @@ export function TopicForm({
     domainBlocklist: topic.search_domain_blocklist,
     languageFilter: topic.search_language_filter,
     country: topic.country,
-    searchRecencyFilter: topic.search_recency_filter,
+    updateFrequency: topic.update_frequency,
   });
 
   const parseCommaList = (value: string) =>

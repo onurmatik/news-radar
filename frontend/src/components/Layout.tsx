@@ -85,7 +85,7 @@ export function Layout({ children }: SidebarProps) {
     domainBlocklist: topic.search_domain_blocklist,
     languageFilter: topic.search_language_filter,
     country: topic.country,
-    searchRecencyFilter: topic.search_recency_filter,
+    updateFrequency: topic.update_frequency,
   });
 
   const loadTopics = async (groupUuid?: string | null) => {
@@ -297,16 +297,12 @@ export function Layout({ children }: SidebarProps) {
     navigate(`/topics?edit=${topic.uuid}`);
   };
 
-  const formatRecency = (value: TopicItem["searchRecencyFilter"]) => {
+  const formatRecency = (value: TopicItem["updateFrequency"]) => {
     switch (value) {
       case "day":
         return "daily";
       case "week":
         return "weekly";
-      case "month":
-        return "monthly";
-      case "year":
-        return "yearly";
       default:
         return "manually";
     }
@@ -327,9 +323,9 @@ export function Layout({ children }: SidebarProps) {
     }
   };
 
-  const handleTopicRecency = async (
+  const handleTopicFrequency = async (
     topic: TopicItem,
-    recency: TopicItem["searchRecencyFilter"]
+    frequency: TopicItem["updateFrequency"]
   ) => {
     if (!requireAuth()) {
       return;
@@ -337,7 +333,7 @@ export function Layout({ children }: SidebarProps) {
     setTopicsError(null);
     try {
       const updated = await updateTopic(topic.uuid, {
-        searchRecencyFilter: recency,
+        updateFrequency: frequency,
         isActive: true,
       });
       const mapped = toTopicItem(updated);
@@ -567,7 +563,7 @@ export function Layout({ children }: SidebarProps) {
                         {topic.lastSearch
                           ? `Scanned ${formatDistanceToNowStrict(topic.lastSearch, { addSuffix: true })}`
                           : "Never scanned"}
-                        ; updates {formatRecency(topic.searchRecencyFilter)}
+                        ; updates {formatRecency(topic.updateFrequency)}
                       </span>
                       <div
                         className="relative"
@@ -606,23 +602,24 @@ export function Layout({ children }: SidebarProps) {
                             </button>
                             <button
                               className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
-                              onClick={() => void handleTopicRecency(topic, "day")}
+                              onClick={() => void handleTopicFrequency(topic, "day")}
                               type="button"
                             >
                               Daily
                             </button>
                             <button
                               className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
-                              onClick={() => void handleTopicRecency(topic, "week")}
+                              onClick={() => void handleTopicFrequency(topic, "week")}
                               type="button"
                             >
                               Weekly
                             </button>
                             <button
                               className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
-                              onClick={() => void handleTopicRecency(topic, null)}
+                              onClick={() => void handleTopicFrequency(topic, "manual")}
                               type="button"
                             >
+
                               Manually
                             </button>
                             <div className="h-px bg-border/70 my-2" />

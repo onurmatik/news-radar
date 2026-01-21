@@ -29,8 +29,6 @@ def _build_perplexity_search_payload(topic: Topic, prompt: str) -> dict[str, Any
         payload["search_language_filter"] = topic.search_language_filter
     if topic.country:
         payload["country"] = topic.country
-    if topic.search_recency_filter:
-        payload["search_recency_filter"] = topic.search_recency_filter
     if topic.search_after_date:
         payload["search_after_date"] = topic.search_after_date.strftime("%m/%d/%Y")
     if topic.search_before_date:

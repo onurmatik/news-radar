@@ -11,7 +11,7 @@ export interface ApiTopicListItem {
   search_domain_blocklist: string[] | null;
   search_language_filter: string[] | null;
   country: string | null;
-  search_recency_filter: "day" | "week" | "month" | "year" | null;
+  update_frequency: "day" | "week" | "manual";
 }
 
 export interface ApiTopicListResponse {
@@ -28,7 +28,7 @@ export interface ApiTopicGroupItem {
   name: string;
   description: string;
   is_public: boolean;
-  default_search_recency_filter: "day" | "week" | "month" | "year" | null;
+  default_update_frequency: "day" | "week" | "manual" | null;
   default_search_language_filter: string[] | null;
   default_country: string | null;
   created_at: string;
@@ -86,7 +86,7 @@ export interface TopicItem {
   domainBlocklist: string[] | null;
   languageFilter: string[] | null;
   country: string | null;
-  searchRecencyFilter: "day" | "week" | "month" | "year" | null;
+  updateFrequency: "day" | "week" | "manual";
 }
 
 export interface NewsItem {
