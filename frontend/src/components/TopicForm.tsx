@@ -11,6 +11,9 @@ import { cn } from '@/lib/utils';
 
 type TopicFormMode = "create" | "edit";
 
+const MAX_TOPIC_QUERIES = 5;
+const MAX_ADDITIONAL_QUERIES = MAX_TOPIC_QUERIES - 1;
+
 type TopicFormProps = {
   mode: TopicFormMode;
   topicUuid?: string | null;
@@ -77,7 +80,7 @@ export function TopicForm({
 
   const applyTopicToForm = (topic: TopicItem) => {
     setTopicName(topic.queries[0] ?? "");
-    const additionalQueries = topic.queries.slice(1);
+    const additionalQueries = topic.queries.slice(1, MAX_TOPIC_QUERIES);
     setQueries(additionalQueries.length ? additionalQueries : [""]);
     if (topic.domainAllowlist?.length) {
       setDomainMode("allow");
@@ -109,7 +112,9 @@ export function TopicForm({
   };
 
   const addQueryField = () => {
-    setQueries((prev) => [...prev, ""]);
+    setQueries((prev) =>
+      prev.length < MAX_ADDITIONAL_QUERIES ? [...prev, ""] : prev
+    );
   };
 
   const removeQueryField = (index: number) => {
@@ -121,6 +126,10 @@ export function TopicForm({
       .map((query) => query.trim())
       .filter(Boolean);
     if (!normalizedQueries.length) return;
+    if (normalizedQueries.length > MAX_TOPIC_QUERIES) {
+      setError(`Add up to ${MAX_TOPIC_QUERIES} queries total.`);
+      return;
+    }
     setError(null);
     setLoading(true);
     try {
@@ -151,6 +160,10 @@ export function TopicForm({
       .map((query) => query.trim())
       .filter(Boolean);
     if (!normalizedQueries.length) return;
+    if (normalizedQueries.length > MAX_TOPIC_QUERIES) {
+      setError(`Add up to ${MAX_TOPIC_QUERIES} queries total.`);
+      return;
+    }
     setError(null);
     setLoading(true);
     try {
@@ -230,11 +243,15 @@ export function TopicForm({
               className="gap-2"
               onClick={addQueryField}
               type="button"
+              disabled={queries.length >= MAX_ADDITIONAL_QUERIES}
             >
               <PlusCircle className="h-4 w-4" />
               Add another
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Add up to {MAX_TOPIC_QUERIES} queries total.
+          </p>
           <div className="space-y-3">
             {queries.map((query, index) => (
               <div key={index} className="flex items-center gap-3">

@@ -192,6 +192,8 @@ def create_topic(request, payload: TopicCreateRequest):
         normalized_queries.append(normalized_item)
     if not normalized_queries:
         raise HttpError(400, "Topic queries cannot be empty.")
+    if len(normalized_queries) > 5:
+        raise HttpError(400, "Provide no more than 5 topic queries.")
     group = None
     if payload.group_uuid:
         group = TopicGroup.objects.filter(
@@ -523,6 +525,8 @@ def update_topic(request, topic_uuid: uuid.UUID, payload: TopicUpdateRequest):
             normalized_queries.append(normalized_item)
         if not normalized_queries:
             raise HttpError(400, "Topic queries cannot be empty.")
+        if len(normalized_queries) > 5:
+            raise HttpError(400, "Provide no more than 5 topic queries.")
         updates["queries"] = normalized_queries
 
     def normalize_filter_list(values: list[str] | None, field_name: str) -> list[str] | None:

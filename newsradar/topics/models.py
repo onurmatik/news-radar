@@ -39,6 +39,7 @@ def validate_topic_queries(value: list[str] | None) -> None:
         raise ValidationError("Expected a list of strings.")
     if not value:
         raise ValidationError("Provide at least one topic query.")
+    validate_json_list_max_length(value, 5)
     for item in value:
         if not isinstance(item, str):
             raise ValidationError("Expected a list of strings.")
@@ -137,6 +138,7 @@ class Topic(models.Model):
 
         if not normalized_queries:
             raise ValidationError("Provide at least one topic query.")
+        validate_json_list_max_length(normalized_queries, 5)
 
         aggregate_query = ", ".join(normalized_queries)
         needs_embedding = False

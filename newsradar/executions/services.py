@@ -13,9 +13,9 @@ from newsradar.executions.models import Execution
 from newsradar.topics.models import Topic
 
 
-def _build_perplexity_search_payload(topic: Topic, prompt: str) -> dict[str, Any]:
+def _build_perplexity_search_payload(topic: Topic, query: str | list[str]) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "query": prompt,
+        "query": query,
         "max_results": settings.WEB_SEARCH_MAX_RESULTS,
         "max_tokens": settings.WEB_SEARCH_MAX_TOKENS,
         "max_tokens_per_page": settings.WEB_SEARCH_MAX_TOKENS_PER_PAGE,
@@ -131,10 +131,10 @@ def execute_web_search(
     if not topic:
         raise ValueError("Topic not found for UUID.")
 
-    prompt = (
-        "Use web search to find the latest, up-to-date information for this topic: "
-        f"{topic.primary_query}"
-    )
+    queries = [query for query in (topic.queries or []) if query][:5]
+    if not queries:
+        raise ValueError("Topic queries are required for web search.")
+    search_query: str | list[str] = queries[0] if len(queries) == 1 else queries
 
     execution = Execution.objects.create(
         topic=topic,
@@ -142,7 +142,7 @@ def execute_web_search(
         status=Execution.Status.RUNNING,
     )
     try:
-        payload = _build_perplexity_search_payload(topic, prompt)
+        payload = _build_perplexity_search_payload(topic, search_query)
         client = Perplexity()
         response_obj = client.search.create(
             **payload,
