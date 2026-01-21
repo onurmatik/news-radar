@@ -455,7 +455,7 @@ export default function Dashboard() {
         </Dialog>
 
         <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
-          <DialogContent className="sm:max-w-[720px] border-border bg-background">
+          <DialogContent className="sm:max-w-[720px] border-border bg-background p-0">
             {selectedTopic ? (
               <TopicForm
                 mode="edit"
