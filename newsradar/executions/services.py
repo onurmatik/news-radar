@@ -13,6 +13,20 @@ from newsradar.executions.models import Execution
 from newsradar.topics.models import Topic
 
 
+def _build_search_domain_filter(topic: Topic) -> list[str] | None:
+    allowlist = [domain for domain in (topic.search_domain_allowlist or []) if domain]
+    blocklist = [domain for domain in (topic.search_domain_blocklist or []) if domain]
+
+    if allowlist:
+        return allowlist
+    if blocklist:
+        return [
+            domain if domain.startswith("-") else f"-{domain}"
+            for domain in blocklist
+        ]
+    return None
+
+
 def _build_perplexity_search_payload(topic: Topic, query: str | list[str]) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "query": query,
@@ -21,10 +35,9 @@ def _build_perplexity_search_payload(topic: Topic, query: str | list[str]) -> di
         "max_tokens_per_page": settings.WEB_SEARCH_MAX_TOKENS_PER_PAGE,
     }
 
-    if topic.search_domain_allowlist:
-        payload["search_domain_filter"] = topic.search_domain_allowlist
-    if topic.search_domain_blocklist:
-        payload["search_domain_filter_exclude"] = topic.search_domain_blocklist
+    search_domain_filter = _build_search_domain_filter(topic)
+    if search_domain_filter:
+        payload["search_domain_filter"] = search_domain_filter
     if topic.search_language_filter:
         payload["search_language_filter"] = topic.search_language_filter
     if topic.country:
