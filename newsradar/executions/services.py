@@ -11,11 +11,21 @@ from perplexity import Perplexity
 from newsradar.contents.models import Content
 from newsradar.executions.models import Execution
 from newsradar.topics.models import Topic
+from newsradar.topics.services import normalize_domain_value
 
 
 def _build_search_domain_filter(topic: Topic) -> list[str] | None:
-    allowlist = [domain for domain in (topic.search_domain_allowlist or []) if domain]
-    blocklist = [domain for domain in (topic.search_domain_blocklist or []) if domain]
+    allowlist = [
+        domain
+        for entry in (topic.search_domain_allowlist or [])
+        if (domain := normalize_domain_value(entry))
+    ]
+    blocklist = [
+        domain
+        for entry in (topic.search_domain_blocklist or [])
+        if (domain := normalize_domain_value(entry))
+    ]
+
 
     if allowlist:
         return allowlist

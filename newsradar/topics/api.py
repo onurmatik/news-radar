@@ -8,6 +8,7 @@ from ninja.errors import HttpError
 
 from newsradar.contents.models import Content
 from newsradar.topics.models import Topic, TopicGroup, normalize_topic_query
+from newsradar.topics.services import normalize_domain_value
 
 api = NinjaAPI(title="Topics API", urls_namespace="topics")
 
@@ -217,11 +218,27 @@ def create_topic(request, payload: TopicCreateRequest):
                 cleaned.append(trimmed)
         return cleaned or None
 
-    domain_allowlist = normalize_filter_list(
+    def normalize_domain_list(values: list[str] | None, field_name: str) -> list[str] | None:
+        if values is None:
+            return None
+        if not isinstance(values, list):
+            raise HttpError(400, f"{field_name} must be a list of strings.")
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for item in values:
+            if not isinstance(item, str):
+                raise HttpError(400, f"{field_name} must be a list of strings.")
+            normalized = normalize_domain_value(item)
+            if normalized and normalized not in seen:
+                cleaned.append(normalized)
+                seen.add(normalized)
+        return cleaned or None
+
+    domain_allowlist = normalize_domain_list(
         payload.search_domain_allowlist,
         "search_domain_allowlist",
     )
-    domain_blocklist = normalize_filter_list(
+    domain_blocklist = normalize_domain_list(
         payload.search_domain_blocklist,
         "search_domain_blocklist",
     )
@@ -543,13 +560,29 @@ def update_topic(request, topic_uuid: uuid.UUID, payload: TopicUpdateRequest):
                 cleaned.append(trimmed)
         return cleaned or None
 
+    def normalize_domain_list(values: list[str] | None, field_name: str) -> list[str] | None:
+        if values is None:
+            return None
+        if not isinstance(values, list):
+            raise HttpError(400, f"{field_name} must be a list of strings.")
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for item in values:
+            if not isinstance(item, str):
+                raise HttpError(400, f"{field_name} must be a list of strings.")
+            normalized = normalize_domain_value(item)
+            if normalized and normalized not in seen:
+                cleaned.append(normalized)
+                seen.add(normalized)
+        return cleaned or None
+
     allowlist_provided = payload.search_domain_allowlist is not None
     blocklist_provided = payload.search_domain_blocklist is not None
-    domain_allowlist = normalize_filter_list(
+    domain_allowlist = normalize_domain_list(
         payload.search_domain_allowlist,
         "search_domain_allowlist",
     )
-    domain_blocklist = normalize_filter_list(
+    domain_blocklist = normalize_domain_list(
         payload.search_domain_blocklist,
         "search_domain_blocklist",
     )
