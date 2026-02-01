@@ -5,6 +5,10 @@ import { fileURLToPath, URL } from "node:url";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const proxyTarget = env.VITE_API_PROXY_TARGET || "http://localhost:8000";
+  const previewAllowedHosts = (env.VITE_PREVIEW_ALLOWED_HOSTS || "newsradar.app")
+    .split(",")
+    .map((host) => host.trim())
+    .filter(Boolean);
 
   return {
     plugins: [react()],
@@ -20,6 +24,9 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
         },
       },
+    },
+    preview: {
+      allowedHosts: previewAllowedHosts,
     },
   };
 });
