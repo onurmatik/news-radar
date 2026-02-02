@@ -74,10 +74,10 @@ export default function Dashboard() {
     ? `${apiBaseUrl}/api/contents/groups/${selectedGroupId}`
     : null;
   const topicRssEndpoint = selectedTopicUuid
-    ? `${apiBaseUrl}/contents/topics/${selectedTopicUuid}/rss`
+    ? `${apiBaseUrl}/api/contents/topics/${selectedTopicUuid}/rss`
     : null;
   const groupRssEndpoint = selectedGroupId
-    ? `${apiBaseUrl}/contents/groups/${selectedGroupId}/rss`
+    ? `${apiBaseUrl}/api/contents/groups/${selectedGroupId}/rss`
     : null;
 
   const buildShareUrl = (contentId: number) => {
@@ -195,6 +195,10 @@ export default function Dashboard() {
   }, [selectedGroupId, selectedTopicUuid]);
 
   const toggleBookmark = async (item: NewsItem) => {
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
     const nextValue = !item.isBookmarked;
     setNews((prev) =>
       prev.map((entry) =>
