@@ -17,10 +17,4 @@ python-dateutil
 python-dotenv
 redis
 sqlparse
-
-# for deployment
-gunicorn
-fabric
-PyJWT
-boto3
-requests
+whitenoise
