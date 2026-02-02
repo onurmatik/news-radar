@@ -30,9 +30,9 @@ urlpatterns = [
     path('api/auth/sesame/', SesameLoginView.as_view(), name='sesame-login'),
     path('api/auth/', accounts_api.urls),
     path('api/contents/', contents_api.urls),
-    path('contents/', contents_rss_api.urls),
     path('api/executions/', executions_api.urls),
     path('api/topics/', topics_api.urls),
+    path('rss/', contents_rss_api.urls),
 ]
 
 
