@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { formatDistanceToNow, formatDistanceToNowStrict } from 'date-fns';
-import { createTopicGroup, listTopicGroups, listTopics, runTopicScan, updateTopic } from '@/lib/api';
+import { createTopicGroup, getExecution, listTopicGroups, listTopics, runTopicScan, updateTopic } from '@/lib/api';
 import type { ApiTopicListItem, TopicItem } from '@/lib/types';
 import { AuthDialog } from '@/components/AuthDialog';
 import { useAuthDialog } from '@/components/AuthDialogContext';
@@ -308,13 +308,37 @@ export function Layout({ children }: SidebarProps) {
     }
   };
 
+  const waitForExecutionCompletion = async (executionId: number) => {
+    const maxAttempts = 30;
+    const delayMs = 2000;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const execution = await getExecution(executionId);
+      if (execution.status === "completed") {
+        return execution;
+      }
+      if (execution.status === "failed") {
+        throw new Error(execution.error_message || "Scan failed.");
+      }
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, delayMs);
+      });
+    }
+    throw new Error("Timed out waiting for the scan to finish.");
+  };
+
   const handleTopicScanNow = async (topic: TopicItem) => {
     if (!requireAuth()) {
       return;
     }
     setTopicsError(null);
     try {
-      await runTopicScan(topic.uuid);
+      const { execution_id } = await runTopicScan(topic.uuid);
+      await waitForExecutionCompletion(execution_id);
+      window.dispatchEvent(
+        new CustomEvent("topic-scan-completed", {
+          detail: { topicUuid: topic.uuid },
+        })
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to start scan.";
       setTopicsError(message);

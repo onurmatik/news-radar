@@ -36,6 +36,10 @@ class ExecutionListResponse(Schema):
     executions: list[ExecutionListItem]
 
 
+class ExecutionDetailResponse(ExecutionListItem):
+    pass
+
+
 @api.get("/", response=ExecutionListResponse)
 def list_executions(
     request,
@@ -81,7 +85,7 @@ def list_executions(
     )
 
 
-@api.post("/web-search", response=WebSearchExecutionResponse)
+@api.post("/web-search/", response=WebSearchExecutionResponse)
 def web_search_execution(request, payload: WebSearchExecutionRequest):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
@@ -96,7 +100,7 @@ def web_search_execution(request, payload: WebSearchExecutionRequest):
     execution = Execution.objects.create(
         topic=topic,
         initiator=payload.initiator,
-        status=Execution.Status.RUNNING,
+        status=Execution.Status.CREATED,
     )
     async_result = web_search_execution_task.delay(
         str(topic.uuid),
@@ -107,4 +111,34 @@ def web_search_execution(request, payload: WebSearchExecutionRequest):
     return WebSearchExecutionResponse(
         execution_id=execution.id,
         task_id=async_result.id,
+    )
+
+
+@api.get("/{execution_id}/", response=ExecutionDetailResponse)
+def get_execution(request, execution_id: int):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+
+    execution = (
+        Execution.objects.filter(
+            id=execution_id,
+            topic__user=request.user,
+        )
+        .annotate(
+            content_item_id=Subquery(
+                Content.objects.filter(execution=OuterRef("pk")).values("id")[:1]
+            )
+        )
+        .first()
+    )
+    if not execution:
+        raise HttpError(404, "Execution not found.")
+
+    return ExecutionDetailResponse(
+        id=execution.id,
+        status=execution.status,
+        initiator=execution.initiator,
+        created_at=execution.created_at,
+        content_item_id=execution.content_item_id,
+        error_message=execution.error_message,
     )

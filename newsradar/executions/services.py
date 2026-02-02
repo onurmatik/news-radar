@@ -174,6 +174,11 @@ def execute_web_search(
             initiator=initiator,
             status=Execution.Status.RUNNING,
         )
+    elif execution.status != Execution.Status.RUNNING:
+        execution.status = Execution.Status.RUNNING
+        execution.error_message = None
+        execution.save(update_fields=["status", "error_message"])
+
     try:
         payload = _build_perplexity_search_payload(topic, search_query)
         execution.request_payload = payload

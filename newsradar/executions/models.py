@@ -3,6 +3,7 @@ from django.db import models
 
 class Execution(models.Model):
     class Status(models.TextChoices):
+        CREATED = "created", "Created"
         RUNNING = "running", "Running"
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
@@ -29,7 +30,7 @@ class Execution(models.Model):
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
-        default=Status.RUNNING,
+        default=Status.CREATED,
     )
     error_message = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)

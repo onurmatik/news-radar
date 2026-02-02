@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { createBookmark, deleteBookmark, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
+import { createBookmark, deleteBookmark, getExecution, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
 import { TopicForm } from '@/components/TopicForm';
 import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle } from 'lucide-react';
@@ -125,6 +125,25 @@ export default function Dashboard() {
       .map((entry) => entry.trim())
       .filter(Boolean);
 
+  const waitForExecutionCompletion = async (executionId: number) => {
+    const maxAttempts = 30;
+    const delayMs = 2000;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const execution = await getExecution(executionId);
+      if (execution.status === "completed") {
+        return execution;
+      }
+      if (execution.status === "failed") {
+        throw new Error(execution.error_message || "Fetch failed.");
+      }
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, delayMs);
+      });
+    }
+    throw new Error("Timed out waiting for the fetch to finish.");
+  };
+
+
   useEffect(() => {
     if (!selectedGroup) {
       setGroupName("");
@@ -189,6 +208,36 @@ export default function Dashboard() {
     }
     void loadFeed(cacheKey);
   }, [isAuthenticated, selectedGroupId, selectedTopicUuid]);
+
+  useEffect(() => {
+    const handleScanCompleted = (
+      event: Event
+    ) => {
+      const { topicUuid } = (event as CustomEvent<{ topicUuid: string }>).detail ?? {};
+      if (!topicUuid) return;
+      if (selectedTopicUuid && topicUuid !== selectedTopicUuid) return;
+
+      if (selectedTopicUuid) {
+        void loadFeed(`topic:${selectedTopicUuid}`);
+        return;
+      }
+
+      const scannedTopic = topics.find((topic) => topic.uuid === topicUuid);
+      if (selectedGroupId && scannedTopic?.groupUuid === selectedGroupId) {
+        void loadFeed(`group:${selectedGroupId}`);
+        return;
+      }
+
+      if (!selectedGroupId && !selectedTopicUuid) {
+        void loadFeed("all");
+      }
+    };
+
+    window.addEventListener("topic-scan-completed", handleScanCompleted);
+    return () => {
+      window.removeEventListener("topic-scan-completed", handleScanCompleted);
+    };
+  }, [selectedGroupId, selectedTopicUuid, topics]);
 
   useEffect(() => {
     pageTopRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
@@ -269,7 +318,8 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      await runTopicScan(selectedTopicUuid);
+      const { execution_id } = await runTopicScan(selectedTopicUuid);
+      await waitForExecutionCompletion(execution_id);
       await loadFeed(cacheKey);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to fetch content.";

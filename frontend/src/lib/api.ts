@@ -3,6 +3,7 @@ import type {
   ApiContentFeedItem,
   ApiContentFeedResponse,
   ApiCurrentUser,
+  ApiExecutionDetail,
   ApiTopicCreateResponse,
   ApiTopicGroupCreateResponse,
   ApiTopicGroupListResponse,
@@ -241,13 +242,17 @@ export async function runTopicScan(topicUuid: string): Promise<{
   execution_id: number;
   task_id: string;
 }> {
-  return requestJson("/api/executions/web-search", {
+  return requestJson("/api/executions/web-search/", {
     method: "POST",
     body: JSON.stringify({
       topic_uuid: topicUuid,
       initiator: "user",
     }),
   });
+}
+
+export async function getExecution(executionId: number): Promise<ApiExecutionDetail> {
+  return requestJson<ApiExecutionDetail>(`/api/executions/${executionId}/`);
 }
 
 export async function createBookmark(contentId: number): Promise<void> {
