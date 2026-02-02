@@ -18,23 +18,37 @@ def list_content_by_topic_rss(
     limit: int = 50,
     offset: int = 0,
 ):
-    if not request.user.is_authenticated:
-        raise HttpError(401, "Authentication required.")
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
 
-    topic = Topic.objects.filter(uuid=topic_uuid, user=request.user).first()
+    if request.user.is_authenticated:
+        topic = Topic.objects.filter(uuid=topic_uuid, user=request.user).first()
+    else:
+        topic = Topic.objects.filter(
+            uuid=topic_uuid,
+            group__is_public=True,
+            is_active=True,
+        ).first()
     if not topic:
         raise HttpError(404, "Topic not found.")
 
-    contents = (
-        Content.objects.filter(
-            execution__topic__user=request.user,
-            execution__topic__uuid=topic_uuid,
+    if request.user.is_authenticated:
+        contents = (
+            Content.objects.filter(
+                execution__topic__user=request.user,
+                execution__topic__uuid=topic_uuid,
+            )
+            .select_related("execution", "execution__topic")
+            .order_by("-created_at", "-id")[offset : offset + limit]
         )
-        .select_related("execution", "execution__topic")
-        .order_by("-created_at", "-id")[offset : offset + limit]
-    )
+    else:
+        contents = (
+            Content.objects.filter(
+                execution__topic=topic,
+            )
+            .select_related("execution", "execution__topic")
+            .order_by("-created_at", "-id")[offset : offset + limit]
+        )
 
     title = f"NewsRadar Topic: {topic.primary_query or 'Topic'}"
     link = request.build_absolute_uri()
@@ -55,23 +69,37 @@ def list_content_by_group_rss(
     limit: int = 50,
     offset: int = 0,
 ):
-    if not request.user.is_authenticated:
-        raise HttpError(401, "Authentication required.")
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
 
-    group = TopicGroup.objects.filter(uuid=group_uuid, user=request.user).first()
+    if request.user.is_authenticated:
+        group = TopicGroup.objects.filter(uuid=group_uuid, user=request.user).first()
+    else:
+        group = TopicGroup.objects.filter(
+            uuid=group_uuid,
+            is_public=True,
+        ).first()
     if not group:
         raise HttpError(404, "Topic group not found.")
 
-    contents = (
-        Content.objects.filter(
-            execution__topic__user=request.user,
-            execution__topic__group__uuid=group_uuid,
+    if request.user.is_authenticated:
+        contents = (
+            Content.objects.filter(
+                execution__topic__user=request.user,
+                execution__topic__group__uuid=group_uuid,
+            )
+            .select_related("execution", "execution__topic")
+            .order_by("-created_at", "-id")[offset : offset + limit]
         )
-        .select_related("execution", "execution__topic")
-        .order_by("-created_at", "-id")[offset : offset + limit]
-    )
+    else:
+        contents = (
+            Content.objects.filter(
+                execution__topic__group=group,
+                execution__topic__is_active=True,
+            )
+            .select_related("execution", "execution__topic")
+            .order_by("-created_at", "-id")[offset : offset + limit]
+        )
 
     title = f"NewsRadar Group: {group.name}"
     link = request.build_absolute_uri()

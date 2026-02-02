@@ -170,24 +170,24 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
-      const cacheKey = selectedTopicUuid
-        ? `topic:${selectedTopicUuid}`
-        : selectedGroupId
-          ? `group:${selectedGroupId}`
-          : "all";
-      const cached = feedCache.current.get(cacheKey);
-      if (cached) {
-        setNews(cached);
-      } else {
-        setNews([]);
-      }
-      setError(null);
-      void loadFeed(cacheKey);
-    } else if (isAuthenticated === false) {
+    if (isAuthenticated === null) return;
+    const cacheKey = selectedTopicUuid
+      ? `topic:${selectedTopicUuid}`
+      : selectedGroupId
+        ? `group:${selectedGroupId}`
+        : "all";
+    const cached = feedCache.current.get(cacheKey);
+    if (cached) {
+      setNews(cached);
+    } else {
       setNews([]);
-      setLoading(false);
     }
+    setError(null);
+    if (!isAuthenticated && !selectedGroupId && !selectedTopicUuid) {
+      setLoading(false);
+      return;
+    }
+    void loadFeed(cacheKey);
   }, [isAuthenticated, selectedGroupId, selectedTopicUuid]);
 
   useEffect(() => {
