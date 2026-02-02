@@ -334,6 +334,12 @@ export function Layout({ children }: SidebarProps) {
     try {
       const { execution_id } = await runTopicScan(topic.uuid);
       await waitForExecutionCompletion(execution_id);
+      const scannedAt = new Date();
+      setTopics((prev) =>
+        prev.map((item) =>
+          item.uuid === topic.uuid ? { ...item, lastSearch: scannedAt } : item
+        )
+      );
       window.dispatchEvent(
         new CustomEvent("topic-scan-completed", {
           detail: { topicUuid: topic.uuid },
