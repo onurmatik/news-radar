@@ -123,12 +123,26 @@ def list_topics(
             topic_filter = Q(queries__contains=[normalized_search])
 
     if request.user.is_authenticated:
-        topics_queryset = Topic.objects.filter(
-            topic_filter,
-            user=request.user,
-        )
         if group_uuid:
-            topics_queryset = topics_queryset.filter(group__uuid=group_uuid)
+            group = TopicGroup.objects.filter(uuid=group_uuid).first()
+            if group and group.is_public and group.user_id != request.user.id:
+                topics_queryset = Topic.objects.filter(
+                    topic_filter,
+                    group=group,
+                    is_active=True,
+                )
+            else:
+                topics_queryset = Topic.objects.filter(
+                    topic_filter,
+                    user=request.user,
+                    group__uuid=group_uuid,
+                )
+        else:
+            topics_queryset = Topic.objects.filter(
+                topic_filter,
+                user=request.user,
+            )
+
     else:
         if not group_uuid:
             raise HttpError(401, "Authentication required.")
@@ -302,7 +316,9 @@ def create_topic(request, payload: TopicCreateRequest):
 @api.get("/groups", response=TopicGroupListResponse)
 def list_topic_groups(request):
     if request.user.is_authenticated:
-        groups = TopicGroup.objects.filter(user=request.user)
+        groups = TopicGroup.objects.filter(
+            Q(user=request.user) | Q(is_public=True)
+        )
     else:
         groups = TopicGroup.objects.filter(is_public=True)
     groups = groups.order_by("name", "created_at")

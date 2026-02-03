@@ -14,8 +14,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { formatDistanceToNow, formatDistanceToNowStrict } from 'date-fns';
-import { createTopicGroup, getExecution, listTopicGroups, listTopics, runTopicScan, updateTopic } from '@/lib/api';
-import type { ApiTopicListItem, TopicItem } from '@/lib/types';
+import {
+  createTopicGroup,
+  getExecution,
+  listTopicGroups,
+  listTopics,
+  runTopicScan,
+  searchAll,
+  updateTopic,
+} from '@/lib/api';
+import type { ApiSearchResponse, ApiTopicListItem, TopicItem } from '@/lib/types';
 import { AuthDialog } from '@/components/AuthDialog';
 import { useAuthDialog } from '@/components/AuthDialogContext';
 import { useTopicGroup } from '@/components/TopicGroupContext';
@@ -61,6 +69,12 @@ export function Layout({ children }: SidebarProps) {
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const [topicMenuOpenId, setTopicMenuOpenId] = useState<string | null>(null);
   const topicMenuRef = useRef<HTMLDivElement | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<ApiSearchResponse | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
 
   const requireAuth = () => {
     if (isAuthenticated) {
@@ -129,6 +143,51 @@ export function Layout({ children }: SidebarProps) {
     setSelectedTopicUuid(null);
     navigate('/');
   };
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      if (!searchContainerRef.current) return;
+      if (searchContainerRef.current.contains(event.target as Node)) return;
+      setSearchOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+    };
+  }, [searchOpen]);
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      setSearchResults(null);
+      setSearchError(null);
+      setSearchLoading(false);
+      setSearchOpen(false);
+      return;
+    }
+    setSearchLoading(true);
+    const handle = window.setTimeout(() => {
+      searchAll({
+        query: trimmed,
+        limit: 6,
+      })
+        .then((response) => {
+          setSearchResults(response);
+          setSearchError(null);
+        })
+        .catch((error) => {
+          const message =
+            error instanceof Error ? error.message : "Unable to load search results.";
+          setSearchError(message);
+          setSearchResults(null);
+        })
+        .finally(() => {
+          setSearchLoading(false);
+        });
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [searchQuery]);
 
   useEffect(() => {
     if (isAuthenticated !== false) return;
@@ -419,13 +478,99 @@ export function Layout({ children }: SidebarProps) {
          </div>
          
          <div className="flex items-center gap-4">
-            <div className="hidden md:flex items-center bg-muted/30 border border-border/50 rounded-full px-4 py-1.5 gap-3">
-               <Search className="h-3.5 w-3.5 text-muted-foreground" />
-               <input 
-                  type="text" 
-                  placeholder="Search intelligence..." 
-                  className="bg-transparent border-none text-xs w-48 focus:outline-none placeholder:text-muted-foreground/50 text-foreground"
-               />
+            <div className="relative hidden md:flex items-center" ref={searchContainerRef}>
+              <div className="flex items-center bg-muted/30 border border-border/50 rounded-full px-4 py-1.5 gap-3">
+                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                 <input
+                    type="text"
+                    placeholder="Search intelligence..."
+                    className="bg-transparent border-none text-xs w-56 focus:outline-none placeholder:text-muted-foreground/50 text-foreground"
+                    value={searchQuery}
+                    onChange={(event) => {
+                      setSearchQuery(event.target.value);
+                      if (!searchOpen) setSearchOpen(true);
+                    }}
+                    onFocus={() => setSearchOpen(true)}
+                  />
+              </div>
+              {searchOpen && (searchLoading || searchResults || searchError) && (
+                <div className="absolute right-0 top-full mt-2 w-[28rem] rounded-2xl border border-border bg-background shadow-xl p-4 text-xs z-50">
+                  {searchLoading && (
+                    <p className="text-muted-foreground">Searching...</p>
+                  )}
+                  {searchError && (
+                    <p className="text-destructive">{searchError}</p>
+                  )}
+                  {!searchLoading && !searchError && searchResults && (
+                    <div className="space-y-4">
+                      {[
+                        { label: "Your Topics", items: searchResults.user_topics, type: "topic" as const },
+                        { label: "Public Topics", items: searchResults.public_topics, type: "topic" as const },
+                        { label: "Your Content", items: searchResults.user_contents, type: "content" as const },
+                        { label: "Public Content", items: searchResults.public_contents, type: "content" as const },
+                      ].map((section) => (
+                        <div key={section.label} className="space-y-2">
+                          <div className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                            {section.label}
+                          </div>
+                          {section.items.length === 0 ? (
+                            <p className="text-muted-foreground">No results</p>
+                          ) : (
+                            <div className="space-y-1">
+                              {section.items.map((item) => {
+                                if (section.type === "topic") {
+                                  const topic = item as ApiSearchResponse["user_topics"][number];
+                                  return (
+                                    <button
+                                      key={`topic-${topic.uuid}`}
+                                      type="button"
+                                      className="w-full text-left px-3 py-2 rounded-lg border border-border/60 hover:bg-muted/60 transition-colors"
+                                      onClick={() => {
+                                        setSelectedTopicUuid(topic.uuid);
+                                        if (topic.group_uuid) {
+                                          setSelectedGroupId(topic.group_uuid);
+                                        }
+                                        navigate("/");
+                                        setSearchOpen(false);
+                                      }}
+                                    >
+                                      <div className="font-semibold text-foreground">
+                                        {topic.queries?.[0] || "Untitled topic"}
+                                      </div>
+                                      <div className="text-[11px] text-muted-foreground">
+                                        {topic.group_name || "Private group"} · {topic.content_source_count} sources
+                                      </div>
+                                    </button>
+                                  );
+                                }
+                                const content = item as ApiSearchResponse["user_contents"][number];
+                                return (
+                                  <button
+                                    key={`content-${content.id}`}
+                                    type="button"
+                                    className="w-full text-left px-3 py-2 rounded-lg border border-border/60 hover:bg-muted/60 transition-colors"
+                                    onClick={() => {
+                                      navigate(`/content/${content.id}/full`);
+                                      setSearchOpen(false);
+                                    }}
+                                  >
+                                    <div className="font-semibold text-foreground">
+                                      {content.title || content.url}
+                                    </div>
+                                    <div className="text-[11px] text-muted-foreground">
+                                      {content.source || "Unknown source"}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2 border-l border-border pl-4">
