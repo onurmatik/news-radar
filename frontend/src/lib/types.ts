@@ -7,6 +7,8 @@ export interface ApiTopicListItem {
   is_active: boolean;
   group_uuid: string | null;
   group_name: string | null;
+  owner_username: string;
+  is_owner: boolean;
   search_domain_allowlist: string[] | null;
   search_domain_blocklist: string[] | null;
   search_language_filter: string[] | null;
@@ -28,6 +30,8 @@ export interface ApiTopicGroupItem {
   name: string;
   description: string;
   is_public: boolean;
+  owner_username: string;
+  is_owner: boolean;
   default_update_frequency: "day" | "week" | "manual" | null;
   default_search_language_filter: string[] | null;
   default_country: string | null;
@@ -124,6 +128,8 @@ export interface TopicItem {
   hasNewItems: boolean;
   groupUuid: string | null;
   groupName: string | null;
+  ownerUsername: string;
+  isOwner: boolean;
   domainAllowlist: string[] | null;
   domainBlocklist: string[] | null;
   languageFilter: string[] | null;

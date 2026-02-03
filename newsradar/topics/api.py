@@ -13,6 +13,12 @@ from newsradar.topics.services import normalize_domain_value
 api = NinjaAPI(title="Topics API", urls_namespace="topics")
 
 
+def _owner_label(user) -> str:
+    if not user:
+        return "Unknown"
+    return user.username or getattr(user, "email", "") or "Unknown"
+
+
 class ContentSourceItem(Schema):
     id: int
     url: str
@@ -36,6 +42,8 @@ class TopicListItem(Schema):
     is_active: bool
     group_uuid: uuid.UUID | None
     group_name: str | None
+    owner_username: str
+    is_owner: bool
     search_domain_allowlist: list[str] | None
     search_domain_blocklist: list[str] | None
     search_language_filter: list[str] | None
@@ -77,6 +85,8 @@ class TopicGroupItem(Schema):
     name: str
     description: str
     is_public: bool
+    owner_username: str
+    is_owner: bool
     default_update_frequency: str | None
     default_search_language_filter: list[str] | None
     default_country: str | None
@@ -159,7 +169,7 @@ def list_topics(
         )
 
     topics = (
-        topics_queryset.select_related("group")
+        topics_queryset.select_related("group", "user")
         .annotate(
             content_source_count=Count(
                 "executions__content_items",
@@ -180,6 +190,8 @@ def list_topics(
                 is_active=topic.is_active,
                 group_uuid=topic.group.uuid if topic.group else None,
                 group_name=topic.group.name if topic.group else None,
+                owner_username=_owner_label(topic.user),
+                is_owner=request.user.is_authenticated and topic.user_id == request.user.id,
                 search_domain_allowlist=topic.search_domain_allowlist,
                 search_domain_blocklist=topic.search_domain_blocklist,
                 search_language_filter=topic.search_language_filter,
@@ -211,12 +223,11 @@ def create_topic(request, payload: TopicCreateRequest):
         raise HttpError(400, "Provide no more than 5 topic queries.")
     group = None
     if payload.group_uuid:
-        group = TopicGroup.objects.filter(
-            uuid=payload.group_uuid,
-            user=request.user,
-        ).first()
+        group = TopicGroup.objects.filter(uuid=payload.group_uuid).first()
         if not group:
             raise HttpError(404, "Topic group not found for UUID.")
+        if group.user_id != request.user.id:
+            raise HttpError(403, "Topic group belongs to another user.")
 
     def normalize_filter_list(values: list[str] | None, field_name: str) -> list[str] | None:
         if values is None:
@@ -304,6 +315,8 @@ def create_topic(request, payload: TopicCreateRequest):
             is_active=topic.is_active,
             group_uuid=topic.group.uuid if topic.group else None,
             group_name=topic.group.name if topic.group else None,
+            owner_username=_owner_label(topic.user),
+            is_owner=True,
             search_domain_allowlist=topic.search_domain_allowlist,
             search_domain_blocklist=topic.search_domain_blocklist,
             search_language_filter=topic.search_language_filter,
@@ -318,9 +331,9 @@ def list_topic_groups(request):
     if request.user.is_authenticated:
         groups = TopicGroup.objects.filter(
             Q(user=request.user) | Q(is_public=True)
-        )
+        ).select_related("user")
     else:
-        groups = TopicGroup.objects.filter(is_public=True)
+        groups = TopicGroup.objects.filter(is_public=True).select_related("user")
     groups = groups.order_by("name", "created_at")
     return TopicGroupListResponse(
         groups=[
@@ -330,6 +343,8 @@ def list_topic_groups(request):
                 name=group.name,
                 description=group.description or "",
                 is_public=group.is_public,
+                owner_username=_owner_label(group.user),
+                is_owner=request.user.is_authenticated and group.user_id == request.user.id,
                 default_update_frequency=group.default_update_frequency,
                 default_search_language_filter=group.default_search_language_filter,
                 default_country=group.default_country,
@@ -345,8 +360,7 @@ def list_topic_groups(request):
 def get_topic_group(request, group_uuid: uuid.UUID):
     if request.user.is_authenticated:
         group = TopicGroup.objects.filter(
-            uuid=group_uuid,
-            user=request.user,
+            Q(uuid=group_uuid) & (Q(user=request.user) | Q(is_public=True)),
         ).first()
     else:
         group = TopicGroup.objects.filter(
@@ -361,6 +375,8 @@ def get_topic_group(request, group_uuid: uuid.UUID):
         name=group.name,
         description=group.description or "",
         is_public=group.is_public,
+        owner_username=_owner_label(group.user),
+        is_owner=request.user.is_authenticated and group.user_id == request.user.id,
         default_update_frequency=group.default_update_frequency,
         default_search_language_filter=group.default_search_language_filter,
         default_country=group.default_country,
@@ -425,6 +441,8 @@ def create_topic_group(request, payload: TopicGroupCreateRequest):
             name=group.name,
             description=group.description or "",
             is_public=group.is_public,
+            owner_username=_owner_label(group.user),
+            is_owner=True,
             default_update_frequency=group.default_update_frequency,
             default_search_language_filter=group.default_search_language_filter,
             default_country=group.default_country,
@@ -442,12 +460,11 @@ def update_topic_group(
 ):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
-    group = TopicGroup.objects.filter(
-        uuid=group_uuid,
-        user=request.user,
-    ).first()
+    group = TopicGroup.objects.filter(uuid=group_uuid).first()
     if not group:
         raise HttpError(404, "Topic group not found for UUID.")
+    if group.user_id != request.user.id:
+        raise HttpError(403, "Topic group belongs to another user.")
 
     updates: dict[str, str] = {}
     if payload.name is not None:
@@ -506,6 +523,8 @@ def update_topic_group(
         name=group.name,
         description=group.description or "",
         is_public=group.is_public,
+        owner_username=_owner_label(group.user),
+        is_owner=True,
         default_update_frequency=group.default_update_frequency,
         default_search_language_filter=group.default_search_language_filter,
         default_country=group.default_country,
@@ -518,12 +537,11 @@ def update_topic_group(
 def delete_topic_group(request, group_uuid: uuid.UUID):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
-    group = TopicGroup.objects.filter(
-        uuid=group_uuid,
-        user=request.user,
-    ).first()
+    group = TopicGroup.objects.filter(uuid=group_uuid).first()
     if not group:
         raise HttpError(404, "Topic group not found for UUID.")
+    if group.user_id != request.user.id:
+        raise HttpError(403, "Topic group belongs to another user.")
     group.delete()
     return {"deleted": True}
 
@@ -532,13 +550,11 @@ def delete_topic_group(request, group_uuid: uuid.UUID):
 def update_topic(request, topic_uuid: uuid.UUID, payload: TopicUpdateRequest):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
-    topic = Topic.objects.filter(
-        uuid=topic_uuid,
-        user=request.user,
-    ).first()
-
+    topic = Topic.objects.filter(uuid=topic_uuid).first()
     if not topic:
         raise HttpError(404, "Topic not found for UUID.")
+    if topic.user_id != request.user.id:
+        raise HttpError(403, "Topic belongs to another user.")
 
     updates: dict[str, object] = {}
 
@@ -664,6 +680,8 @@ def update_topic(request, topic_uuid: uuid.UUID, payload: TopicUpdateRequest):
         is_active=topic.is_active,
         group_uuid=topic.group.uuid if topic.group else None,
         group_name=topic.group.name if topic.group else None,
+        owner_username=_owner_label(topic.user),
+        is_owner=True,
         search_domain_allowlist=topic.search_domain_allowlist,
         search_domain_blocklist=topic.search_domain_blocklist,
         search_language_filter=topic.search_language_filter,
@@ -676,13 +694,11 @@ def update_topic(request, topic_uuid: uuid.UUID, payload: TopicUpdateRequest):
 def delete_topic(request, topic_uuid: uuid.UUID):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
-    topic = Topic.objects.filter(
-        uuid=topic_uuid,
-        user=request.user,
-    ).first()
-
+    topic = Topic.objects.filter(uuid=topic_uuid).first()
     if not topic:
         raise HttpError(404, "Topic not found for UUID.")
+    if topic.user_id != request.user.id:
+        raise HttpError(403, "Topic belongs to another user.")
 
     topic.delete()
     return {"deleted": True}
@@ -692,13 +708,12 @@ def delete_topic(request, topic_uuid: uuid.UUID):
 def list_topic_content_sources(request, topic_uuid: uuid.UUID):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
-    topic = Topic.objects.filter(
-        uuid=topic_uuid,
-        user=request.user,
-    ).first()
-
+    topic = Topic.objects.filter(uuid=topic_uuid).select_related("group").first()
     if not topic:
         raise HttpError(404, "Topic not found for UUID.")
+    if topic.user_id != request.user.id:
+        if not topic.group or not topic.group.is_public or not topic.is_active:
+            raise HttpError(404, "Topic not found for UUID.")
 
     content_items = Content.objects.filter(execution__topic=topic)
     latest_for_url = content_items.filter(url=OuterRef("url")).order_by("-created_at", "-id")

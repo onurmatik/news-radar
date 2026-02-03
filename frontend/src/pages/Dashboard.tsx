@@ -63,6 +63,15 @@ export default function Dashboard() {
   const selectedTopic = selectedTopicUuid
     ? topics.find((topic) => topic.uuid === selectedTopicUuid) ?? null
     : null;
+  const selectedGroupOwner = selectedGroup?.owner_username ?? null;
+  const selectedGroupIsReadOnly = Boolean(
+    isAuthenticated && selectedGroup && !selectedGroup.is_owner
+  );
+  const selectedTopicIsReadOnly = !!selectedTopic && !selectedTopic.isOwner;
+  const readOnlyOwner = selectedTopicIsReadOnly
+    ? selectedTopic?.ownerUsername ?? null
+    : selectedGroupOwner;
+  const isReadOnlySelection = selectedGroupIsReadOnly || selectedTopicIsReadOnly;
   const contentTitle = selectedTopic
     ? `${selectedGroupName} / ${selectedTopic.term}`
     : selectedGroupName;
@@ -413,6 +422,11 @@ export default function Dashboard() {
             {error && (
               <p className="text-sm text-destructive mt-3">{error}</p>
             )}
+            {isReadOnlySelection && (
+              <p className="text-sm text-muted-foreground mt-2">
+                Read-only: created by {readOnlyOwner || "another user"}.
+              </p>
+            )}
           </div>
           
           <div className="flex flex-col sm:flex-row items-center gap-3">
@@ -433,8 +447,17 @@ export default function Dashboard() {
                   openAuthDialog();
                   return;
                 }
+                if (isReadOnlySelection) {
+                  return;
+                }
                 setConfigDialogOpen(true);
               }}
+              disabled={isReadOnlySelection}
+              title={
+                isReadOnlySelection
+                  ? `Read-only: ${readOnlyOwner || "another user"}`
+                  : "Configure selection"
+              }
             >
               Config
             </Button>
@@ -550,7 +573,24 @@ export default function Dashboard() {
 
         <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
           <DialogContent className="sm:max-w-[720px] border-border bg-background p-0">
-            {selectedTopic ? (
+            {isReadOnlySelection ? (
+              <Card className="border-none bg-transparent shadow-none">
+                <CardHeader>
+                  <CardTitle>Read-only selection</CardTitle>
+                  <CardDescription>
+                    This content was created by {readOnlyOwner || "another user"}.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => setConfigDialogOpen(false)}
+                  >
+                    Close
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : selectedTopic ? (
               <TopicForm
                 mode="edit"
                 topicUuid={selectedTopic.uuid}

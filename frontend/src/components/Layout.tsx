@@ -75,6 +75,10 @@ export function Layout({ children }: SidebarProps) {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement | null>(null);
+  const selectedGroup = groups.find((group) => group.uuid === selectedGroupId) ?? null;
+  const selectedGroupIsReadOnly = Boolean(
+    isAuthenticated && selectedGroupId && selectedGroup && !selectedGroup.is_owner
+  );
 
   const requireAuth = () => {
     if (isAuthenticated) {
@@ -95,6 +99,8 @@ export function Layout({ children }: SidebarProps) {
     hasNewItems: topic.content_source_count > 0,
     groupUuid: topic.group_uuid,
     groupName: topic.group_name,
+    ownerUsername: topic.owner_username,
+    isOwner: topic.is_owner,
     domainAllowlist: topic.search_domain_allowlist,
     domainBlocklist: topic.search_domain_blocklist,
     languageFilter: topic.search_language_filter,
@@ -133,10 +139,13 @@ export function Layout({ children }: SidebarProps) {
 
   useEffect(() => {
     if (isAuthenticated === null) return;
-    if (isAuthenticated) {
-      void loadTopics();
+    if (!isAuthenticated) return;
+    if (selectedGroupIsReadOnly && selectedGroupId) {
+      void loadTopics(selectedGroupId);
+      return;
     }
-  }, [isAuthenticated]);
+    void loadTopics();
+  }, [isAuthenticated, selectedGroupId, selectedGroupIsReadOnly]);
 
   const handleGroupChange = (groupId: string) => {
     setSelectedGroupId(groupId);
@@ -345,11 +354,23 @@ export function Layout({ children }: SidebarProps) {
     if (!requireAuth()) {
       return;
     }
+    if (selectedGroupIsReadOnly) {
+      setTopicsError(
+        `This public topic group is owned by ${selectedGroup?.owner_username ?? "another user"}.`
+      );
+      return;
+    }
     navigate('/topics');
   };
 
   const handleEditTopic = (topic: TopicItem) => {
     if (!requireAuth()) {
+      return;
+    }
+    if (!topic.isOwner) {
+      setTopicsError(
+        `This topic is owned by ${topic.ownerUsername || "another user"}.`
+      );
       return;
     }
     setSelectedTopicUuid(topic.uuid);
@@ -389,6 +410,12 @@ export function Layout({ children }: SidebarProps) {
     if (!requireAuth()) {
       return;
     }
+    if (!topic.isOwner) {
+      setTopicsError(
+        `This topic is owned by ${topic.ownerUsername || "another user"}.`
+      );
+      return;
+    }
     setTopicsError(null);
     try {
       const { execution_id } = await runTopicScan(topic.uuid);
@@ -419,6 +446,12 @@ export function Layout({ children }: SidebarProps) {
     if (!requireAuth()) {
       return;
     }
+    if (!topic.isOwner) {
+      setTopicsError(
+        `This topic is owned by ${topic.ownerUsername || "another user"}.`
+      );
+      return;
+    }
     setTopicsError(null);
     try {
       const updated = await updateTopic(topic.uuid, {
@@ -440,6 +473,12 @@ export function Layout({ children }: SidebarProps) {
 
   const handleTopicPause = async (topic: TopicItem) => {
     if (!requireAuth()) {
+      return;
+    }
+    if (!topic.isOwner) {
+      setTopicsError(
+        `This topic is owned by ${topic.ownerUsername || "another user"}.`
+      );
       return;
     }
     setTopicsError(null);
@@ -483,7 +522,7 @@ export function Layout({ children }: SidebarProps) {
                  <Search className="h-3.5 w-3.5 text-muted-foreground" />
                  <input
                     type="text"
-                    placeholder="Search intelligence..."
+                    placeholder="Search..."
                     className="bg-transparent border-none text-xs w-56 focus:outline-none placeholder:text-muted-foreground/50 text-foreground"
                     value={searchQuery}
                     onChange={(event) => {
@@ -735,6 +774,9 @@ export function Layout({ children }: SidebarProps) {
                           topic.isActive ? "" : "text-muted-foreground/50"
                         )}
                       >
+                        {!topic.isOwner && (
+                          <>Shared by {topic.ownerUsername || "another user"} · </>
+                        )}
                         {topic.lastSearch
                           ? `Scanned ${formatDistanceToNowStrict(topic.lastSearch, { addSuffix: true })}`
                           : "Never scanned"}
@@ -747,9 +789,20 @@ export function Layout({ children }: SidebarProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-6 w-6 rounded-full text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
+                          className={cn(
+                            "h-6 w-6 rounded-full text-muted-foreground/70",
+                            topic.isOwner
+                              ? "hover:text-foreground hover:bg-muted/50"
+                              : "opacity-50 cursor-not-allowed"
+                          )}
                           onClick={(event) => {
                             event.stopPropagation();
+                            if (!topic.isOwner) {
+                              setTopicsError(
+                                `This topic is owned by ${topic.ownerUsername || "another user"}.`
+                              );
+                              return;
+                            }
                             setTopicMenuOpenId((prev) =>
                               prev === topic.uuid ? null : topic.uuid
                             );
@@ -757,6 +810,12 @@ export function Layout({ children }: SidebarProps) {
                           type="button"
                           aria-haspopup="menu"
                           aria-expanded={topicMenuOpenId === topic.uuid}
+                          disabled={!topic.isOwner}
+                          title={
+                            topic.isOwner
+                              ? "Manage topic"
+                              : `Read-only: ${topic.ownerUsername || "another user"}`
+                          }
                         >
                           <MoreVertical className="h-3.5 w-3.5" />
                         </Button>
@@ -834,9 +893,20 @@ export function Layout({ children }: SidebarProps) {
              )}
              
              <button
-               className="w-full flex items-center justify-center gap-2 py-3 mt-4 text-muted-foreground hover:text-primary border border-dashed border-border/50 hover:border-primary/30 rounded-lg transition-all text-xs font-medium group bg-muted/10"
+               className={cn(
+                 "w-full flex items-center justify-center gap-2 py-3 mt-4 text-muted-foreground border border-dashed border-border/50 rounded-lg transition-all text-xs font-medium group bg-muted/10",
+                 selectedGroupIsReadOnly
+                   ? "opacity-50 cursor-not-allowed"
+                   : "hover:text-primary hover:border-primary/30"
+               )}
                onClick={handleAddTopicClick}
                type="button"
+               disabled={!!selectedGroupIsReadOnly}
+               title={
+                 selectedGroupIsReadOnly
+                   ? `Read-only: ${selectedGroup?.owner_username || "another user"}`
+                   : "Add a topic"
+               }
              >
                <PlusCircle className="h-4 w-4 group-hover:scale-110 transition-transform" />
                <span>Add Topic</span>
