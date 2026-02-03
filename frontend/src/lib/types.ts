@@ -71,6 +71,17 @@ export interface ApiContentFeedResponse {
   items: ApiContentFeedItem[];
 }
 
+export type ApiExecutionStatus = "created" | "running" | "completed" | "failed";
+
+export interface ApiExecutionDetail {
+  id: number;
+  status: ApiExecutionStatus;
+  initiator: string;
+  created_at: string;
+  content_item_id: number | null;
+  error_message: string | null;
+}
+
 export interface TopicItem {
   id: number;
   uuid: string;

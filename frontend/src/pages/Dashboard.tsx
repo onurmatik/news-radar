@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { createBookmark, deleteBookmark, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
+import { createBookmark, deleteBookmark, getExecution, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
 import { TopicForm } from '@/components/TopicForm';
 import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle } from 'lucide-react';
@@ -35,7 +35,7 @@ export default function Dashboard() {
     groups,
     setGroups,
   } = useTopicGroup();
-  const { topics } = useTopics();
+  const { topics, setTopics } = useTopics();
   const navigate = useNavigate();
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -74,10 +74,10 @@ export default function Dashboard() {
     ? `${apiBaseUrl}/api/contents/groups/${selectedGroupId}`
     : null;
   const topicRssEndpoint = selectedTopicUuid
-    ? `${apiBaseUrl}/contents/topics/${selectedTopicUuid}/rss`
+    ? `${apiBaseUrl}/api/contents/topics/${selectedTopicUuid}/rss`
     : null;
   const groupRssEndpoint = selectedGroupId
-    ? `${apiBaseUrl}/contents/groups/${selectedGroupId}/rss`
+    ? `${apiBaseUrl}/api/contents/groups/${selectedGroupId}/rss`
     : null;
 
   const buildShareUrl = (contentId: number) => {
@@ -125,6 +125,25 @@ export default function Dashboard() {
       .map((entry) => entry.trim())
       .filter(Boolean);
 
+  const waitForExecutionCompletion = async (executionId: number) => {
+    const maxAttempts = 30;
+    const delayMs = 2000;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const execution = await getExecution(executionId);
+      if (execution.status === "completed") {
+        return execution;
+      }
+      if (execution.status === "failed") {
+        throw new Error(execution.error_message || "Fetch failed.");
+      }
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, delayMs);
+      });
+    }
+    throw new Error("Timed out waiting for the fetch to finish.");
+  };
+
+
   useEffect(() => {
     if (!selectedGroup) {
       setGroupName("");
@@ -170,31 +189,65 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
-      const cacheKey = selectedTopicUuid
-        ? `topic:${selectedTopicUuid}`
-        : selectedGroupId
-          ? `group:${selectedGroupId}`
-          : "all";
-      const cached = feedCache.current.get(cacheKey);
-      if (cached) {
-        setNews(cached);
-      } else {
-        setNews([]);
-      }
-      setError(null);
-      void loadFeed(cacheKey);
-    } else if (isAuthenticated === false) {
+    if (isAuthenticated === null) return;
+    const cacheKey = selectedTopicUuid
+      ? `topic:${selectedTopicUuid}`
+      : selectedGroupId
+        ? `group:${selectedGroupId}`
+        : "all";
+    const cached = feedCache.current.get(cacheKey);
+    if (cached) {
+      setNews(cached);
+    } else {
       setNews([]);
-      setLoading(false);
     }
+    setError(null);
+    if (!isAuthenticated && !selectedGroupId && !selectedTopicUuid) {
+      setLoading(false);
+      return;
+    }
+    void loadFeed(cacheKey);
   }, [isAuthenticated, selectedGroupId, selectedTopicUuid]);
+
+  useEffect(() => {
+    const handleScanCompleted = (
+      event: Event
+    ) => {
+      const { topicUuid } = (event as CustomEvent<{ topicUuid: string }>).detail ?? {};
+      if (!topicUuid) return;
+      if (selectedTopicUuid && topicUuid !== selectedTopicUuid) return;
+
+      if (selectedTopicUuid) {
+        void loadFeed(`topic:${selectedTopicUuid}`);
+        return;
+      }
+
+      const scannedTopic = topics.find((topic) => topic.uuid === topicUuid);
+      if (selectedGroupId && scannedTopic?.groupUuid === selectedGroupId) {
+        void loadFeed(`group:${selectedGroupId}`);
+        return;
+      }
+
+      if (!selectedGroupId && !selectedTopicUuid) {
+        void loadFeed("all");
+      }
+    };
+
+    window.addEventListener("topic-scan-completed", handleScanCompleted);
+    return () => {
+      window.removeEventListener("topic-scan-completed", handleScanCompleted);
+    };
+  }, [selectedGroupId, selectedTopicUuid, topics]);
 
   useEffect(() => {
     pageTopRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
   }, [selectedGroupId, selectedTopicUuid]);
 
   const toggleBookmark = async (item: NewsItem) => {
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
     const nextValue = !item.isBookmarked;
     setNews((prev) =>
       prev.map((entry) =>
@@ -219,6 +272,7 @@ export default function Dashboard() {
   };
 
   const filteredNews = filter === "all" ? news : news.filter(item => item.category === filter);
+  const showEmptyState = filteredNews.length === 0 && !loading;
   const hasTopicsInGroup = selectedGroupTopicCount > 0 || Boolean(selectedTopic);
 
   const handleAddTopic = () => {
@@ -265,7 +319,14 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      await runTopicScan(selectedTopicUuid);
+      const { execution_id } = await runTopicScan(selectedTopicUuid);
+      await waitForExecutionCompletion(execution_id);
+      const scannedAt = new Date();
+      setTopics((prev) =>
+        prev.map((item) =>
+          item.uuid === selectedTopicUuid ? { ...item, lastSearch: scannedAt } : item
+        )
+      );
       await loadFeed(cacheKey);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to fetch content.";
@@ -628,78 +689,85 @@ export default function Dashboard() {
         </Dialog>
 
         <div className="space-y-1">
-            <AnimatePresence mode="popLayout">
-              {filteredNews.map((item, index) => (
-                <motion.div
-                  key={item.id}
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  transition={{ duration: 0.4, delay: index * 0.05, ease: "easeOut" }}
-                >
-                  <Card className="group border-none bg-card/40 backdrop-blur-sm hover:bg-card/60 transition-all duration-300 relative overflow-hidden">
-                    <div className="flex flex-col sm:flex-row p-6 gap-6">
-                      <div className="flex-1 space-y-3">
-                        <div className="flex items-center justify-between gap-4 flex-wrap">
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <Badge className="text-[9px] font-medium border-border/50 text-muted-foreground bg-light hover:bg-muted">
-                              {item.source}
-                            </Badge>
-                            <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-medium">
-                              <Clock className="h-3 w-3" />
-                              {formatDistanceToNow(item.timestamp, { addSuffix: true })}
-                            </span>
-                            <div className="h-1 w-1 rounded-full bg-border"></div>
-                            <span className="text-[11px] text-muted-foreground/60 lowercase italic">
-                              {item.keywords[0]}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                             <Button 
-                               size="icon" variant="ghost"
-                               className={`h-8 w-8 rounded-full transition-colors hover:bg-emerald-500/10 ${item.isBookmarked ? 'text-yellow-500 bg-yellow-500/10' : 'text-muted-foreground hover:text-foreground'}`}
-                               onClick={() => toggleBookmark(item)}
-                             >
-                                <Star className={`h-3.5 w-3.5 ${item.isBookmarked ? 'fill-current' : ''}`} />
-                             </Button>
-                             <Button
-                               size="icon"
-                               variant="ghost"
-                               className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
-                               onClick={() => handleShare(item)}
-                             >
-                                <Share2 className="h-3.5 w-3.5" />
-                             </Button>
-                             <Button
-                               variant="ghost"
-                               size="sm"
-                               className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
-                               asChild
-                             >
-                               <a href={item.url} target="_blank" rel="noreferrer">
-                                 <ExternalLink className="h-3.5 w-3.5" />
-                               </a>
-                             </Button>
+            {filteredNews.length > 0 && (
+              <div
+                className={loading ? "pointer-events-none opacity-60" : ""}
+                aria-busy={loading}
+              >
+                <AnimatePresence mode="popLayout">
+                  {filteredNews.map((item, index) => (
+                    <motion.div
+                      key={item.id}
+                      initial={{ opacity: 0, y: 30 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.98 }}
+                      transition={{ duration: 0.4, delay: index * 0.05, ease: "easeOut" }}
+                    >
+                      <Card className="group border-none bg-card/40 backdrop-blur-sm hover:bg-card/60 transition-all duration-300 relative overflow-hidden">
+                        <div className="flex flex-col sm:flex-row p-6 gap-6">
+                          <div className="flex-1 space-y-3">
+                            <div className="flex items-center justify-between gap-4 flex-wrap">
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <Badge className="text-[9px] font-medium border-border/50 text-muted-foreground bg-light hover:bg-muted">
+                                  {item.source}
+                                </Badge>
+                                <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-medium">
+                                  <Clock className="h-3 w-3" />
+                                  {formatDistanceToNow(item.timestamp, { addSuffix: true })}
+                                </span>
+                                <div className="h-1 w-1 rounded-full bg-border"></div>
+                                <span className="text-[11px] text-muted-foreground/60 lowercase italic">
+                                  {item.keywords[0]}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                 <Button
+                                   size="icon" variant="ghost"
+                                   className={`h-8 w-8 rounded-full transition-colors hover:bg-emerald-500/10 ${item.isBookmarked ? 'text-yellow-500 bg-yellow-500/10' : 'text-muted-foreground hover:text-foreground'}`}
+                                   onClick={() => toggleBookmark(item)}
+                                 >
+                                    <Star className={`h-3.5 w-3.5 ${item.isBookmarked ? 'fill-current' : ''}`} />
+                                 </Button>
+                                 <Button
+                                   size="icon"
+                                   variant="ghost"
+                                   className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
+                                   onClick={() => handleShare(item)}
+                                 >
+                                    <Share2 className="h-3.5 w-3.5" />
+                                 </Button>
+                                 <Button
+                                   variant="ghost"
+                                   size="sm"
+                                   className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
+                                   asChild
+                                 >
+                                   <a href={item.url} target="_blank" rel="noreferrer">
+                                     <ExternalLink className="h-3.5 w-3.5" />
+                                   </a>
+                                 </Button>
+                              </div>
+                            </div>
+
+                            <Link to={`/content/${item.id}/full`} className="contents">
+                              <h3 className="text-xl font-bold leading-tight group-hover:text-primary transition-colors cursor-pointer">
+                                {item.title}
+                              </h3>
+                              <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">
+                                {item.summary}
+                              </p>
+                            </Link>
+
                           </div>
                         </div>
-                        
-                        <Link to={`/content/${item.id}/full`} className="contents">
-                          <h3 className="text-xl font-bold leading-tight group-hover:text-primary transition-colors cursor-pointer">
-                            {item.title}
-                          </h3>
-                          <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">
-                            {item.summary}
-                          </p>
-                        </Link>
-                        
-                      </div>
-                    </div>
-                  </Card>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-            
-            {filteredNews.length === 0 && !loading && (
+                      </Card>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
+
+            {showEmptyState && (
                <div className="text-center py-24 border border-dashed border-border/50 rounded-2xl bg-muted/5">
                   <div className="flex justify-center mb-4">
                      <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
