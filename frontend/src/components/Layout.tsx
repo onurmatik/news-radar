@@ -498,6 +498,30 @@ export function Layout({ children }: SidebarProps) {
     }
   };
 
+  const handleSearchTopicSelect = async (
+    topic: ApiSearchResponse["user_topics"][number]
+  ) => {
+    setSearchOpen(false);
+    if (topic.group_uuid) {
+      setSelectedGroupId(topic.group_uuid);
+      await loadTopics(topic.group_uuid);
+    }
+    setSelectedTopicUuid(topic.uuid);
+    navigate("/");
+  };
+
+  const handleSearchContentSelect = async (
+    content: ApiSearchResponse["user_contents"][number]
+  ) => {
+    setSearchOpen(false);
+    if (content.group_uuid) {
+      setSelectedGroupId(content.group_uuid);
+      await loadTopics(content.group_uuid);
+    }
+    setSelectedTopicUuid(content.topic_uuid);
+    navigate(`/content/${content.id}/full`);
+  };
+
   return (
       <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans flex-col">
         <AuthDialog isOpen={authDialogOpen} onOpenChange={setAuthDialogOpen} />
@@ -565,12 +589,7 @@ export function Layout({ children }: SidebarProps) {
                                       type="button"
                                       className="w-full text-left px-3 py-2 rounded-lg border border-border/60 hover:bg-muted/60 transition-colors"
                                       onClick={() => {
-                                        setSelectedTopicUuid(topic.uuid);
-                                        if (topic.group_uuid) {
-                                          setSelectedGroupId(topic.group_uuid);
-                                        }
-                                        navigate("/");
-                                        setSearchOpen(false);
+                                        void handleSearchTopicSelect(topic);
                                       }}
                                     >
                                       <div className="font-semibold text-foreground">
@@ -589,8 +608,7 @@ export function Layout({ children }: SidebarProps) {
                                     type="button"
                                     className="w-full text-left px-3 py-2 rounded-lg border border-border/60 hover:bg-muted/60 transition-colors"
                                     onClick={() => {
-                                      navigate(`/content/${content.id}/full`);
-                                      setSearchOpen(false);
+                                      void handleSearchContentSelect(content);
                                     }}
                                   >
                                     <div className="font-semibold text-foreground">

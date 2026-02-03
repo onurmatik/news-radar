@@ -96,6 +96,7 @@ export interface ApiSearchContentItem {
   published_at: string | null;
   topic_uuid: string;
   topic_queries: string[];
+  group_uuid: string | null;
   is_bookmarked: boolean;
 }
 

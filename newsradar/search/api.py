@@ -32,6 +32,7 @@ class ContentSearchItem(Schema):
     published_at: datetime | None
     topic_uuid: UUID
     topic_queries: list[str]
+    group_uuid: UUID | None
     is_bookmarked: bool
 
 
@@ -46,7 +47,7 @@ def _build_topic_search_filter(search: str) -> Q:
     normalized_search = normalize_topic_query(search)
     if not normalized_search:
         return Q()
-    return Q(queries__contains=[normalized_search])
+    return Q(queries__icontains=normalized_search)
 
 
 def _build_content_search_filter(search: str) -> Q:
@@ -112,7 +113,11 @@ def search(request, q: str | None = None, limit: int = 10, group_uuid: UUID | No
             content_id=OuterRef("pk"),
         )
         content_queryset = (
-            content_queryset.select_related("execution", "execution__topic")
+            content_queryset.select_related(
+                "execution",
+                "execution__topic",
+                "execution__topic__group",
+            )
             .annotate(is_bookmarked=Exists(bookmark_subquery))
             .order_by("-created_at", "-id")[:limit]
         )
@@ -128,6 +133,9 @@ def search(request, q: str | None = None, limit: int = 10, group_uuid: UUID | No
                 published_at=content.date or content.last_updated or content.created_at,
                 topic_uuid=content.execution.topic.uuid,
                 topic_queries=content.execution.topic.queries or [],
+                group_uuid=content.execution.topic.group.uuid
+                if content.execution.topic.group
+                else None,
                 is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
             )
             for content in content_queryset
@@ -169,7 +177,11 @@ def search(request, q: str | None = None, limit: int = 10, group_uuid: UUID | No
         )
 
     public_contents_queryset = (
-        public_contents_queryset.select_related("execution", "execution__topic")
+        public_contents_queryset.select_related(
+            "execution",
+            "execution__topic",
+            "execution__topic__group",
+        )
         .order_by("-created_at", "-id")[:limit]
     )
 
@@ -184,6 +196,7 @@ def search(request, q: str | None = None, limit: int = 10, group_uuid: UUID | No
             published_at=content.date or content.last_updated or content.created_at,
             topic_uuid=content.execution.topic.uuid,
             topic_queries=content.execution.topic.queries or [],
+            group_uuid=content.execution.topic.group.uuid if content.execution.topic.group else None,
             is_bookmarked=False,
         )
         for content in public_contents_queryset
