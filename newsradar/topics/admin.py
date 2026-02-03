@@ -30,6 +30,7 @@ class TopicAdmin(admin.ModelAdmin):
         "run_web_search",
         "set_update_frequency_daily",
         "set_update_frequency_weekly",
+        "set_update_frequency_manual",
     )
 
     def save_model(self, request, obj, form, change) -> None:
@@ -61,3 +62,8 @@ class TopicAdmin(admin.ModelAdmin):
     def set_update_frequency_weekly(self, request, queryset):
         updated = queryset.update(update_frequency="week")
         self.message_user(request, f"Updated {updated} topic(s) to weekly.")
+
+    @admin.action(description="Set update frequency to manual")
+    def set_update_frequency_manual(self, request, queryset):
+        updated = queryset.update(update_frequency="manual")
+        self.message_user(request, f"Updated {updated} topic(s) to manual.")
