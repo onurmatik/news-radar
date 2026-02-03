@@ -316,6 +316,10 @@ export default function Dashboard() {
       openAuthDialog();
       return;
     }
+    if (selectedTopicIsReadOnly) {
+      setError("You do not have permission to fetch this topic.");
+      return;
+    }
     const cacheKey = selectedTopicUuid
       ? `topic:${selectedTopicUuid}`
       : selectedGroupId
@@ -839,7 +843,7 @@ export default function Dashboard() {
                         size="sm"
                         onClick={() => void handleFetchNow()}
                         className="rounded-full"
-                        disabled={loading}
+                        disabled={loading || selectedTopicIsReadOnly}
                       >
                         Fetch now
                       </Button>

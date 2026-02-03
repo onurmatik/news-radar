@@ -533,7 +533,7 @@ export function Layout({ children }: SidebarProps) {
                   />
               </div>
               {searchOpen && (searchLoading || searchResults || searchError) && (
-                <div className="absolute right-0 top-full mt-2 w-[28rem] rounded-2xl border border-border bg-background shadow-xl p-4 text-xs z-50">
+                <div className="absolute right-0 top-full mt-2 w-[28rem] max-h-[70vh] overflow-y-auto overscroll-contain rounded-2xl border border-border bg-background shadow-xl p-4 text-xs z-50">
                   {searchLoading && (
                     <p className="text-muted-foreground">Searching...</p>
                   )}
