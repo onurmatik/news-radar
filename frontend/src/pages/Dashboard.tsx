@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { useAuthDialog } from '@/components/AuthDialogContext';
@@ -40,7 +40,8 @@ export default function Dashboard() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState("all");
+  const [domainFilter, setDomainFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
   const [groupName, setGroupName] = useState("");
   const [groupIsPublic, setGroupIsPublic] = useState(false);
   const [groupUpdateFrequency, setGroupUpdateFrequency] = useState<
@@ -280,9 +281,41 @@ export default function Dashboard() {
     }
   };
 
-  const filteredNews = filter === "all" ? news : news.filter(item => item.category === filter);
+  const filteredNews = useMemo(() => {
+    const now = Date.now();
+    const cutoff =
+      dateFilter === "day"
+        ? now - 1000 * 60 * 60 * 24
+        : dateFilter === "week"
+          ? now - 1000 * 60 * 60 * 24 * 7
+          : dateFilter === "month"
+            ? now - 1000 * 60 * 60 * 24 * 30
+            : null;
+
+    return news.filter((item) => {
+      if (domainFilter !== "all" && item.source !== domainFilter) {
+        return false;
+      }
+      if (cutoff && item.timestamp.getTime() < cutoff) {
+        return false;
+      }
+      return true;
+    });
+  }, [dateFilter, domainFilter, news]);
+  const hasActiveFilters = domainFilter !== "all" || dateFilter !== "all";
+  const availableDomains = useMemo(
+    () =>
+      Array.from(new Set(news.map((item) => item.source).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [news]
+  );
   const showEmptyState = filteredNews.length === 0 && !loading;
   const hasTopicsInGroup = selectedGroupTopicCount > 0 || Boolean(selectedTopic);
+  const handleClearFilters = () => {
+    setDomainFilter("all");
+    setDateFilter("all");
+  };
 
   const handleAddTopic = () => {
     if (!isAuthenticated) {
@@ -732,7 +765,67 @@ export default function Dashboard() {
           </DialogContent>
         </Dialog>
 
-        <div className="space-y-1">
+        <div className="space-y-4">
+            <Card className="border border-border/60 bg-card/40 backdrop-blur-sm">
+              <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-end md:justify-between">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Filter results
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-medium text-muted-foreground">
+                        Domain
+                      </label>
+                      <select
+                        className="flex h-9 w-48 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        value={domainFilter}
+                        onChange={(event) => setDomainFilter(event.target.value)}
+                      >
+                        <option value="all">All domains</option>
+                        {availableDomains.map((domain) => (
+                          <option key={domain} value={domain}>
+                            {domain}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-medium text-muted-foreground">
+                        Date range
+                      </label>
+                      <select
+                        className="flex h-9 w-40 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        value={dateFilter}
+                        onChange={(event) => setDateFilter(event.target.value)}
+                      >
+                        <option value="all">All time</option>
+                        <option value="day">Past 24 hours</option>
+                        <option value="week">Past 7 days</option>
+                        <option value="month">Past 30 days</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col items-start gap-2 text-sm text-muted-foreground md:items-end">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
+                    {hasActiveFilters
+                      ? `${filteredNews.length} results (${news.length} total)`
+                      : `${news.length} results`}
+                  </span>
+                  {hasActiveFilters && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full"
+                      onClick={handleClearFilters}
+                    >
+                      Clear all filters
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
             {filteredNews.length > 0 && (
               <div
                 className={loading ? "pointer-events-none opacity-60" : ""}
@@ -847,16 +940,16 @@ export default function Dashboard() {
                       >
                         Fetch now
                       </Button>
-                    ) : (
+                    ) : hasActiveFilters ? (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setFilter("all")}
+                        onClick={handleClearFilters}
                         className="rounded-full"
                       >
                         Clear all filters
                       </Button>
-                    )
+                    ) : null
                   ) : (
                     <Button
                       variant="outline"
