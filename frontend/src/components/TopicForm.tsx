@@ -29,12 +29,17 @@ export function TopicForm({
   onSaved,
   className,
 }: TopicFormProps) {
-  const { selectedGroupId } = useTopicGroup();
+  const { selectedGroupId, groups } = useTopicGroup();
   const { topics, setTopics } = useTopics();
   const isEditing = mode === "edit";
   const activeTopic = isEditing
     ? topics.find((entry) => entry.uuid === topicUuid) ?? null
     : null;
+  const selectedGroup = selectedGroupId
+    ? groups.find((entry) => entry.uuid === selectedGroupId) ?? null
+    : null;
+  const isReadOnlyGroup =
+    !!selectedGroupId && selectedGroup ? !selectedGroup.is_owner : false;
   const [topicName, setTopicName] = useState("");
   const [queries, setQueries] = useState<string[]>([""]);
   const [domainInput, setDomainInput] = useState("");
@@ -55,6 +60,8 @@ export function TopicForm({
     hasNewItems: topic.content_source_count > 0,
     groupUuid: topic.group_uuid,
     groupName: topic.group_name,
+    ownerUsername: topic.owner_username,
+    isOwner: topic.is_owner,
     domainAllowlist: topic.search_domain_allowlist,
     domainBlocklist: topic.search_domain_blocklist,
     languageFilter: topic.search_language_filter,
@@ -194,6 +201,46 @@ export function TopicForm({
       <Card className={cn("border border-border/60 bg-card/40", className)}>
         <CardContent className="p-6 text-sm text-muted-foreground">
           Select a topic to edit.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isEditing && activeTopic && !activeTopic.isOwner) {
+    return (
+      <Card className={cn("border border-border/60 bg-card/40", className)}>
+        <CardHeader>
+          <CardTitle>Read-only topic</CardTitle>
+          <CardDescription>
+            This topic was created by {activeTopic.ownerUsername || "another user"}.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex justify-end">
+          {onCancel && (
+            <Button variant="outline" onClick={onCancel}>
+              Close
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!isEditing && isReadOnlyGroup) {
+    return (
+      <Card className={cn("border border-border/60 bg-card/40", className)}>
+        <CardHeader>
+          <CardTitle>Read-only group</CardTitle>
+          <CardDescription>
+            This public group belongs to {selectedGroup?.owner_username || "another user"}.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex justify-end">
+          {onCancel && (
+            <Button variant="outline" onClick={onCancel}>
+              Close
+            </Button>
+          )}
         </CardContent>
       </Card>
     );

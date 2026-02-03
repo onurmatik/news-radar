@@ -8,8 +8,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { createBookmark, deleteBookmark, getContentDetail } from '@/lib/api';
-import type { ApiContentDetailItem } from '@/lib/types';
+import { createBookmark, deleteBookmark, getContentDetail, getContentItem } from '@/lib/api';
+import type { ApiContentDetailItem, ApiContentFeedItem } from '@/lib/types';
 import { ArrowLeft, Clock, ExternalLink, Share2, Star } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
@@ -20,6 +20,9 @@ export default function ContentFullDetail() {
   const navigate = useNavigate();
   const { isAuthenticated, openAuthDialog } = useAuthDialog();
   const { setSelectedGroupId, setSelectedTopicUuid } = useTopicGroup();
+  const [previewItem, setPreviewItem] = useState<ApiContentFeedItem | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const { topics } = useTopics();
   const [item, setItem] = useState<ApiContentDetailItem | null>(null);
   const [loading, setLoading] = useState(false);
@@ -40,6 +43,28 @@ export default function ContentFullDetail() {
       setLoading(false);
     }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated !== false) return;
+    if (!numericId) {
+      setPreviewError("Invalid content ID.");
+      return;
+    }
+    setPreviewLoading(true);
+    setPreviewError(null);
+    getContentItem(numericId)
+      .then((response) => {
+        setPreviewItem(response);
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : "Unable to load content preview.";
+        setPreviewError(message);
+        setPreviewItem(null);
+      })
+      .finally(() => {
+        setPreviewLoading(false);
+      });
+  }, [isAuthenticated, numericId]);
 
   useEffect(() => {
     if (isAuthenticated !== true) return;
@@ -72,10 +97,15 @@ export default function ContentFullDetail() {
     }
   }, [item, setSelectedGroupId, setSelectedTopicUuid, topics]);
 
+  const getTopicLabel = (topicUuid?: string, topicQueries?: string[]) => {
+    if (!topicUuid) return "";
+    const match = topics.find((topic) => topic.uuid === topicUuid);
+    return match?.term || topicQueries?.[0] || "Topic";
+  };
+
   const topicLabel = useMemo(() => {
     if (!item) return "";
-    const match = topics.find((topic) => topic.uuid === item.topic_uuid);
-    return match?.term || item.topic_queries?.[0] || "Topic";
+    return getTopicLabel(item.topic_uuid, item.topic_queries);
   }, [item, topics]);
 
   const buildShareUrl = (contentId: number) => {
@@ -155,13 +185,80 @@ export default function ContentFullDetail() {
 
         {isAuthenticated === false && (
           <Card className="border border-border/60 bg-card/40">
-            <CardContent className="space-y-3 p-6">
-              <p className="text-sm text-muted-foreground">
-                Sign in to view this content detail.
-              </p>
-              <Button onClick={openAuthDialog} size="sm">
-                Sign in
-              </Button>
+            <CardContent className="space-y-4 p-6">
+              {previewLoading && (
+                <p className="text-sm text-muted-foreground">
+                  Loading content preview...
+                </p>
+              )}
+              {previewError && !previewLoading && (
+                <p className="text-sm text-destructive">{previewError}</p>
+              )}
+              {previewItem && !previewLoading && (
+                <div className="space-y-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Badge className="text-[9px] font-medium border-border/50 text-muted-foreground bg-light hover:bg-muted">
+                        {previewItem.source || "Unknown"}
+                      </Badge>
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-medium">
+                        <Clock className="h-3 w-3" />
+                        {formatDistanceToNow(
+                          new Date(previewItem.published_at || previewItem.created_at),
+                          { addSuffix: true }
+                        )}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                        {getTopicLabel(previewItem.topic_uuid, previewItem.topic_queries)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
+                        onClick={openAuthDialog}
+                      >
+                        <Star className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
+                        onClick={() => handleShare(previewItem.id)}
+                      >
+                        <Share2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
+                        asChild
+                      >
+                        <a href={previewItem.url} target="_blank" rel="noreferrer">
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <h2 className="text-2xl font-bold leading-tight text-foreground">
+                      {previewItem.title || previewItem.url}
+                    </h2>
+                    <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">
+                      {previewItem.summary || "Summary not available."}
+                    </p>
+                  </div>
+                </div>
+              )}
+              <div className="border-t border-border/60 pt-3 space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Sign in to view all the details of the content.
+                </p>
+                <Button onClick={openAuthDialog} size="sm">
+                  Sign in
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}

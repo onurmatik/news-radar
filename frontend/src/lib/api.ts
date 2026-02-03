@@ -4,6 +4,7 @@ import type {
   ApiContentFeedResponse,
   ApiCurrentUser,
   ApiExecutionDetail,
+  ApiSearchResponse,
   ApiTopicCreateResponse,
   ApiTopicGroupCreateResponse,
   ApiTopicGroupListResponse,
@@ -83,6 +84,19 @@ export async function listTopics(
   }
   const query = params.toString();
   return requestJson<ApiTopicListResponse>(`/api/topics/${query ? `?${query}` : ""}`);
+}
+
+export async function searchAll(params: {
+  query: string;
+  limit?: number;
+  groupUuid?: string | null;
+}): Promise<ApiSearchResponse> {
+  const search = new URLSearchParams();
+  search.set("q", params.query);
+  if (params.limit) search.set("limit", String(params.limit));
+  if (params.groupUuid) search.set("group_uuid", params.groupUuid);
+  const query = search.toString();
+  return requestJson<ApiSearchResponse>(`/api/search/${query ? `?${query}` : ""}`);
 }
 
 export async function createTopic(

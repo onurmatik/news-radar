@@ -7,6 +7,8 @@ export interface ApiTopicListItem {
   is_active: boolean;
   group_uuid: string | null;
   group_name: string | null;
+  owner_username: string;
+  is_owner: boolean;
   search_domain_allowlist: string[] | null;
   search_domain_blocklist: string[] | null;
   search_language_filter: string[] | null;
@@ -28,6 +30,8 @@ export interface ApiTopicGroupItem {
   name: string;
   description: string;
   is_public: boolean;
+  owner_username: string;
+  is_owner: boolean;
   default_update_frequency: "day" | "week" | "manual" | null;
   default_search_language_filter: string[] | null;
   default_country: string | null;
@@ -71,6 +75,38 @@ export interface ApiContentFeedResponse {
   items: ApiContentFeedItem[];
 }
 
+export interface ApiSearchTopicItem {
+  id: number;
+  uuid: string;
+  queries: string[];
+  last_fetched_at: string | null;
+  content_source_count: number;
+  is_active: boolean;
+  group_uuid: string | null;
+  group_name: string | null;
+}
+
+export interface ApiSearchContentItem {
+  id: number;
+  url: string;
+  title: string;
+  summary: string;
+  source: string;
+  created_at: string;
+  published_at: string | null;
+  topic_uuid: string;
+  topic_queries: string[];
+  group_uuid: string | null;
+  is_bookmarked: boolean;
+}
+
+export interface ApiSearchResponse {
+  user_topics: ApiSearchTopicItem[];
+  public_topics: ApiSearchTopicItem[];
+  user_contents: ApiSearchContentItem[];
+  public_contents: ApiSearchContentItem[];
+}
+
 export type ApiExecutionStatus = "created" | "running" | "completed" | "failed";
 
 export interface ApiExecutionDetail {
@@ -93,6 +129,8 @@ export interface TopicItem {
   hasNewItems: boolean;
   groupUuid: string | null;
   groupName: string | null;
+  ownerUsername: string;
+  isOwner: boolean;
   domainAllowlist: string[] | null;
   domainBlocklist: string[] | null;
   languageFilter: string[] | null;
