@@ -37,10 +37,8 @@ class ContentSearchItem(Schema):
 
 
 class SearchResponse(Schema):
-    user_topics: list[TopicSearchItem]
-    public_topics: list[TopicSearchItem]
-    user_contents: list[ContentSearchItem]
-    public_contents: list[ContentSearchItem]
+    topics: list[TopicSearchItem]
+    contents: list[ContentSearchItem]
 
 
 def _build_topic_search_filter(search: str) -> Q:
@@ -70,10 +68,8 @@ def search(request, q: str | None = None, limit: int = 10, group_uuid: UUID | No
     topic_filter = _build_topic_search_filter(q)
     content_filter = _build_content_search_filter(q)
 
-    user_topics: list[TopicSearchItem] = []
-    user_contents: list[ContentSearchItem] = []
-    public_topics: list[TopicSearchItem] = []
-    public_contents: list[ContentSearchItem] = []
+    topics: list[TopicSearchItem] = []
+    contents: list[ContentSearchItem] = []
 
     if request.user.is_authenticated:
         topic_queryset = Topic.objects.filter(topic_filter, user=request.user)
@@ -85,7 +81,7 @@ def search(request, q: str | None = None, limit: int = 10, group_uuid: UUID | No
             .order_by("-last_fetched_at", "-created_at", "uuid")[:limit]
         )
 
-        user_topics = [
+        topics = [
             TopicSearchItem(
                 id=topic.id,
                 uuid=topic.uuid,
@@ -122,7 +118,7 @@ def search(request, q: str | None = None, limit: int = 10, group_uuid: UUID | No
             .order_by("-created_at", "-id")[:limit]
         )
 
-        user_contents = [
+        contents = [
             ContentSearchItem(
                 id=content.id,
                 url=content.url,
@@ -141,70 +137,69 @@ def search(request, q: str | None = None, limit: int = 10, group_uuid: UUID | No
             for content in content_queryset
         ]
 
-    public_group_filter = Q(group__is_public=True)
-    if group_uuid:
-        public_group_filter &= Q(group__uuid=group_uuid)
+    if not request.user.is_authenticated:
+        public_group_filter = Q(group__is_public=True)
+        if group_uuid:
+            public_group_filter &= Q(group__uuid=group_uuid)
 
-    public_topics_queryset = (
-        Topic.objects.filter(topic_filter, public_group_filter, is_active=True)
-        .select_related("group")
-        .annotate(content_source_count=Count("executions__content_items", distinct=True))
-        .order_by("-last_fetched_at", "-created_at", "uuid")[:limit]
-    )
-
-    public_topics = [
-        TopicSearchItem(
-            id=topic.id,
-            uuid=topic.uuid,
-            queries=topic.queries or [],
-            last_fetched_at=topic.last_fetched_at,
-            content_source_count=topic.content_source_count,
-            is_active=topic.is_active,
-            group_uuid=topic.group.uuid if topic.group else None,
-            group_name=topic.group.name if topic.group else None,
-        )
-        for topic in public_topics_queryset
-    ]
-
-    public_contents_queryset = Content.objects.filter(
-        content_filter,
-        execution__topic__group__is_public=True,
-        execution__topic__is_active=True,
-    )
-    if group_uuid:
-        public_contents_queryset = public_contents_queryset.filter(
-            execution__topic__group__uuid=group_uuid
+        public_topics_queryset = (
+            Topic.objects.filter(topic_filter, public_group_filter, is_active=True)
+            .select_related("group")
+            .annotate(content_source_count=Count("executions__content_items", distinct=True))
+            .order_by("-last_fetched_at", "-created_at", "uuid")[:limit]
         )
 
-    public_contents_queryset = (
-        public_contents_queryset.select_related(
-            "execution",
-            "execution__topic",
-            "execution__topic__group",
-        )
-        .order_by("-created_at", "-id")[:limit]
-    )
+        topics = [
+            TopicSearchItem(
+                id=topic.id,
+                uuid=topic.uuid,
+                queries=topic.queries or [],
+                last_fetched_at=topic.last_fetched_at,
+                content_source_count=topic.content_source_count,
+                is_active=topic.is_active,
+                group_uuid=topic.group.uuid if topic.group else None,
+                group_name=topic.group.name if topic.group else None,
+            )
+            for topic in public_topics_queryset
+        ]
 
-    public_contents = [
-        ContentSearchItem(
-            id=content.id,
-            url=content.url,
-            title=content.title or "",
-            summary=(content.snippet or "").strip(),
-            source=content.normalized_domain(),
-            created_at=content.created_at,
-            published_at=content.date or content.last_updated or content.created_at,
-            topic_uuid=content.execution.topic.uuid,
-            topic_queries=content.execution.topic.queries or [],
-            group_uuid=content.execution.topic.group.uuid if content.execution.topic.group else None,
-            is_bookmarked=False,
+        public_contents_queryset = Content.objects.filter(
+            content_filter,
+            execution__topic__group__is_public=True,
+            execution__topic__is_active=True,
         )
-        for content in public_contents_queryset
-    ]
+        if group_uuid:
+            public_contents_queryset = public_contents_queryset.filter(
+                execution__topic__group__uuid=group_uuid
+            )
+
+        public_contents_queryset = (
+            public_contents_queryset.select_related(
+                "execution",
+                "execution__topic",
+                "execution__topic__group",
+            )
+            .order_by("-created_at", "-id")[:limit]
+        )
+
+        contents = [
+            ContentSearchItem(
+                id=content.id,
+                url=content.url,
+                title=content.title or "",
+                summary=(content.snippet or "").strip(),
+                source=content.normalized_domain(),
+                created_at=content.created_at,
+                published_at=content.date or content.last_updated or content.created_at,
+                topic_uuid=content.execution.topic.uuid,
+                topic_queries=content.execution.topic.queries or [],
+                group_uuid=content.execution.topic.group.uuid if content.execution.topic.group else None,
+                is_bookmarked=False,
+            )
+            for content in public_contents_queryset
+        ]
 
     return SearchResponse(
-        user_topics=user_topics,
-        public_topics=public_topics,
-        user_contents=user_contents,
-        public_contents=public_contents,
+        topics=topics,
+        contents=contents,
     )

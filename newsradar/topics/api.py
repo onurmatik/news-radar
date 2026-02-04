@@ -133,25 +133,12 @@ def list_topics(
             topic_filter = Q(queries__contains=[normalized_search])
 
     if request.user.is_authenticated:
+        topics_queryset = Topic.objects.filter(
+            topic_filter,
+            user=request.user,
+        )
         if group_uuid:
-            group = TopicGroup.objects.filter(uuid=group_uuid).first()
-            if group and group.is_public and group.user_id != request.user.id:
-                topics_queryset = Topic.objects.filter(
-                    topic_filter,
-                    group=group,
-                    is_active=True,
-                )
-            else:
-                topics_queryset = Topic.objects.filter(
-                    topic_filter,
-                    user=request.user,
-                    group__uuid=group_uuid,
-                )
-        else:
-            topics_queryset = Topic.objects.filter(
-                topic_filter,
-                user=request.user,
-            )
+            topics_queryset = topics_queryset.filter(group__uuid=group_uuid)
 
     else:
         if not group_uuid:
@@ -329,9 +316,7 @@ def create_topic(request, payload: TopicCreateRequest):
 @api.get("/groups", response=TopicGroupListResponse)
 def list_topic_groups(request):
     if request.user.is_authenticated:
-        groups = TopicGroup.objects.filter(
-            Q(user=request.user) | Q(is_public=True)
-        ).select_related("user")
+        groups = TopicGroup.objects.filter(user=request.user).select_related("user")
     else:
         groups = TopicGroup.objects.filter(is_public=True).select_related("user")
     groups = groups.order_by("name", "created_at")
@@ -360,7 +345,8 @@ def list_topic_groups(request):
 def get_topic_group(request, group_uuid: uuid.UUID):
     if request.user.is_authenticated:
         group = TopicGroup.objects.filter(
-            Q(uuid=group_uuid) & (Q(user=request.user) | Q(is_public=True)),
+            uuid=group_uuid,
+            user=request.user,
         ).first()
     else:
         group = TopicGroup.objects.filter(
@@ -712,8 +698,7 @@ def list_topic_content_sources(request, topic_uuid: uuid.UUID):
     if not topic:
         raise HttpError(404, "Topic not found for UUID.")
     if topic.user_id != request.user.id:
-        if not topic.group or not topic.group.is_public or not topic.is_active:
-            raise HttpError(404, "Topic not found for UUID.")
+        raise HttpError(404, "Topic not found for UUID.")
 
     content_items = Content.objects.filter(execution__topic=topic)
     latest_for_url = content_items.filter(url=OuterRef("url")).order_by("-created_at", "-id")
