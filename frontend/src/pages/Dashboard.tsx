@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { createBookmark, deleteBookmark, getExecution, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
 import { TopicForm } from '@/components/TopicForm';
@@ -783,48 +784,51 @@ export default function Dashboard() {
                         <label className="text-[11px] font-medium text-muted-foreground">
                           Domain
                         </label>
-                        <select
-                          className="flex h-9 w-48 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                          value={domainFilter}
-                          onChange={(event) => setDomainFilter(event.target.value)}
-                        >
-                          <option value="all">All domains</option>
-                          {availableDomains.map((domain) => (
-                            <option key={domain} value={domain}>
-                              {domain}
-                            </option>
-                          ))}
-                        </select>
+                        <Select value={domainFilter} onValueChange={setDomainFilter}>
+                          <SelectTrigger className="h-9 w-48 border border-input bg-background px-2 py-1 text-xs">
+                            <SelectValue placeholder="All domains" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All domains</SelectItem>
+                            {availableDomains.map((domain) => (
+                              <SelectItem key={domain} value={domain}>
+                                {domain}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="flex flex-col gap-1">
                         <label className="text-[11px] font-medium text-muted-foreground">
                           Date range
                         </label>
-                        <select
-                          className="flex h-9 w-40 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                          value={dateFilter}
-                          onChange={(event) => setDateFilter(event.target.value)}
-                        >
-                          <option value="all">All time</option>
-                          <option value="day">Past 24 hours</option>
-                          <option value="week">Past 7 days</option>
-                          <option value="month">Past 30 days</option>
-                        </select>
+                        <Select value={dateFilter} onValueChange={setDateFilter}>
+                          <SelectTrigger className="h-9 w-40 border border-input bg-background px-2 py-1 text-xs">
+                            <SelectValue placeholder="All time" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All time</SelectItem>
+                            <SelectItem value="day">Past 24 hours</SelectItem>
+                            <SelectItem value="week">Past 7 days</SelectItem>
+                            <SelectItem value="month">Past 30 days</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="flex flex-col gap-1">
                         <label className="text-[11px] font-medium text-muted-foreground">
                           Last fetched
                         </label>
-                        <select
-                          className="flex h-9 w-40 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                          value={fetchedFilter}
-                          onChange={(event) => setFetchedFilter(event.target.value)}
-                        >
-                          <option value="all">Any time</option>
-                          <option value="day">Past 24 hours</option>
-                          <option value="week">Past 7 days</option>
-                          <option value="month">Past 30 days</option>
-                        </select>
+                        <Select value={fetchedFilter} onValueChange={setFetchedFilter}>
+                          <SelectTrigger className="h-9 w-40 border border-input bg-background px-2 py-1 text-xs">
+                            <SelectValue placeholder="Any time" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Any time</SelectItem>
+                            <SelectItem value="day">Past 24 hours</SelectItem>
+                            <SelectItem value="week">Past 7 days</SelectItem>
+                            <SelectItem value="month">Past 30 days</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                       {hasActiveFilters && (
                         <Button
