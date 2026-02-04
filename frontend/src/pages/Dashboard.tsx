@@ -42,6 +42,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [domainFilter, setDomainFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
+  const [fetchedFilter, setFetchedFilter] = useState("all");
   const [groupName, setGroupName] = useState("");
   const [groupIsPublic, setGroupIsPublic] = useState(false);
   const [groupUpdateFrequency, setGroupUpdateFrequency] = useState<
@@ -116,12 +117,15 @@ export default function Dashboard() {
     const keywords = item.topic_queries?.length ? item.topic_queries : ["radar"];
     const timestamp = new Date(item.published_at || item.created_at);
     const safeTimestamp = Number.isNaN(timestamp.getTime()) ? new Date() : timestamp;
+    const fetchedAt = new Date(item.created_at);
+    const safeFetchedAt = Number.isNaN(fetchedAt.getTime()) ? safeTimestamp : fetchedAt;
     return {
       id: item.id,
       title: item.title || item.url,
       summary: item.summary || "Summary not available.",
       source: getSourceLabel(item),
       timestamp: safeTimestamp,
+      fetchedAt: safeFetchedAt,
       relevanceScore: normalizeScore(item.relevance_score),
       keywords,
       category: "general",
@@ -292,6 +296,14 @@ export default function Dashboard() {
           : dateFilter === "month"
             ? now - 1000 * 60 * 60 * 24 * 30
             : null;
+    const fetchedCutoff =
+      fetchedFilter === "day"
+        ? now - 1000 * 60 * 60 * 24
+        : fetchedFilter === "week"
+          ? now - 1000 * 60 * 60 * 24 * 7
+          : fetchedFilter === "month"
+            ? now - 1000 * 60 * 60 * 24 * 30
+            : null;
 
     return news.filter((item) => {
       if (domainFilter !== "all" && item.source !== domainFilter) {
@@ -300,10 +312,14 @@ export default function Dashboard() {
       if (cutoff && item.timestamp.getTime() < cutoff) {
         return false;
       }
+      if (fetchedCutoff && item.fetchedAt.getTime() < fetchedCutoff) {
+        return false;
+      }
       return true;
     });
-  }, [dateFilter, domainFilter, news]);
-  const hasActiveFilters = domainFilter !== "all" || dateFilter !== "all";
+  }, [dateFilter, domainFilter, fetchedFilter, news]);
+  const hasActiveFilters =
+    domainFilter !== "all" || dateFilter !== "all" || fetchedFilter !== "all";
   const availableDomains = useMemo(
     () =>
       Array.from(new Set(news.map((item) => item.source).filter(Boolean))).sort((a, b) =>
@@ -319,6 +335,7 @@ export default function Dashboard() {
   const handleClearFilters = () => {
     setDomainFilter("all");
     setDateFilter("all");
+    setFetchedFilter("all");
   };
 
   const handleAddTopic = () => {
@@ -832,6 +849,21 @@ export default function Dashboard() {
                           onChange={(event) => setDateFilter(event.target.value)}
                         >
                           <option value="all">All time</option>
+                          <option value="day">Past 24 hours</option>
+                          <option value="week">Past 7 days</option>
+                          <option value="month">Past 30 days</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-medium text-muted-foreground">
+                          Last fetched
+                        </label>
+                        <select
+                          className="flex h-9 w-40 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          value={fetchedFilter}
+                          onChange={(event) => setFetchedFilter(event.target.value)}
+                        >
+                          <option value="all">Any time</option>
                           <option value="day">Past 24 hours</option>
                           <option value="week">Past 7 days</option>
                           <option value="month">Past 30 days</option>

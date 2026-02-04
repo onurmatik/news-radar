@@ -144,6 +144,7 @@ export interface NewsItem {
   summary: string;
   source: string;
   timestamp: Date;
+  fetchedAt: Date;
   relevanceScore: number;
   keywords: string[];
   category: "technology" | "business" | "science" | "politics" | "general";
