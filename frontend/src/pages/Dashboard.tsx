@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { createBookmark, deleteBookmark, getExecution, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
 import { TopicForm } from '@/components/TopicForm';
-import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle } from 'lucide-react';
+import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -56,6 +56,7 @@ export default function Dashboard() {
   const [shareUrl, setShareUrl] = useState("");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const [filtersCollapsed, setFiltersCollapsed] = useState(true);
   const feedCache = useRef<Map<string, NewsItem[]>>(new Map());
   const latestRequestId = useRef(0);
   const pageTopRef = useRef<HTMLDivElement | null>(null);
@@ -312,6 +313,9 @@ export default function Dashboard() {
   );
   const showEmptyState = filteredNews.length === 0 && !loading;
   const hasTopicsInGroup = selectedGroupTopicCount > 0 || Boolean(selectedTopic);
+  const filterHeaderText = hasActiveFilters
+    ? `Filter: ${filteredNews.length} results (${news.length} total)`
+    : "Filter";
   const handleClearFilters = () => {
     setDomainFilter("all");
     setDateFilter("all");
@@ -767,63 +771,90 @@ export default function Dashboard() {
 
         <div className="space-y-4">
             <Card className="border border-border/60 bg-card/40 backdrop-blur-sm">
-              <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-end md:justify-between">
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Filter results
-                  </p>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-medium text-muted-foreground">
-                        Domain
-                      </label>
-                      <select
-                        className="flex h-9 w-48 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        value={domainFilter}
-                        onChange={(event) => setDomainFilter(event.target.value)}
+              <CardContent className="flex flex-col gap-4 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="text-xs font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+                      onClick={() => setFiltersCollapsed((prev) => !prev)}
+                    >
+                      {filterHeaderText}
+                    </button>
+                    {filtersCollapsed && hasActiveFilters && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 rounded-full px-3 text-[11px]"
+                        onClick={handleClearFilters}
                       >
-                        <option value="all">All domains</option>
-                        {availableDomains.map((domain) => (
-                          <option key={domain} value={domain}>
-                            {domain}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-medium text-muted-foreground">
-                        Date range
-                      </label>
-                      <select
-                        className="flex h-9 w-40 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        value={dateFilter}
-                        onChange={(event) => setDateFilter(event.target.value)}
-                      >
-                        <option value="all">All time</option>
-                        <option value="day">Past 24 hours</option>
-                        <option value="week">Past 7 days</option>
-                        <option value="month">Past 30 days</option>
-                      </select>
+                        Clear all filters
+                      </Button>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-full text-muted-foreground"
+                    onClick={() => setFiltersCollapsed((prev) => !prev)}
+                    aria-label={filtersCollapsed ? "Expand filters" : "Collapse filters"}
+                  >
+                    {filtersCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {!filtersCollapsed && (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-medium text-muted-foreground">
+                          Domain
+                        </label>
+                        <select
+                          className="flex h-9 w-48 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          value={domainFilter}
+                          onChange={(event) => setDomainFilter(event.target.value)}
+                        >
+                          <option value="all">All domains</option>
+                          {availableDomains.map((domain) => (
+                            <option key={domain} value={domain}>
+                              {domain}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-medium text-muted-foreground">
+                          Date range
+                        </label>
+                        <select
+                          className="flex h-9 w-40 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          value={dateFilter}
+                          onChange={(event) => setDateFilter(event.target.value)}
+                        >
+                          <option value="all">All time</option>
+                          <option value="day">Past 24 hours</option>
+                          <option value="week">Past 7 days</option>
+                          <option value="month">Past 30 days</option>
+                        </select>
+                      </div>
+                      {hasActiveFilters && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-full"
+                          onClick={handleClearFilters}
+                        >
+                          Clear all filters
+                        </Button>
+                      )}
+                      {!hasActiveFilters && (
+                        <span className="ml-auto text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                          {news.length} results
+                        </span>
+                      )}
                     </div>
                   </div>
-                </div>
-                <div className="flex flex-col items-start gap-2 text-sm text-muted-foreground md:items-end">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
-                    {hasActiveFilters
-                      ? `${filteredNews.length} results (${news.length} total)`
-                      : `${news.length} results`}
-                  </span>
-                  {hasActiveFilters && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="rounded-full"
-                      onClick={handleClearFilters}
-                    >
-                      Clear all filters
-                    </Button>
-                  )}
-                </div>
+                )}
               </CardContent>
             </Card>
             {filteredNews.length > 0 && (
@@ -918,28 +949,43 @@ export default function Dashboard() {
                   <h4 className="text-lg font-bold">
                     {hasTopicsInGroup
                       ? selectedTopic
-                        ? "No content found"
+                        ? hasActiveFilters
+                          ? "No filtered results"
+                          : "No content found"
                         : "No signals found"
                       : "No topics created"}
                   </h4>
                   <p className="text-sm text-muted-foreground mt-1 mb-6">
                     {hasTopicsInGroup
                       ? selectedTopic
-                        ? "Fetch now to populate this topic."
+                        ? hasActiveFilters
+                          ? "Clear filters to see all content in this topic."
+                          : "Fetch now to populate this topic."
                         : "Adjust your filters or check back after the next scan."
                       : "Create a topic to start monitoring this group."}
                   </p>
                   {hasTopicsInGroup ? (
                     selectedTopic ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void handleFetchNow()}
-                        className="rounded-full"
-                        disabled={loading || selectedTopicIsReadOnly}
-                      >
-                        Fetch now
-                      </Button>
+                      hasActiveFilters ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleClearFilters}
+                          className="rounded-full"
+                        >
+                          Clear all filters
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleFetchNow()}
+                          className="rounded-full"
+                          disabled={loading || selectedTopicIsReadOnly}
+                        >
+                          Fetch now
+                        </Button>
+                      )
                     ) : hasActiveFilters ? (
                       <Button
                         variant="outline"
