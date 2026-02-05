@@ -1,3 +1,5 @@
+@import url("https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&f[]=cabinet-grotesk@400,700,800,900&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -99,6 +101,14 @@
 }
 
 @layer utilities {
+  .font-satoshi {
+    font-family: "Satoshi", var(--font-sans), system-ui, sans-serif;
+  }
+
+  .font-display {
+    font-family: "Cabinet Grotesk", "Satoshi", var(--font-sans), system-ui, sans-serif;
+  }
+
   .custom-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--border)) transparent;

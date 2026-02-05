@@ -613,6 +613,7 @@ export default function Dashboard() {
                 onCancel={() => setConfigDialogOpen(false)}
                 onSaved={() => setConfigDialogOpen(false)}
                 className="border-none bg-transparent shadow-none"
+                variant="dialog"
               />
             ) : selectedGroup ? (
               <Card className="border-none bg-transparent shadow-none">

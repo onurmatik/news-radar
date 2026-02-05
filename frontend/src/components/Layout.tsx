@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Radio, Search, Bell, User, PlusCircle, Plus, MoreVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -43,6 +43,7 @@ interface SidebarProps {
  */
 export function Layout({ children }: SidebarProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     isAuthenticated,
     currentUser,
@@ -64,6 +65,7 @@ export function Layout({ children }: SidebarProps) {
   const { topics, setTopics } = useTopics();
   const [topicsError, setTopicsError] = useState<string | null>(null);
   const [groupsError, setGroupsError] = useState<string | null>(null);
+  const [topicsLoaded, setTopicsLoaded] = useState(false);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
@@ -106,6 +108,7 @@ export function Layout({ children }: SidebarProps) {
 
   const loadTopics = async (groupUuid?: string | null) => {
     try {
+      setTopicsLoaded(false);
       setTopicsError(null);
       const response = await listTopics(undefined, groupUuid ?? undefined);
       setTopics(response.topics.map(toTopicItem));
@@ -113,6 +116,8 @@ export function Layout({ children }: SidebarProps) {
       const message = error instanceof Error ? error.message : "Unable to load topics.";
       setTopicsError(message);
       setTopics([]);
+    } finally {
+      setTopicsLoaded(true);
     }
   };
 
@@ -209,6 +214,15 @@ export function Layout({ children }: SidebarProps) {
       setSelectedTopicUuid(null);
     }
   }, [selectedGroupId, selectedTopicUuid, setSelectedTopicUuid, topics]);
+
+  useEffect(() => {
+    if (!topicsLoaded) return;
+    if (isAuthenticated !== true) return;
+    if (topicsError) return;
+    if (topics.length > 0) return;
+    if (location.pathname !== "/") return;
+    navigate("/topics");
+  }, [isAuthenticated, location.pathname, navigate, topics.length, topicsError, topicsLoaded]);
 
   const filteredTopics = useMemo(() => {
     if (isAuthenticated === false) return topics;
