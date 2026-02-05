@@ -101,10 +101,8 @@ export interface ApiSearchContentItem {
 }
 
 export interface ApiSearchResponse {
-  user_topics: ApiSearchTopicItem[];
-  public_topics: ApiSearchTopicItem[];
-  user_contents: ApiSearchContentItem[];
-  public_contents: ApiSearchContentItem[];
+  topics: ApiSearchTopicItem[];
+  contents: ApiSearchContentItem[];
 }
 
 export type ApiExecutionStatus = "created" | "running" | "completed" | "failed";
@@ -144,6 +142,7 @@ export interface NewsItem {
   summary: string;
   source: string;
   timestamp: Date;
+  fetchedAt: Date;
   relevanceScore: number;
   keywords: string[];
   category: "technology" | "business" | "science" | "politics" | "general";

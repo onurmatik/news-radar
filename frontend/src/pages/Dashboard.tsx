@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { useAuthDialog } from '@/components/AuthDialogContext';
@@ -9,10 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { createBookmark, deleteBookmark, getExecution, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
 import { TopicForm } from '@/components/TopicForm';
-import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle } from 'lucide-react';
+import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -40,7 +41,9 @@ export default function Dashboard() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState("all");
+  const [domainFilter, setDomainFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [fetchedFilter, setFetchedFilter] = useState("all");
   const [groupName, setGroupName] = useState("");
   const [groupIsPublic, setGroupIsPublic] = useState(false);
   const [groupUpdateFrequency, setGroupUpdateFrequency] = useState<
@@ -55,6 +58,7 @@ export default function Dashboard() {
   const [shareUrl, setShareUrl] = useState("");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const [filtersCollapsed, setFiltersCollapsed] = useState(true);
   const feedCache = useRef<Map<string, NewsItem[]>>(new Map());
   const latestRequestId = useRef(0);
   const pageTopRef = useRef<HTMLDivElement | null>(null);
@@ -63,15 +67,6 @@ export default function Dashboard() {
   const selectedTopic = selectedTopicUuid
     ? topics.find((topic) => topic.uuid === selectedTopicUuid) ?? null
     : null;
-  const selectedGroupOwner = selectedGroup?.owner_username ?? null;
-  const selectedGroupIsReadOnly = Boolean(
-    isAuthenticated && selectedGroup && !selectedGroup.is_owner
-  );
-  const selectedTopicIsReadOnly = !!selectedTopic && !selectedTopic.isOwner;
-  const readOnlyOwner = selectedTopicIsReadOnly
-    ? selectedTopic?.ownerUsername ?? null
-    : selectedGroupOwner;
-  const isReadOnlySelection = selectedGroupIsReadOnly || selectedTopicIsReadOnly;
   const contentTitle = selectedTopic
     ? `${selectedGroupName} / ${selectedTopic.term}`
     : selectedGroupName;
@@ -114,12 +109,15 @@ export default function Dashboard() {
     const keywords = item.topic_queries?.length ? item.topic_queries : ["radar"];
     const timestamp = new Date(item.published_at || item.created_at);
     const safeTimestamp = Number.isNaN(timestamp.getTime()) ? new Date() : timestamp;
+    const fetchedAt = new Date(item.created_at);
+    const safeFetchedAt = Number.isNaN(fetchedAt.getTime()) ? safeTimestamp : fetchedAt;
     return {
       id: item.id,
       title: item.title || item.url,
       summary: item.summary || "Summary not available.",
       source: getSourceLabel(item),
       timestamp: safeTimestamp,
+      fetchedAt: safeFetchedAt,
       relevanceScore: normalizeScore(item.relevance_score),
       keywords,
       category: "general",
@@ -280,9 +278,57 @@ export default function Dashboard() {
     }
   };
 
-  const filteredNews = filter === "all" ? news : news.filter(item => item.category === filter);
+  const filteredNews = useMemo(() => {
+    const now = Date.now();
+    const cutoff =
+      dateFilter === "day"
+        ? now - 1000 * 60 * 60 * 24
+        : dateFilter === "week"
+          ? now - 1000 * 60 * 60 * 24 * 7
+          : dateFilter === "month"
+            ? now - 1000 * 60 * 60 * 24 * 30
+            : null;
+    const fetchedCutoff =
+      fetchedFilter === "day"
+        ? now - 1000 * 60 * 60 * 24
+        : fetchedFilter === "week"
+          ? now - 1000 * 60 * 60 * 24 * 7
+          : fetchedFilter === "month"
+            ? now - 1000 * 60 * 60 * 24 * 30
+            : null;
+
+    return news.filter((item) => {
+      if (domainFilter !== "all" && item.source !== domainFilter) {
+        return false;
+      }
+      if (cutoff && item.timestamp.getTime() < cutoff) {
+        return false;
+      }
+      if (fetchedCutoff && item.fetchedAt.getTime() < fetchedCutoff) {
+        return false;
+      }
+      return true;
+    });
+  }, [dateFilter, domainFilter, fetchedFilter, news]);
+  const hasActiveFilters =
+    domainFilter !== "all" || dateFilter !== "all" || fetchedFilter !== "all";
+  const availableDomains = useMemo(
+    () =>
+      Array.from(new Set(news.map((item) => item.source).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [news]
+  );
   const showEmptyState = filteredNews.length === 0 && !loading;
   const hasTopicsInGroup = selectedGroupTopicCount > 0 || Boolean(selectedTopic);
+  const filterHeaderText = hasActiveFilters
+    ? `Filter: ${filteredNews.length} results (${news.length} total)`
+    : "Filter";
+  const handleClearFilters = () => {
+    setDomainFilter("all");
+    setDateFilter("all");
+    setFetchedFilter("all");
+  };
 
   const handleAddTopic = () => {
     if (!isAuthenticated) {
@@ -314,10 +360,6 @@ export default function Dashboard() {
   const handleFetchNow = async () => {
     if (!isAuthenticated) {
       openAuthDialog();
-      return;
-    }
-    if (selectedTopicIsReadOnly) {
-      setError("You do not have permission to fetch this topic.");
       return;
     }
     const cacheKey = selectedTopicUuid
@@ -426,11 +468,6 @@ export default function Dashboard() {
             {error && (
               <p className="text-sm text-destructive mt-3">{error}</p>
             )}
-            {isReadOnlySelection && (
-              <p className="text-sm text-muted-foreground mt-2">
-                Read-only: created by {readOnlyOwner || "another user"}.
-              </p>
-            )}
           </div>
           
           <div className="flex flex-col sm:flex-row items-center gap-3">
@@ -451,17 +488,9 @@ export default function Dashboard() {
                   openAuthDialog();
                   return;
                 }
-                if (isReadOnlySelection) {
-                  return;
-                }
                 setConfigDialogOpen(true);
               }}
-              disabled={isReadOnlySelection}
-              title={
-                isReadOnlySelection
-                  ? `Read-only: ${readOnlyOwner || "another user"}`
-                  : "Configure selection"
-              }
+              title="Configure selection"
             >
               Config
             </Button>
@@ -577,24 +606,7 @@ export default function Dashboard() {
 
         <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
           <DialogContent className="sm:max-w-[720px] border-border bg-background p-0">
-            {isReadOnlySelection ? (
-              <Card className="border-none bg-transparent shadow-none">
-                <CardHeader>
-                  <CardTitle>Read-only selection</CardTitle>
-                  <CardDescription>
-                    This content was created by {readOnlyOwner || "another user"}.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="flex justify-end">
-                  <Button
-                    variant="outline"
-                    onClick={() => setConfigDialogOpen(false)}
-                  >
-                    Close
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : selectedTopic ? (
+           {selectedTopic ? (
               <TopicForm
                 mode="edit"
                 topicUuid={selectedTopic.uuid}
@@ -732,7 +744,112 @@ export default function Dashboard() {
           </DialogContent>
         </Dialog>
 
-        <div className="space-y-1">
+        <div className="space-y-4">
+            <Card className="border border-border/60 bg-card/40 backdrop-blur-sm">
+              <CardContent className="flex flex-col gap-4 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="text-xs font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+                      onClick={() => setFiltersCollapsed((prev) => !prev)}
+                    >
+                      {filterHeaderText}
+                    </button>
+                    {filtersCollapsed && hasActiveFilters && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 rounded-full px-3 text-[11px]"
+                        onClick={handleClearFilters}
+                      >
+                        Clear all filters
+                      </Button>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-full text-muted-foreground"
+                    onClick={() => setFiltersCollapsed((prev) => !prev)}
+                    aria-label={filtersCollapsed ? "Expand filters" : "Collapse filters"}
+                  >
+                    {filtersCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {!filtersCollapsed && (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-medium text-muted-foreground">
+                          Domain
+                        </label>
+                        <Select value={domainFilter} onValueChange={setDomainFilter}>
+                          <SelectTrigger className="h-9 w-48 border border-input bg-background px-2 py-1 text-xs">
+                            <SelectValue placeholder="All domains" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All domains</SelectItem>
+                            {availableDomains.map((domain) => (
+                              <SelectItem key={domain} value={domain}>
+                                {domain}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-medium text-muted-foreground">
+                          Date range
+                        </label>
+                        <Select value={dateFilter} onValueChange={setDateFilter}>
+                          <SelectTrigger className="h-9 w-40 border border-input bg-background px-2 py-1 text-xs">
+                            <SelectValue placeholder="All time" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All time</SelectItem>
+                            <SelectItem value="day">Past 24 hours</SelectItem>
+                            <SelectItem value="week">Past 7 days</SelectItem>
+                            <SelectItem value="month">Past 30 days</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-medium text-muted-foreground">
+                          Last fetched
+                        </label>
+                        <Select value={fetchedFilter} onValueChange={setFetchedFilter}>
+                          <SelectTrigger className="h-9 w-40 border border-input bg-background px-2 py-1 text-xs">
+                            <SelectValue placeholder="Any time" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Any time</SelectItem>
+                            <SelectItem value="day">Past 24 hours</SelectItem>
+                            <SelectItem value="week">Past 7 days</SelectItem>
+                            <SelectItem value="month">Past 30 days</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {hasActiveFilters && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-full"
+                          onClick={handleClearFilters}
+                        >
+                          Clear all filters
+                        </Button>
+                      )}
+                      {!hasActiveFilters && (
+                        <span className="ml-auto text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                          {news.length} results
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
             {filteredNews.length > 0 && (
               <div
                 className={loading ? "pointer-events-none opacity-60" : ""}
@@ -825,38 +942,53 @@ export default function Dashboard() {
                   <h4 className="text-lg font-bold">
                     {hasTopicsInGroup
                       ? selectedTopic
-                        ? "No content found"
+                        ? hasActiveFilters
+                          ? "No filtered results"
+                          : "No content found"
                         : "No signals found"
                       : "No topics created"}
                   </h4>
                   <p className="text-sm text-muted-foreground mt-1 mb-6">
                     {hasTopicsInGroup
                       ? selectedTopic
-                        ? "Fetch now to populate this topic."
+                        ? hasActiveFilters
+                          ? "Clear filters to see all content in this topic."
+                          : "Fetch now to populate this topic."
                         : "Adjust your filters or check back after the next scan."
                       : "Create a topic to start monitoring this group."}
                   </p>
                   {hasTopicsInGroup ? (
                     selectedTopic ? (
+                      hasActiveFilters ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleClearFilters}
+                          className="rounded-full"
+                        >
+                          Clear all filters
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleFetchNow()}
+                          className="rounded-full"
+                          disabled={loading}
+                        >
+                          Fetch now
+                        </Button>
+                      )
+                    ) : hasActiveFilters ? (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => void handleFetchNow()}
-                        className="rounded-full"
-                        disabled={loading || selectedTopicIsReadOnly}
-                      >
-                        Fetch now
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setFilter("all")}
+                        onClick={handleClearFilters}
                         className="rounded-full"
                       >
                         Clear all filters
                       </Button>
-                    )
+                    ) : null
                   ) : (
                     <Button
                       variant="outline"

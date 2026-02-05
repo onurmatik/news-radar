@@ -8,8 +8,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { createBookmark, deleteBookmark, getContentDetail, getContentItem } from '@/lib/api';
-import type { ApiContentDetailItem, ApiContentFeedItem } from '@/lib/types';
+import { createBookmark, deleteBookmark, getContentDetail } from '@/lib/api';
+import type { ApiContentDetailItem } from '@/lib/types';
 import { ArrowLeft, Clock, ExternalLink, Share2, Star } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
@@ -20,9 +20,6 @@ export default function ContentFullDetail() {
   const navigate = useNavigate();
   const { isAuthenticated, openAuthDialog } = useAuthDialog();
   const { setSelectedGroupId, setSelectedTopicUuid } = useTopicGroup();
-  const [previewItem, setPreviewItem] = useState<ApiContentFeedItem | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
   const { topics } = useTopics();
   const [item, setItem] = useState<ApiContentDetailItem | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,36 +35,6 @@ export default function ContentFullDetail() {
   }, [contentId]);
 
   useEffect(() => {
-    if (isAuthenticated === false) {
-      setItem(null);
-      setLoading(false);
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    if (isAuthenticated !== false) return;
-    if (!numericId) {
-      setPreviewError("Invalid content ID.");
-      return;
-    }
-    setPreviewLoading(true);
-    setPreviewError(null);
-    getContentItem(numericId)
-      .then((response) => {
-        setPreviewItem(response);
-      })
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : "Unable to load content preview.";
-        setPreviewError(message);
-        setPreviewItem(null);
-      })
-      .finally(() => {
-        setPreviewLoading(false);
-      });
-  }, [isAuthenticated, numericId]);
-
-  useEffect(() => {
-    if (isAuthenticated !== true) return;
     if (!numericId) {
       setError("Invalid content ID.");
       return;
@@ -86,7 +53,7 @@ export default function ContentFullDetail() {
       .finally(() => {
         setLoading(false);
       });
-  }, [isAuthenticated, numericId]);
+  }, [numericId]);
 
   useEffect(() => {
     if (!item) return;
@@ -183,218 +150,133 @@ export default function ContentFullDetail() {
           </Link>
         </div>
 
-        {isAuthenticated === false && (
+        {loading && (
           <Card className="border border-border/60 bg-card/40">
-            <CardContent className="space-y-4 p-6">
-              {previewLoading && (
-                <p className="text-sm text-muted-foreground">
-                  Loading content preview...
-                </p>
-              )}
-              {previewError && !previewLoading && (
-                <p className="text-sm text-destructive">{previewError}</p>
-              )}
-              {previewItem && !previewLoading && (
-                <div className="space-y-5">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Badge className="text-[9px] font-medium border-border/50 text-muted-foreground bg-light hover:bg-muted">
-                        {previewItem.source || "Unknown"}
-                      </Badge>
-                      <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-medium">
-                        <Clock className="h-3 w-3" />
-                        {formatDistanceToNow(
-                          new Date(previewItem.published_at || previewItem.created_at),
-                          { addSuffix: true }
-                        )}
-                      </span>
-                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
-                        {getTopicLabel(previewItem.topic_uuid, previewItem.topic_queries)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
-                        onClick={openAuthDialog}
-                      >
-                        <Star className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
-                        onClick={() => handleShare(previewItem.id)}
-                      >
-                        <Share2 className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
-                        asChild
-                      >
-                        <a href={previewItem.url} target="_blank" rel="noreferrer">
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <h2 className="text-2xl font-bold leading-tight text-foreground">
-                      {previewItem.title || previewItem.url}
-                    </h2>
-                    <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">
-                      {previewItem.summary || "Summary not available."}
-                    </p>
-                  </div>
-                </div>
-              )}
-              <div className="border-t border-border/60 pt-3 space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  Sign in to view all the details of the content.
-                </p>
-                <Button onClick={openAuthDialog} size="sm">
-                  Sign in
-                </Button>
-              </div>
+            <CardContent className="p-6 text-sm text-muted-foreground">
+              Loading content detail...
             </CardContent>
           </Card>
         )}
 
-        {isAuthenticated && (
-          <>
-            {loading && (
-              <Card className="border border-border/60 bg-card/40">
-                <CardContent className="p-6 text-sm text-muted-foreground">
-                  Loading content detail...
-                </CardContent>
-              </Card>
-            )}
+        {error && !loading && (
+          <Card className="border border-border/60 bg-card/40">
+            <CardContent className="p-6 text-sm text-destructive">
+              {error}
+            </CardContent>
+          </Card>
+        )}
 
-            {error && !loading && (
-              <Card className="border border-border/60 bg-card/40">
-                <CardContent className="p-6 text-sm text-destructive">
-                  {error}
-                </CardContent>
-              </Card>
-            )}
+        {item && !loading && (
+          <Card className="border border-border/60 bg-card/40">
+            <CardContent className="space-y-5 p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Badge className="text-[9px] font-medium border-border/50 text-muted-foreground bg-light hover:bg-muted">
+                    {item.source || "Unknown"}
+                  </Badge>
+                  <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-medium">
+                    <Clock className="h-3 w-3" />
+                    {formatDistanceToNow(
+                      new Date(item.published_at || item.created_at),
+                      { addSuffix: true }
+                    )}
+                  </span>
+                  <span className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                    {topicLabel}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className={`h-8 w-8 rounded-full transition-colors hover:bg-emerald-500/10 ${item.is_bookmarked ? 'text-yellow-500 bg-yellow-500/10' : 'text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => void toggleBookmark()}
+                  >
+                    <Star className={`h-3.5 w-3.5 ${item.is_bookmarked ? 'fill-current' : ''}`} />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
+                    onClick={() => handleShare(item.id)}
+                  >
+                    <Share2 className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
+                    asChild
+                  >
+                    <a href={item.url} target="_blank" rel="noreferrer">
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </Button>
+                </div>
+              </div>
 
-            {item && !loading && (
-              <Card className="border border-border/60 bg-card/40">
-                <CardContent className="space-y-5 p-6">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Badge className="text-[9px] font-medium border-border/50 text-muted-foreground bg-light hover:bg-muted">
-                        {item.source || "Unknown"}
-                      </Badge>
-                      <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-medium">
-                        <Clock className="h-3 w-3" />
-                        {formatDistanceToNow(
-                          new Date(item.published_at || item.created_at),
-                          { addSuffix: true }
-                        )}
-                      </span>
-                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
-                        {topicLabel}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className={`h-8 w-8 rounded-full transition-colors hover:bg-emerald-500/10 ${item.is_bookmarked ? 'text-yellow-500 bg-yellow-500/10' : 'text-muted-foreground hover:text-foreground'}`}
-                        onClick={() => void toggleBookmark()}
-                      >
-                        <Star className={`h-3.5 w-3.5 ${item.is_bookmarked ? 'fill-current' : ''}`} />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
-                        onClick={() => handleShare(item.id)}
-                      >
-                        <Share2 className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
-                        asChild
-                      >
-                        <a href={item.url} target="_blank" rel="noreferrer">
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <h2 className="text-2xl font-bold leading-tight text-foreground">
-                      {item.title || item.url}
-                    </h2>
-                    <ReactMarkdown
-                      className="text-sm text-muted-foreground leading-relaxed space-y-4"
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        h1: ({ node, ...props }) => (
-                          <h1 className="text-xl font-semibold text-foreground" {...props} />
-                        ),
-                        h2: ({ node, ...props }) => (
-                          <h2 className="text-lg font-semibold text-foreground" {...props} />
-                        ),
-                        h3: ({ node, ...props }) => (
-                          <h3 className="text-base font-semibold text-foreground" {...props} />
-                        ),
-                        p: ({ node, ...props }) => (
-                          <p className="text-sm text-muted-foreground leading-relaxed" {...props} />
-                        ),
-                        a: ({ node, ...props }) => (
-                          <a
-                            className="text-primary underline-offset-4 hover:underline"
-                            target="_blank"
-                            rel="noreferrer"
-                            {...props}
-                          />
-                        ),
-                        ul: ({ node, ...props }) => (
-                          <ul className="list-disc list-inside space-y-2" {...props} />
-                        ),
-                        ol: ({ node, ...props }) => (
-                          <ol className="list-decimal list-inside space-y-2" {...props} />
-                        ),
-                        li: ({ node, ...props }) => (
-                          <li className="text-sm text-muted-foreground" {...props} />
-                        ),
-                        blockquote: ({ node, ...props }) => (
-                          <blockquote
-                            className="border-l-2 border-border pl-4 text-muted-foreground italic"
-                            {...props}
-                          />
-                        ),
-                        code: ({ node, ...props }) => (
-                          <code
-                            className="rounded bg-muted px-1 py-0.5 text-[12px] text-foreground"
-                            {...props}
-                          />
-                        ),
-                        pre: ({ node, ...props }) => (
-                          <pre
-                            className="rounded-lg border border-border/60 bg-muted/40 p-4 overflow-auto text-[12px]"
-                            {...props}
-                          />
-                        ),
-                      }}
-                    >
-                      {item.content || item.summary || "Content not available."}
-                    </ReactMarkdown>
-                  </div>
-
-                </CardContent>
-              </Card>
-            )}
-          </>
+              <div className="space-y-3">
+                <h2 className="text-2xl font-bold leading-tight text-foreground">
+                  {item.title || item.url}
+                </h2>
+                <ReactMarkdown
+                  className="text-sm text-muted-foreground leading-relaxed space-y-4"
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    h1: ({ node, ...props }) => (
+                      <h1 className="text-xl font-semibold text-foreground" {...props} />
+                    ),
+                    h2: ({ node, ...props }) => (
+                      <h2 className="text-lg font-semibold text-foreground" {...props} />
+                    ),
+                    h3: ({ node, ...props }) => (
+                      <h3 className="text-base font-semibold text-foreground" {...props} />
+                    ),
+                    p: ({ node, ...props }) => (
+                      <p className="text-sm text-muted-foreground leading-relaxed" {...props} />
+                    ),
+                    a: ({ node, ...props }) => (
+                      <a
+                        className="text-primary underline-offset-4 hover:underline"
+                        target="_blank"
+                        rel="noreferrer"
+                        {...props}
+                      />
+                    ),
+                    ul: ({ node, ...props }) => (
+                      <ul className="list-disc list-inside space-y-2" {...props} />
+                    ),
+                    ol: ({ node, ...props }) => (
+                      <ol className="list-decimal list-inside space-y-2" {...props} />
+                    ),
+                    li: ({ node, ...props }) => (
+                      <li className="text-sm text-muted-foreground" {...props} />
+                    ),
+                    blockquote: ({ node, ...props }) => (
+                      <blockquote
+                        className="border-l-2 border-border pl-4 text-muted-foreground italic"
+                        {...props}
+                      />
+                    ),
+                    code: ({ node, ...props }) => (
+                      <code
+                        className="rounded bg-muted px-1 py-0.5 text-[12px] text-foreground"
+                        {...props}
+                      />
+                    ),
+                    pre: ({ node, ...props }) => (
+                      <pre
+                        className="rounded-lg border border-border/60 bg-muted/40 p-4 overflow-auto text-[12px]"
+                        {...props}
+                      />
+                    ),
+                  }}
+                >
+                  {item.content || item.summary || "Content not available."}
+                </ReactMarkdown>
+              </div>
+            </CardContent>
+          </Card>
         )}
       </div>
 

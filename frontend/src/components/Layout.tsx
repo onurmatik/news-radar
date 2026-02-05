@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { formatDistanceToNow, formatDistanceToNowStrict } from 'date-fns';
+import { formatDistanceToNowStrict } from 'date-fns';
 import {
   createTopicGroup,
   getExecution,
@@ -75,10 +75,6 @@ export function Layout({ children }: SidebarProps) {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement | null>(null);
-  const selectedGroup = groups.find((group) => group.uuid === selectedGroupId) ?? null;
-  const selectedGroupIsReadOnly = Boolean(
-    isAuthenticated && selectedGroupId && selectedGroup && !selectedGroup.is_owner
-  );
 
   const requireAuth = () => {
     if (isAuthenticated) {
@@ -140,12 +136,8 @@ export function Layout({ children }: SidebarProps) {
   useEffect(() => {
     if (isAuthenticated === null) return;
     if (!isAuthenticated) return;
-    if (selectedGroupIsReadOnly && selectedGroupId) {
-      void loadTopics(selectedGroupId);
-      return;
-    }
     void loadTopics();
-  }, [isAuthenticated, selectedGroupId, selectedGroupIsReadOnly]);
+  }, [isAuthenticated, selectedGroupId]);
 
   const handleGroupChange = (groupId: string) => {
     setSelectedGroupId(groupId);
@@ -273,7 +265,7 @@ export function Layout({ children }: SidebarProps) {
     let nextName = "Topics";
     if (isAuthenticated === false) {
       const group = groups.find((entry) => entry.uuid === selectedGroupId);
-      nextName = group?.name ?? "Public topics";
+      nextName = group?.name ?? "Featured topics";
     } else {
       const group = groups.find((entry) => entry.uuid === selectedGroupId);
       nextName = group?.name ?? "Topics";
@@ -354,23 +346,11 @@ export function Layout({ children }: SidebarProps) {
     if (!requireAuth()) {
       return;
     }
-    if (selectedGroupIsReadOnly) {
-      setTopicsError(
-        `This public topic group is owned by ${selectedGroup?.owner_username ?? "another user"}.`
-      );
-      return;
-    }
     navigate('/topics');
   };
 
   const handleEditTopic = (topic: TopicItem) => {
     if (!requireAuth()) {
-      return;
-    }
-    if (!topic.isOwner) {
-      setTopicsError(
-        `This topic is owned by ${topic.ownerUsername || "another user"}.`
-      );
       return;
     }
     setSelectedTopicUuid(topic.uuid);
@@ -410,12 +390,6 @@ export function Layout({ children }: SidebarProps) {
     if (!requireAuth()) {
       return;
     }
-    if (!topic.isOwner) {
-      setTopicsError(
-        `This topic is owned by ${topic.ownerUsername || "another user"}.`
-      );
-      return;
-    }
     setTopicsError(null);
     try {
       const { execution_id } = await runTopicScan(topic.uuid);
@@ -446,12 +420,6 @@ export function Layout({ children }: SidebarProps) {
     if (!requireAuth()) {
       return;
     }
-    if (!topic.isOwner) {
-      setTopicsError(
-        `This topic is owned by ${topic.ownerUsername || "another user"}.`
-      );
-      return;
-    }
     setTopicsError(null);
     try {
       const updated = await updateTopic(topic.uuid, {
@@ -475,12 +443,6 @@ export function Layout({ children }: SidebarProps) {
     if (!requireAuth()) {
       return;
     }
-    if (!topic.isOwner) {
-      setTopicsError(
-        `This topic is owned by ${topic.ownerUsername || "another user"}.`
-      );
-      return;
-    }
     setTopicsError(null);
     try {
       const updated = await updateTopic(topic.uuid, {
@@ -499,7 +461,7 @@ export function Layout({ children }: SidebarProps) {
   };
 
   const handleSearchTopicSelect = async (
-    topic: ApiSearchResponse["user_topics"][number]
+    topic: ApiSearchResponse["topics"][number]
   ) => {
     setSearchOpen(false);
     if (topic.group_uuid) {
@@ -511,7 +473,7 @@ export function Layout({ children }: SidebarProps) {
   };
 
   const handleSearchContentSelect = async (
-    content: ApiSearchResponse["user_contents"][number]
+    content: ApiSearchResponse["contents"][number]
   ) => {
     setSearchOpen(false);
     if (content.group_uuid) {
@@ -567,10 +529,8 @@ export function Layout({ children }: SidebarProps) {
                   {!searchLoading && !searchError && searchResults && (
                     <div className="space-y-4">
                       {[
-                        { label: "Your Topics", items: searchResults.user_topics, type: "topic" as const },
-                        { label: "Public Topics", items: searchResults.public_topics, type: "topic" as const },
-                        { label: "Your Content", items: searchResults.user_contents, type: "content" as const },
-                        { label: "Public Content", items: searchResults.public_contents, type: "content" as const },
+                        { label: "Topics", items: searchResults.topics, type: "topic" as const },
+                        { label: "Content", items: searchResults.contents, type: "content" as const },
                       ].map((section) => (
                         <div key={section.label} className="space-y-2">
                           <div className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
@@ -582,7 +542,7 @@ export function Layout({ children }: SidebarProps) {
                             <div className="space-y-1">
                               {section.items.map((item) => {
                                 if (section.type === "topic") {
-                                  const topic = item as ApiSearchResponse["user_topics"][number];
+                                  const topic = item as ApiSearchResponse["topics"][number];
                                   return (
                                     <button
                                       key={`topic-${topic.uuid}`}
@@ -601,7 +561,7 @@ export function Layout({ children }: SidebarProps) {
                                     </button>
                                   );
                                 }
-                                const content = item as ApiSearchResponse["user_contents"][number];
+                                const content = item as ApiSearchResponse["contents"][number];
                                 return (
                                   <button
                                     key={`content-${content.id}`}
@@ -719,7 +679,7 @@ export function Layout({ children }: SidebarProps) {
                       <SelectSeparator className="bg-border/50" />
                       <SelectGroup>
                         <SelectLabel className="text-[10px] uppercase text-muted-foreground/60 px-2 py-1.5">
-                          Public
+                          Featured
                         </SelectLabel>
                         {groupedOptions.publicGroups.map((group) => (
                           <SelectItem
@@ -792,9 +752,6 @@ export function Layout({ children }: SidebarProps) {
                           topic.isActive ? "" : "text-muted-foreground/50"
                         )}
                       >
-                        {!topic.isOwner && (
-                          <>Shared by {topic.ownerUsername || "another user"} · </>
-                        )}
                         {topic.lastSearch
                           ? `Scanned ${formatDistanceToNowStrict(topic.lastSearch, { addSuffix: true })}`
                           : "Never scanned"}
@@ -809,18 +766,10 @@ export function Layout({ children }: SidebarProps) {
                           size="icon"
                           className={cn(
                             "h-6 w-6 rounded-full text-muted-foreground/70",
-                            topic.isOwner
-                              ? "hover:text-foreground hover:bg-muted/50"
-                              : "opacity-50 cursor-not-allowed"
+                            "hover:text-foreground hover:bg-muted/50"
                           )}
                           onClick={(event) => {
                             event.stopPropagation();
-                            if (!topic.isOwner) {
-                              setTopicsError(
-                                `This topic is owned by ${topic.ownerUsername || "another user"}.`
-                              );
-                              return;
-                            }
                             setTopicMenuOpenId((prev) =>
                               prev === topic.uuid ? null : topic.uuid
                             );
@@ -828,12 +777,7 @@ export function Layout({ children }: SidebarProps) {
                           type="button"
                           aria-haspopup="menu"
                           aria-expanded={topicMenuOpenId === topic.uuid}
-                          disabled={!topic.isOwner}
-                          title={
-                            topic.isOwner
-                              ? "Manage topic"
-                              : `Read-only: ${topic.ownerUsername || "another user"}`
-                          }
+                          title="Manage topic"
                         >
                           <MoreVertical className="h-3.5 w-3.5" />
                         </Button>
@@ -913,18 +857,11 @@ export function Layout({ children }: SidebarProps) {
              <button
                className={cn(
                  "w-full flex items-center justify-center gap-2 py-3 mt-4 text-muted-foreground border border-dashed border-border/50 rounded-lg transition-all text-xs font-medium group bg-muted/10",
-                 selectedGroupIsReadOnly
-                   ? "opacity-50 cursor-not-allowed"
-                   : "hover:text-primary hover:border-primary/30"
+                 "hover:text-primary hover:border-primary/30"
                )}
                onClick={handleAddTopicClick}
                type="button"
-               disabled={!!selectedGroupIsReadOnly}
-               title={
-                 selectedGroupIsReadOnly
-                   ? `Read-only: ${selectedGroup?.owner_username || "another user"}`
-                   : "Add a topic"
-               }
+               title="Add a topic"
              >
                <PlusCircle className="h-4 w-4 group-hover:scale-110 transition-transform" />
                <span>Add Topic</span>

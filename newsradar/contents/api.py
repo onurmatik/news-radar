@@ -136,16 +136,6 @@ def get_content_item(request, content_id: int):
             .annotate(is_bookmarked=Exists(bookmark_subquery))
             .first()
         )
-        if not content:
-            content = (
-                Content.objects.filter(
-                    id=content_id,
-                    execution__topic__group__is_public=True,
-                    execution__topic__is_active=True,
-                )
-                .select_related("execution", "execution__topic")
-                .first()
-            )
     else:
         content = (
             Content.objects.filter(
@@ -190,16 +180,6 @@ def get_content_detail(request, content_id: int):
             .annotate(is_bookmarked=Exists(bookmark_subquery))
             .first()
         )
-        if not content:
-            content = (
-                Content.objects.filter(
-                    id=content_id,
-                    execution__topic__group__is_public=True,
-                    execution__topic__is_active=True,
-                )
-                .select_related("execution", "execution__topic")
-                .first()
-            )
     else:
         content = (
             Content.objects.filter(
@@ -255,12 +235,6 @@ def list_content(
                 contents = (
                     queryset.select_related("execution", "execution__topic")
                     .annotate(is_bookmarked=Exists(bookmark_subquery))
-                    .order_by("-created_at", "-id")[offset : offset + limit]
-                )
-            elif topic.group and topic.group.is_public and topic.is_active:
-                contents = (
-                    Content.objects.filter(execution__topic=topic)
-                    .select_related("execution", "execution__topic")
                     .order_by("-created_at", "-id")[offset : offset + limit]
                 )
             else:
@@ -340,8 +314,7 @@ def list_content_by_topic_rss(
     if request.user.is_authenticated:
         topic = Topic.objects.filter(uuid=topic_uuid).select_related("group").first()
         if topic and topic.user_id != request.user.id:
-            if not topic.group or not topic.group.is_public or not topic.is_active:
-                topic = None
+            topic = None
     else:
         topic = Topic.objects.filter(
             uuid=topic_uuid,
@@ -351,23 +324,13 @@ def list_content_by_topic_rss(
     if not topic:
         raise HttpError(404, "Topic not found.")
 
-    if request.user.is_authenticated and topic.user_id == request.user.id:
-        contents = (
-            Content.objects.filter(
-                execution__topic__user=request.user,
-                execution__topic__uuid=topic_uuid,
-            )
-            .select_related("execution", "execution__topic")
-            .order_by("-created_at", "-id")[offset : offset + limit]
+    contents = (
+        Content.objects.filter(
+            execution__topic=topic,
         )
-    else:
-        contents = (
-            Content.objects.filter(
-                execution__topic=topic,
-            )
-            .select_related("execution", "execution__topic")
-            .order_by("-created_at", "-id")[offset : offset + limit]
-        )
+        .select_related("execution", "execution__topic")
+        .order_by("-created_at", "-id")[offset : offset + limit]
+    )
 
     title = f"NewsRadar Topic: {topic.primary_query or 'Topic'}"
     link = request.build_absolute_uri()
@@ -395,33 +358,23 @@ def list_content_by_group(
         group = TopicGroup.objects.filter(uuid=group_uuid).first()
         if not group:
             raise HttpError(404, "Topic group not found.")
-        if group.user_id == request.user.id:
-            queryset = Content.objects.filter(
-                execution__topic__user=request.user,
-                execution__topic__group__uuid=group_uuid,
-            )
-
-            bookmark_subquery = Bookmark.objects.filter(
-                user=request.user,
-                content_id=OuterRef("pk"),
-            )
-
-            contents = (
-                queryset.select_related("execution", "execution__topic")
-                .annotate(is_bookmarked=Exists(bookmark_subquery))
-                .order_by("-created_at", "-id")[offset : offset + limit]
-            )
-        elif group.is_public:
-            contents = (
-                Content.objects.filter(
-                    execution__topic__group=group,
-                    execution__topic__is_active=True,
-                )
-                .select_related("execution", "execution__topic")
-                .order_by("-created_at", "-id")[offset : offset + limit]
-            )
-        else:
+        if group.user_id != request.user.id:
             raise HttpError(404, "Topic group not found.")
+        queryset = Content.objects.filter(
+            execution__topic__user=request.user,
+            execution__topic__group__uuid=group_uuid,
+        )
+
+        bookmark_subquery = Bookmark.objects.filter(
+            user=request.user,
+            content_id=OuterRef("pk"),
+        )
+
+        contents = (
+            queryset.select_related("execution", "execution__topic")
+            .annotate(is_bookmarked=Exists(bookmark_subquery))
+            .order_by("-created_at", "-id")[offset : offset + limit]
+        )
     else:
         group = TopicGroup.objects.filter(
             uuid=group_uuid,
@@ -470,7 +423,7 @@ def list_content_by_group_rss(
 
     if request.user.is_authenticated:
         group = TopicGroup.objects.filter(uuid=group_uuid).first()
-        if group and group.user_id != request.user.id and not group.is_public:
+        if group and group.user_id != request.user.id:
             group = None
     else:
         group = TopicGroup.objects.filter(
@@ -480,24 +433,14 @@ def list_content_by_group_rss(
     if not group:
         raise HttpError(404, "Topic group not found.")
 
-    if request.user.is_authenticated and group.user_id == request.user.id:
-        contents = (
-            Content.objects.filter(
-                execution__topic__user=request.user,
-                execution__topic__group__uuid=group_uuid,
-            )
-            .select_related("execution", "execution__topic")
-            .order_by("-created_at", "-id")[offset : offset + limit]
-        )
-    else:
-        contents = (
-            Content.objects.filter(
-                execution__topic__group=group,
-                execution__topic__is_active=True,
-            )
-            .select_related("execution", "execution__topic")
-            .order_by("-created_at", "-id")[offset : offset + limit]
-        )
+    contents_filter = {"execution__topic__group": group}
+    if not request.user.is_authenticated:
+        contents_filter["execution__topic__is_active"] = True
+    contents = (
+        Content.objects.filter(**contents_filter)
+        .select_related("execution", "execution__topic")
+        .order_by("-created_at", "-id")[offset : offset + limit]
+    )
 
     title = f"NewsRadar Group: {group.name}"
     link = request.build_absolute_uri()
