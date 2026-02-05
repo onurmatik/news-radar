@@ -27,7 +27,6 @@ import {
 import { formatDistanceToNowStrict } from 'date-fns';
 import {
   createTopicGroup,
-  deleteTopic,
   deleteTopicGroup,
   getExecution,
   listTopicGroups,
@@ -108,10 +107,6 @@ export function Layout({ children }: SidebarProps) {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement | null>(null);
-  const [deleteTopicOpen, setDeleteTopicOpen] = useState(false);
-  const [deleteTopicTarget, setDeleteTopicTarget] = useState<TopicItem | null>(null);
-  const [deleteTopicError, setDeleteTopicError] = useState<string | null>(null);
-  const [deleteTopicSaving, setDeleteTopicSaving] = useState(false);
   const groupSelectValue = useMemo(() => {
     if (selectedGroupId) return selectedGroupId;
     if (isAuthenticated === false) return undefined;
@@ -701,54 +696,6 @@ export function Layout({ children }: SidebarProps) {
     }
   };
 
-  const handleDeleteTopicOpen = (open: boolean) => {
-    setDeleteTopicOpen(open);
-    if (!open) {
-      setDeleteTopicTarget(null);
-      setDeleteTopicError(null);
-      setDeleteTopicSaving(false);
-    }
-  };
-
-  const handleDeleteTopic = (topic: TopicItem) => {
-    if (!requireAuth()) {
-      return;
-    }
-    setDeleteTopicTarget(topic);
-    setDeleteTopicError(null);
-    setDeleteTopicOpen(true);
-    setTopicMenuOpenId(null);
-  };
-
-  const handleDeleteTopicConfirm = async () => {
-    if (!deleteTopicTarget) {
-      return;
-    }
-    if (!requireAuth()) {
-      return;
-    }
-    setTopicsError(null);
-    setDeleteTopicError(null);
-    setDeleteTopicSaving(true);
-    try {
-      await deleteTopic(deleteTopicTarget.uuid);
-      setTopics((prev) =>
-        prev.filter((item) => item.uuid !== deleteTopicTarget.uuid)
-      );
-      if (selectedTopicUuid === deleteTopicTarget.uuid) {
-        setSelectedTopicUuid(null);
-        navigate('/');
-      }
-      handleDeleteTopicOpen(false);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to delete topic.";
-      setTopicsError(message);
-      setDeleteTopicError(message);
-    } finally {
-      setDeleteTopicSaving(false);
-    }
-  };
-
   const handleSearchTopicSelect = async (
     topic: ApiSearchResponse["topics"][number]
   ) => {
@@ -853,39 +800,6 @@ export function Layout({ children }: SidebarProps) {
                 </Button>
               </DialogFooter>
             </form>
-          </DialogContent>
-        </Dialog>
-        <Dialog open={deleteTopicOpen} onOpenChange={handleDeleteTopicOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Delete topic</DialogTitle>
-              <DialogDescription>
-                {deleteTopicTarget
-                  ? `Delete "${deleteTopicTarget.term}"? This will permanently remove the topic.`
-                  : "Delete this topic? This action cannot be undone."}
-              </DialogDescription>
-            </DialogHeader>
-            {deleteTopicError && (
-              <p className="text-sm text-destructive">{deleteTopicError}</p>
-            )}
-            <DialogFooter>
-              <Button
-                variant="ghost"
-                onClick={() => handleDeleteTopicOpen(false)}
-                type="button"
-                disabled={deleteTopicSaving}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => void handleDeleteTopicConfirm()}
-                type="button"
-                disabled={deleteTopicSaving}
-              >
-                {deleteTopicSaving ? "Deleting..." : "Delete topic"}
-              </Button>
-            </DialogFooter>
           </DialogContent>
         </Dialog>
         <Dialog open={changeGroupOpen} onOpenChange={handleChangeGroupOpen}>
@@ -1485,13 +1399,6 @@ export function Layout({ children }: SidebarProps) {
                               type="button"
                             >
                               Edit
-                            </button>
-                            <button
-                              className="w-full text-left px-3 py-2 text-xs font-semibold text-destructive hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
-                              onClick={() => void handleDeleteTopic(topic)}
-                              type="button"
-                            >
-                              Delete
                             </button>
                           </div>
                         )}

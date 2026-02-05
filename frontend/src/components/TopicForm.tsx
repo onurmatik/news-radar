@@ -1,10 +1,19 @@
 import React, { useEffect, useState } from 'react';
+import { useAuthDialog } from '@/components/AuthDialogContext';
 import { useTopicGroup } from '@/components/TopicGroupContext';
 import { useTopics } from '@/components/TopicsContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { createTopic, updateTopic } from '@/lib/api';
+import { createTopic, deleteTopic, updateTopic } from '@/lib/api';
 import type { ApiTopicListItem, TopicItem } from '@/lib/types';
 import { Plus, X, PlusCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -31,7 +40,8 @@ export function TopicForm({
   className,
   variant = "full",
 }: TopicFormProps) {
-  const { selectedGroupId, selectedGroupName, groups } = useTopicGroup();
+  const { isAuthenticated, openAuthDialog } = useAuthDialog();
+  const { selectedGroupId, selectedGroupName, groups, setSelectedTopicUuid } = useTopicGroup();
   const { topics, setTopics } = useTopics();
   const isEditing = mode === "edit";
   const isDialog = variant === "dialog";
@@ -52,6 +62,9 @@ export function TopicForm({
   const [country, setCountry] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
 
   const languageOptions = [
     { value: "en", label: "English" },
@@ -100,6 +113,14 @@ export function TopicForm({
 
   const normalizeList = (values: string[]) =>
     Array.from(new Set(values.map((entry) => entry.trim()).filter(Boolean)));
+
+  const requireAuth = () => {
+    if (isAuthenticated) {
+      return true;
+    }
+    openAuthDialog();
+    return false;
+  };
 
   const resetForm = () => {
     setTopicName("");
@@ -249,6 +270,40 @@ export function TopicForm({
       setError(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteDialogOpen = (open: boolean) => {
+    setDeleteDialogOpen(open);
+    if (!open) {
+      setDeleteError(null);
+      setDeleteSaving(false);
+    }
+  };
+
+  const openDeleteDialog = () => {
+    if (!activeTopic) return;
+    if (!requireAuth()) return;
+    setDeleteError(null);
+    handleDeleteDialogOpen(true);
+  };
+
+  const handleDeleteTopicConfirm = async () => {
+    if (!activeTopic) return;
+    if (!requireAuth()) return;
+    setDeleteError(null);
+    setDeleteSaving(true);
+    try {
+      await deleteTopic(activeTopic.uuid);
+      setTopics((prev) => prev.filter((item) => item.uuid !== activeTopic.uuid));
+      setSelectedTopicUuid((prev) => (prev === activeTopic.uuid ? null : prev));
+      handleDeleteDialogOpen(false);
+      onCancel?.();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to delete topic.";
+      setDeleteError(message);
+    } finally {
+      setDeleteSaving(false);
     }
   };
 
@@ -554,26 +609,69 @@ export function TopicForm({
 
           {error && <div className="text-sm text-destructive">{error}</div>}
 
-          <div className="flex justify-end items-center gap-3 pt-4">
-            {onCancel && (isEditing || hasExistingTopics) && (
+          <div className="flex items-center gap-3 pt-4">
+            {isEditing && activeTopic && (
               <button
-                className="px-6 py-2.5 text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors"
-                onClick={onCancel}
+                className="px-6 py-2.5 text-sm font-semibold text-destructive hover:text-destructive/90 hover:bg-destructive/10 rounded-lg transition-colors"
+                onClick={openDeleteDialog}
                 type="button"
+                disabled={deleteSaving}
               >
-                Cancel
+                Delete topic
               </button>
             )}
-            <Button
-              onClick={() => void (isEditing ? saveTopic() : addTopic())}
-              className="px-10 py-3 h-auto bg-emerald-600 text-white rounded-lg text-base font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-700 hover:-translate-y-0.5 transition-all gap-2"
-              disabled={loading}
-            >
-              <Plus className="h-4 w-4" /> {isEditing ? "Save" : "Create Topic"}
-            </Button>
+            <div className="ml-auto flex items-center gap-3">
+              {onCancel && (isEditing || hasExistingTopics) && (
+                <button
+                  className="px-6 py-2.5 text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors"
+                  onClick={onCancel}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              )}
+              <Button
+                onClick={() => void (isEditing ? saveTopic() : addTopic())}
+                className="px-10 py-3 h-auto bg-emerald-600 text-white rounded-lg text-base font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-700 hover:-translate-y-0.5 transition-all gap-2"
+                disabled={loading}
+              >
+                <Plus className="h-4 w-4" /> {isEditing ? "Save" : "Create Topic"}
+              </Button>
+            </div>
           </div>
         </div>
       </CardContent>
+      {isEditing && activeTopic && (
+        <Dialog open={deleteDialogOpen} onOpenChange={handleDeleteDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete topic</DialogTitle>
+              <DialogDescription>
+                Delete "{activeTopic.term}"? This will permanently remove the topic.
+              </DialogDescription>
+            </DialogHeader>
+            {deleteError && (
+              <p className="text-sm text-destructive">{deleteError}</p>
+            )}
+            <DialogFooter className="gap-2">
+              <Button
+                variant="outline"
+                onClick={() => handleDeleteDialogOpen(false)}
+                disabled={deleteSaving}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => void handleDeleteTopicConfirm()}
+                disabled={deleteSaving}
+              >
+                {deleteSaving ? "Deleting..." : "Delete topic"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </Card>
   );
 }

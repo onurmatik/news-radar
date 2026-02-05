@@ -11,7 +11,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { createBookmark, deleteBookmark, getExecution, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
-import { TopicForm } from '@/components/TopicForm';
 import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -486,11 +485,15 @@ export default function Dashboard() {
                   openAuthDialog();
                   return;
                 }
+                if (selectedTopic) {
+                  navigate(`/topics?edit=${selectedTopic.uuid}`);
+                  return;
+                }
                 setConfigDialogOpen(true);
               }}
-              title="Configure selection"
+              title={selectedTopic ? "Edit topic details" : "Configure selection"}
             >
-              Config
+              {selectedTopic ? "Edit" : "Config"}
             </Button>
           </div>
         </div>
@@ -604,16 +607,7 @@ export default function Dashboard() {
 
         <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
           <DialogContent className="sm:max-w-[720px] border-border bg-background p-0">
-           {selectedTopic ? (
-              <TopicForm
-                mode="edit"
-                topicUuid={selectedTopic.uuid}
-                onCancel={() => setConfigDialogOpen(false)}
-                onSaved={() => setConfigDialogOpen(false)}
-                className="border-none bg-transparent shadow-none"
-                variant="dialog"
-              />
-            ) : selectedGroup ? (
+            {selectedGroup ? (
               <Card className="border-none bg-transparent shadow-none">
                 <CardHeader>
                   <CardTitle>Edit Topic Group</CardTitle>
@@ -757,7 +751,7 @@ export default function Dashboard() {
               >
                 {domainFilters.length > 0
                   ? `Domains (${domainFilters.length})`
-                  : "Domains"}
+                  : `All domains (${availableDomains.length})`}
               </Button>
               {domainMenuOpen && (
                 <div
