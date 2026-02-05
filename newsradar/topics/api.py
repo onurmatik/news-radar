@@ -72,6 +72,7 @@ class TopicCreateResponse(Schema):
 class TopicUpdateRequest(Schema):
     is_active: bool | None = None
     queries: list[str] | None = None
+    group_uuid: uuid.UUID | None = None
     search_domain_allowlist: list[str] | None = None
     search_domain_blocklist: list[str] | None = None
     search_language_filter: list[str] | None = None
@@ -543,9 +544,21 @@ def update_topic(request, topic_uuid: uuid.UUID, payload: TopicUpdateRequest):
         raise HttpError(403, "Topic belongs to another user.")
 
     updates: dict[str, object] = {}
+    fields_set = getattr(payload, "__fields_set__", getattr(payload, "model_fields_set", set()))
 
     if payload.is_active is not None:
         updates["is_active"] = payload.is_active
+
+    if "group_uuid" in fields_set:
+        if payload.group_uuid:
+            group = TopicGroup.objects.filter(uuid=payload.group_uuid).first()
+            if not group:
+                raise HttpError(404, "Topic group not found for UUID.")
+            if group.user_id != request.user.id:
+                raise HttpError(403, "Topic group belongs to another user.")
+        else:
+            group = None
+        updates["group"] = group
 
     if payload.queries is not None:
         normalized_queries: list[str] = []

@@ -129,6 +129,7 @@ export async function updateTopic(
   payload: {
     isActive?: boolean;
     queries?: string[];
+    groupUuid?: string | null;
     domainAllowlist?: string[] | null;
     domainBlocklist?: string[] | null;
     languageFilter?: string[] | null;
@@ -141,6 +142,7 @@ export async function updateTopic(
     body: JSON.stringify({
       is_active: payload.isActive,
       queries: payload.queries,
+      group_uuid: payload.groupUuid,
       search_domain_allowlist: payload.domainAllowlist ?? null,
       search_domain_blocklist: payload.domainBlocklist ?? null,
       search_language_filter: payload.languageFilter ?? null,

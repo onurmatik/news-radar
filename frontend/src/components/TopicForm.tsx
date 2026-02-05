@@ -303,7 +303,11 @@ export function TopicForm({
   }
 
   const groupLabel = selectedGroup?.name ?? selectedGroupName ?? "this group";
-  const heroTitle = isEditing ? "Edit topic details" : "Create your first topic";
+  const heroTitle = isEditing
+    ? "Edit topic details"
+    : hasExistingTopics
+      ? "Create a topic"
+      : "Create your first topic";
   const heroDescription = isEditing
     ? "Update the topic queries and filters for this group."
     : `Topics are the lifeblood of NewsRadar. A topic consists of a primary term and optional variations to capture a wider range of relevant signals.`;
@@ -435,7 +439,7 @@ export function TopicForm({
                   {domainInputs.map((domain, index) => (
                     <div key={index} className="flex items-center gap-3">
                       <Input
-                        placeholder="bloomberg.com"
+                        placeholder="e.g. bloomberg.com"
                         value={domain}
                         onChange={(event) => updateDomainInput(index, event.target.value)}
                         className="h-11 rounded-lg border-slate-200 bg-white px-4 text-sm focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500"

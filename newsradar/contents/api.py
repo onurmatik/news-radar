@@ -2,7 +2,8 @@ from datetime import datetime, timezone as dt_timezone
 from email.utils import format_datetime
 from uuid import UUID
 from xml.sax.saxutils import escape
-from django.db.models import Exists, OuterRef
+from django.db.models import DateTimeField, Exists, OuterRef
+from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.utils import timezone
 from ninja import NinjaAPI, Schema
@@ -34,7 +35,7 @@ def _build_rss_feed(
         item_title = content.title or content.url
         item_link = content.url
         item_description = (content.snippet or "").strip()
-        published_at = content.date or content.last_updated or content.created_at
+        published_at = content.last_updated or content.date or content.created_at
         pub_date = _format_rss_datetime(published_at)
         pub_date_xml = f"<pubDate>{escape(pub_date)}</pubDate>" if pub_date else ""
         items.append(
@@ -156,7 +157,7 @@ def get_content_item(request, content_id: int):
         summary=(content.snippet or "").strip(),
         source=content.normalized_domain(),
         created_at=content.created_at,
-        published_at=content.date or content.last_updated or content.created_at,
+        published_at=content.last_updated or content.date or content.created_at,
         topic_uuid=content.execution.topic.uuid,
         topic_queries=content.execution.topic.queries or [],
         relevance_score=None,
@@ -201,7 +202,7 @@ def get_content_detail(request, content_id: int):
         content=(content.snippet or "").strip(),
         source=content.normalized_domain(),
         created_at=content.created_at,
-        published_at=content.date or content.last_updated or content.created_at,
+        published_at=content.last_updated or content.date or content.created_at,
         topic_uuid=content.execution.topic.uuid,
         topic_queries=content.execution.topic.queries or [],
         relevance_score=None,
@@ -235,7 +236,15 @@ def list_content(
                 contents = (
                     queryset.select_related("execution", "execution__topic")
                     .annotate(is_bookmarked=Exists(bookmark_subquery))
-                    .order_by("-created_at", "-id")[offset : offset + limit]
+                    .order_by(
+                        Coalesce(
+                            "last_updated",
+                            "date",
+                            "created_at",
+                            output_field=DateTimeField(),
+                        ).desc(),
+                        "-id",
+                    )[offset : offset + limit]
                 )
             else:
                 raise HttpError(404, "Topic not found.")
@@ -248,7 +257,15 @@ def list_content(
             contents = (
                 queryset.select_related("execution", "execution__topic")
                 .annotate(is_bookmarked=Exists(bookmark_subquery))
-                .order_by("-created_at", "-id")[offset : offset + limit]
+                .order_by(
+                    Coalesce(
+                        "last_updated",
+                        "date",
+                        "created_at",
+                        output_field=DateTimeField(),
+                    ).desc(),
+                    "-id",
+                )[offset : offset + limit]
             )
     else:
         topic = Topic.objects.filter(
@@ -263,7 +280,15 @@ def list_content(
                 execution__topic=topic,
             )
             .select_related("execution", "execution__topic")
-            .order_by("-created_at", "-id")[offset : offset + limit]
+            .order_by(
+                Coalesce(
+                    "last_updated",
+                    "date",
+                    "created_at",
+                    output_field=DateTimeField(),
+                ).desc(),
+                "-id",
+            )[offset : offset + limit]
         )
 
     return ContentFeedResponse(
@@ -275,7 +300,7 @@ def list_content(
                 summary=(content.snippet or "").strip(),
                 source=content.normalized_domain(),
                 created_at=content.created_at,
-                published_at=content.date or content.last_updated or content.created_at,
+                published_at=content.last_updated or content.date or content.created_at,
                 topic_uuid=content.execution.topic.uuid,
                 topic_queries=content.execution.topic.queries or [],
                 relevance_score=None,
@@ -329,7 +354,15 @@ def list_content_by_topic_rss(
             execution__topic=topic,
         )
         .select_related("execution", "execution__topic")
-        .order_by("-created_at", "-id")[offset : offset + limit]
+        .order_by(
+            Coalesce(
+                "last_updated",
+                "date",
+                "created_at",
+                output_field=DateTimeField(),
+            ).desc(),
+            "-id",
+        )[offset : offset + limit]
     )
 
     title = f"NewsRadar Topic: {topic.primary_query or 'Topic'}"
@@ -373,7 +406,15 @@ def list_content_by_group(
         contents = (
             queryset.select_related("execution", "execution__topic")
             .annotate(is_bookmarked=Exists(bookmark_subquery))
-            .order_by("-created_at", "-id")[offset : offset + limit]
+            .order_by(
+                Coalesce(
+                    "last_updated",
+                    "date",
+                    "created_at",
+                    output_field=DateTimeField(),
+                ).desc(),
+                "-id",
+            )[offset : offset + limit]
         )
     else:
         group = TopicGroup.objects.filter(
@@ -388,7 +429,15 @@ def list_content_by_group(
                 execution__topic__is_active=True,
             )
             .select_related("execution", "execution__topic")
-            .order_by("-created_at", "-id")[offset : offset + limit]
+            .order_by(
+                Coalesce(
+                    "last_updated",
+                    "date",
+                    "created_at",
+                    output_field=DateTimeField(),
+                ).desc(),
+                "-id",
+            )[offset : offset + limit]
         )
 
     return ContentFeedResponse(
@@ -400,7 +449,7 @@ def list_content_by_group(
                 summary=(content.snippet or "").strip(),
                 source=content.normalized_domain(),
                 created_at=content.created_at,
-                published_at=content.date or content.last_updated or content.created_at,
+                published_at=content.last_updated or content.date or content.created_at,
                 topic_uuid=content.execution.topic.uuid,
                 topic_queries=content.execution.topic.queries or [],
                 relevance_score=None,
@@ -439,7 +488,15 @@ def list_content_by_group_rss(
     contents = (
         Content.objects.filter(**contents_filter)
         .select_related("execution", "execution__topic")
-        .order_by("-created_at", "-id")[offset : offset + limit]
+        .order_by(
+            Coalesce(
+                "last_updated",
+                "date",
+                "created_at",
+                output_field=DateTimeField(),
+            ).desc(),
+            "-id",
+        )[offset : offset + limit]
     )
 
     title = f"NewsRadar Group: {group.name}"

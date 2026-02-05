@@ -9,11 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { createBookmark, deleteBookmark, getExecution, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
 import { TopicForm } from '@/components/TopicForm';
-import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -41,9 +40,9 @@ export default function Dashboard() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [domainFilter, setDomainFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState("all");
-  const [fetchedFilter, setFetchedFilter] = useState("all");
+  const [domainFilters, setDomainFilters] = useState<string[]>([]);
+  const [bookmarkedOnly, setBookmarkedOnly] = useState(false);
+  const [domainMenuOpen, setDomainMenuOpen] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [groupIsPublic, setGroupIsPublic] = useState(false);
   const [groupUpdateFrequency, setGroupUpdateFrequency] = useState<
@@ -58,10 +57,10 @@ export default function Dashboard() {
   const [shareUrl, setShareUrl] = useState("");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
-  const [filtersCollapsed, setFiltersCollapsed] = useState(true);
   const feedCache = useRef<Map<string, NewsItem[]>>(new Map());
   const latestRequestId = useRef(0);
   const pageTopRef = useRef<HTMLDivElement | null>(null);
+  const domainMenuRef = useRef<HTMLDivElement | null>(null);
 
   const selectedGroup = groups.find((group) => group.uuid === selectedGroupId) ?? null;
   const selectedTopic = selectedTopicUuid
@@ -86,9 +85,9 @@ export default function Dashboard() {
 
   const buildShareUrl = (contentId: number) => {
     if (typeof window === "undefined") {
-      return `#/content/${contentId}/full`;
+      return `/content/${contentId}/full`;
     }
-    return `${window.location.origin}${window.location.pathname}#/content/${contentId}/full`;
+    return `${window.location.origin}/content/${contentId}/full`;
   };
 
   const getSourceLabel = (item: ApiContentFeedItem) => {
@@ -180,7 +179,9 @@ export default function Dashboard() {
           ? await listContentByGroup(selectedGroupId)
           : await listContentFeed();
       if (requestId !== latestRequestId.current) return;
-      const mapped = response.items.map(mapNewsItem);
+      const mapped = response.items
+        .map(mapNewsItem)
+        .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       feedCache.current.set(cacheKey, mapped);
       setNews(mapped);
     } catch (error) {
@@ -250,6 +251,19 @@ export default function Dashboard() {
     pageTopRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
   }, [selectedGroupId, selectedTopicUuid]);
 
+  useEffect(() => {
+    if (!domainMenuOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!domainMenuRef.current?.contains(event.target as Node)) {
+        setDomainMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      window.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [domainMenuOpen]);
+
   const toggleBookmark = async (item: NewsItem) => {
     if (!isAuthenticated) {
       openAuthDialog();
@@ -279,39 +293,17 @@ export default function Dashboard() {
   };
 
   const filteredNews = useMemo(() => {
-    const now = Date.now();
-    const cutoff =
-      dateFilter === "day"
-        ? now - 1000 * 60 * 60 * 24
-        : dateFilter === "week"
-          ? now - 1000 * 60 * 60 * 24 * 7
-          : dateFilter === "month"
-            ? now - 1000 * 60 * 60 * 24 * 30
-            : null;
-    const fetchedCutoff =
-      fetchedFilter === "day"
-        ? now - 1000 * 60 * 60 * 24
-        : fetchedFilter === "week"
-          ? now - 1000 * 60 * 60 * 24 * 7
-          : fetchedFilter === "month"
-            ? now - 1000 * 60 * 60 * 24 * 30
-            : null;
-
     return news.filter((item) => {
-      if (domainFilter !== "all" && item.source !== domainFilter) {
+      if (domainFilters.length > 0 && !domainFilters.includes(item.source)) {
         return false;
       }
-      if (cutoff && item.timestamp.getTime() < cutoff) {
-        return false;
-      }
-      if (fetchedCutoff && item.fetchedAt.getTime() < fetchedCutoff) {
+      if (bookmarkedOnly && !item.isBookmarked) {
         return false;
       }
       return true;
     });
-  }, [dateFilter, domainFilter, fetchedFilter, news]);
-  const hasActiveFilters =
-    domainFilter !== "all" || dateFilter !== "all" || fetchedFilter !== "all";
+  }, [bookmarkedOnly, domainFilters, news]);
+  const hasActiveFilters = domainFilters.length > 0 || bookmarkedOnly;
   const availableDomains = useMemo(
     () =>
       Array.from(new Set(news.map((item) => item.source).filter(Boolean))).sort((a, b) =>
@@ -321,13 +313,19 @@ export default function Dashboard() {
   );
   const showEmptyState = filteredNews.length === 0 && !loading;
   const hasTopicsInGroup = selectedGroupTopicCount > 0 || Boolean(selectedTopic);
-  const filterHeaderText = hasActiveFilters
-    ? `Filter: ${filteredNews.length} results (${news.length} total)`
-    : "Filter";
+  const countsLabel = hasActiveFilters
+    ? `${filteredNews.length} of ${news.length}`
+    : `${news.length}`;
   const handleClearFilters = () => {
-    setDomainFilter("all");
-    setDateFilter("all");
-    setFetchedFilter("all");
+    setDomainFilters([]);
+    setBookmarkedOnly(false);
+  };
+  const handleToggleDomain = (domain: string) => {
+    setDomainFilters((prev) =>
+      prev.includes(domain)
+        ? prev.filter((entry) => entry !== domain)
+        : [...prev, domain]
+    );
   };
 
   const handleAddTopic = () => {
@@ -746,111 +744,93 @@ export default function Dashboard() {
         </Dialog>
 
         <div className="space-y-4">
-            <Card className="border border-border/60 bg-card/40 backdrop-blur-sm">
-              <CardContent className="flex flex-col gap-4 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      className="text-xs font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
-                      onClick={() => setFiltersCollapsed((prev) => !prev)}
-                    >
-                      {filterHeaderText}
-                    </button>
-                    {filtersCollapsed && hasActiveFilters && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 rounded-full px-3 text-[11px]"
-                        onClick={handleClearFilters}
-                      >
-                        Clear all filters
-                      </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative" ref={domainMenuRef}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 rounded-full px-3 text-[11px]"
+                onClick={() => setDomainMenuOpen((prev) => !prev)}
+                aria-expanded={domainMenuOpen}
+                aria-haspopup="true"
+              >
+                {domainFilters.length > 0
+                  ? `Domains (${domainFilters.length})`
+                  : "Domains"}
+              </Button>
+              {domainMenuOpen && (
+                <div
+                  className="absolute left-0 top-full z-20 mt-2 w-64 rounded-lg border border-border/70 bg-background p-3 shadow-lg"
+                  role="menu"
+                >
+                  <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+                    <label className="flex items-center gap-2 text-xs text-foreground/80">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5"
+                        checked={domainFilters.length === 0}
+                        onChange={() => setDomainFilters([])}
+                      />
+                      All domains
+                    </label>
+                    {availableDomains.length > 0 ? (
+                      availableDomains.map((domain) => (
+                        <label
+                          key={domain}
+                          className="flex items-center gap-2 text-xs text-foreground/80"
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5"
+                            checked={domainFilters.includes(domain)}
+                            onChange={() => handleToggleDomain(domain)}
+                          />
+                          {domain}
+                        </label>
+                      ))
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground/70">
+                        No domains yet.
+                      </span>
                     )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 rounded-full text-muted-foreground"
-                    onClick={() => setFiltersCollapsed((prev) => !prev)}
-                    aria-label={filtersCollapsed ? "Expand filters" : "Collapse filters"}
-                  >
-                    {filtersCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-                  </Button>
                 </div>
-                {!filtersCollapsed && (
-                  <div className="flex flex-col gap-3">
-                    <div className="flex flex-wrap items-end gap-3">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium text-muted-foreground">
-                          Domain
-                        </label>
-                        <Select value={domainFilter} onValueChange={setDomainFilter}>
-                          <SelectTrigger className="h-9 w-48 border border-input bg-background px-2 py-1 text-xs">
-                            <SelectValue placeholder="All domains" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All domains</SelectItem>
-                            {availableDomains.map((domain) => (
-                              <SelectItem key={domain} value={domain}>
-                                {domain}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium text-muted-foreground">
-                          Date range
-                        </label>
-                        <Select value={dateFilter} onValueChange={setDateFilter}>
-                          <SelectTrigger className="h-9 w-40 border border-input bg-background px-2 py-1 text-xs">
-                            <SelectValue placeholder="All time" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All time</SelectItem>
-                            <SelectItem value="day">Past 24 hours</SelectItem>
-                            <SelectItem value="week">Past 7 days</SelectItem>
-                            <SelectItem value="month">Past 30 days</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[11px] font-medium text-muted-foreground">
-                          Last fetched
-                        </label>
-                        <Select value={fetchedFilter} onValueChange={setFetchedFilter}>
-                          <SelectTrigger className="h-9 w-40 border border-input bg-background px-2 py-1 text-xs">
-                            <SelectValue placeholder="Any time" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">Any time</SelectItem>
-                            <SelectItem value="day">Past 24 hours</SelectItem>
-                            <SelectItem value="week">Past 7 days</SelectItem>
-                            <SelectItem value="month">Past 30 days</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {hasActiveFilters && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="rounded-full"
-                          onClick={handleClearFilters}
-                        >
-                          Clear all filters
-                        </Button>
-                      )}
-                      {!hasActiveFilters && (
-                        <span className="ml-auto text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-                          {news.length} results
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+              )}
+            </div>
+
+            <Button
+              type="button"
+              variant={bookmarkedOnly ? "secondary" : "outline"}
+              size="sm"
+              className="h-8 rounded-full px-3 text-[11px] flex items-center gap-2"
+              onClick={() => setBookmarkedOnly((prev) => !prev)}
+              aria-pressed={bookmarkedOnly}
+              disabled={isAuthenticated !== true}
+              title={
+                isAuthenticated ? "Show only bookmarked content." : "Sign in to filter bookmarks."
+              }
+            >
+              <Star className={`h-3.5 w-3.5 ${bookmarkedOnly ? "fill-current" : ""}`} />
+              Bookmarked
+            </Button>
+
+            <div className="ml-auto flex items-center gap-3">
+              <span className="text-[11px] text-muted-foreground/70">
+                {countsLabel} results
+              </span>
+              {hasActiveFilters && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-full px-3 text-[11px]"
+                  onClick={handleClearFilters}
+                >
+                  Clear all filters
+                </Button>
+              )}
+            </div>
+          </div>
             {filteredNews.length > 0 && (
               <div
                 className={loading ? "pointer-events-none opacity-60" : ""}

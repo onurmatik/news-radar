@@ -1,8 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { Radio, Search, Bell, User, PlusCircle, Plus, MoreVertical } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Radio, Search, Bell, User, PlusCircle, Plus, MoreVertical, Pencil, Check } from 'lucide-react';
+import * as SelectPrimitive from '@radix-ui/react-select';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -16,14 +27,17 @@ import {
 import { formatDistanceToNowStrict } from 'date-fns';
 import {
   createTopicGroup,
+  deleteTopic,
+  deleteTopicGroup,
   getExecution,
   listTopicGroups,
   listTopics,
   runTopicScan,
   searchAll,
+  updateTopicGroup,
   updateTopic,
 } from '@/lib/api';
-import type { ApiSearchResponse, ApiTopicListItem, TopicItem } from '@/lib/types';
+import type { ApiSearchResponse, ApiTopicGroupItem, ApiTopicListItem, TopicItem } from '@/lib/types';
 import { AuthDialog } from '@/components/AuthDialog';
 import { useAuthDialog } from '@/components/AuthDialogContext';
 import { useTopicGroup } from '@/components/TopicGroupContext';
@@ -42,6 +56,7 @@ interface SidebarProps {
  * - Responsive design (sidebar collapses or hides on small screens).
  */
 export function Layout({ children }: SidebarProps) {
+  const ALL_TOPICS_VALUE = "all-topics";
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -66,17 +81,42 @@ export function Layout({ children }: SidebarProps) {
   const [topicsError, setTopicsError] = useState<string | null>(null);
   const [groupsError, setGroupsError] = useState<string | null>(null);
   const [topicsLoaded, setTopicsLoaded] = useState(false);
+  const [groupsLoaded, setGroupsLoaded] = useState(false);
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const [createGroupName, setCreateGroupName] = useState("");
+  const [createGroupError, setCreateGroupError] = useState<string | null>(null);
+  const [groupSelectOpen, setGroupSelectOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const [topicMenuOpenId, setTopicMenuOpenId] = useState<string | null>(null);
   const topicMenuRef = useRef<HTMLDivElement | null>(null);
+  const [changeGroupOpen, setChangeGroupOpen] = useState(false);
+  const [changeGroupTopic, setChangeGroupTopic] = useState<TopicItem | null>(null);
+  const [changeGroupValue, setChangeGroupValue] = useState("");
+  const [changeGroupSaving, setChangeGroupSaving] = useState(false);
+  const [changeGroupError, setChangeGroupError] = useState<string | null>(null);
+  const [groupEditOpen, setGroupEditOpen] = useState(false);
+  const [groupEditTarget, setGroupEditTarget] = useState<ApiTopicGroupItem | null>(null);
+  const [groupEditName, setGroupEditName] = useState("");
+  const [groupEditSaving, setGroupEditSaving] = useState(false);
+  const [groupEditDeleting, setGroupEditDeleting] = useState(false);
+  const [groupEditError, setGroupEditError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<ApiSearchResponse | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement | null>(null);
+  const [deleteTopicOpen, setDeleteTopicOpen] = useState(false);
+  const [deleteTopicTarget, setDeleteTopicTarget] = useState<TopicItem | null>(null);
+  const [deleteTopicError, setDeleteTopicError] = useState<string | null>(null);
+  const [deleteTopicSaving, setDeleteTopicSaving] = useState(false);
+  const groupSelectValue = useMemo(() => {
+    if (selectedGroupId) return selectedGroupId;
+    if (isAuthenticated === false) return undefined;
+    return ALL_TOPICS_VALUE;
+  }, [ALL_TOPICS_VALUE, isAuthenticated, selectedGroupId]);
 
   const requireAuth = () => {
     if (isAuthenticated) {
@@ -135,17 +175,31 @@ export function Layout({ children }: SidebarProps) {
 
   useEffect(() => {
     if (isAuthenticated === null) return;
+    setGroupsLoaded(false);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated === null) return;
+    if (groupsLoaded) return;
+    setGroupsLoaded(true);
     void loadGroups();
+  }, [groupsLoaded, isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated === null) return;
+    setTopicsLoaded(false);
   }, [isAuthenticated]);
 
   useEffect(() => {
     if (isAuthenticated === null) return;
     if (!isAuthenticated) return;
+    if (topicsLoaded) return;
     void loadTopics();
-  }, [isAuthenticated, selectedGroupId]);
+  }, [isAuthenticated, topicsLoaded]);
 
   const handleGroupChange = (groupId: string) => {
-    setSelectedGroupId(groupId);
+    const nextGroupId = groupId === ALL_TOPICS_VALUE ? "" : groupId;
+    setSelectedGroupId(nextGroupId);
     setSelectedTopicUuid(null);
     navigate('/');
   };
@@ -230,6 +284,15 @@ export function Layout({ children }: SidebarProps) {
     return topics.filter((topic) => topic.groupUuid === selectedGroupId);
   }, [isAuthenticated, selectedGroupId, topics]);
 
+  const groupTopicCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    topics.forEach((topic) => {
+      if (!topic.groupUuid) return;
+      counts[topic.groupUuid] = (counts[topic.groupUuid] ?? 0) + 1;
+    });
+    return counts;
+  }, [topics]);
+
   useEffect(() => {
     setSelectedGroupTopicCount(filteredTopics.length);
   }, [filteredTopics, setSelectedGroupTopicCount]);
@@ -239,6 +302,8 @@ export function Layout({ children }: SidebarProps) {
       id: group.uuid,
       name: group.name,
       isPublic: group.is_public,
+      isOwner: group.is_owner,
+      group,
     }));
     if (isAuthenticated === false) {
       return {
@@ -260,31 +325,31 @@ export function Layout({ children }: SidebarProps) {
         setSelectedGroupId("");
         return;
       }
-      const firstPublicId = publicGroups[0].uuid;
+      if (!selectedGroupId) {
+        setSelectedGroupId(publicGroups[0].uuid);
+        return;
+      }
       const isValidSelection = publicGroups.some(
         (group) => group.uuid === selectedGroupId
       );
       if (!isValidSelection) {
-        setSelectedGroupId(firstPublicId);
+        setSelectedGroupId(publicGroups[0].uuid);
       }
       return;
     }
-    if (!groups.some((group) => group.uuid === selectedGroupId)) {
-      const firstGroup = groups[0];
-      setSelectedGroupId(firstGroup ? firstGroup.uuid : "");
+    if (selectedGroupId && !groups.some((group) => group.uuid === selectedGroupId)) {
+      setSelectedGroupId("");
     }
   }, [groups, isAuthenticated, selectedGroupId]);
 
   useEffect(() => {
-    let nextName = "Topics";
-    if (isAuthenticated === false) {
-      const group = groups.find((entry) => entry.uuid === selectedGroupId);
-      nextName = group?.name ?? "Featured topics";
-    } else {
-      const group = groups.find((entry) => entry.uuid === selectedGroupId);
-      nextName = group?.name ?? "Topics";
+    if (!selectedGroupId) {
+      setSelectedGroupName(isAuthenticated === false ? "Featured topics" : "All topics");
+      return;
     }
-    setSelectedGroupName(nextName);
+    const group = groups.find((entry) => entry.uuid === selectedGroupId);
+    const fallback = isAuthenticated === false ? "Featured topics" : "Topics";
+    setSelectedGroupName(group?.name ?? fallback);
   }, [groups, isAuthenticated, selectedGroupId, setSelectedGroupName]);
 
   useEffect(() => {
@@ -332,25 +397,48 @@ export function Layout({ children }: SidebarProps) {
     setProfileMenuOpen(false);
   };
 
-  const handleCreateGroup = async () => {
+  const handleCreateGroupOpen = (open: boolean) => {
+    setCreateGroupOpen(open);
+    if (!open) {
+      setCreateGroupName("");
+      setCreateGroupError(null);
+    }
+  };
+
+  const handleCreateGroup = () => {
     if (!requireAuth()) {
       return;
     }
     if (creatingGroup) return;
-    const name = window.prompt("Name the new topic group");
-    if (!name || !name.trim()) return;
-    const makePublic = window.confirm("Make this topic group public?");
+    setCreateGroupError(null);
+    setCreateGroupName("");
+    setCreateGroupOpen(true);
+  };
+
+  const handleCreateGroupSubmit = async () => {
+    if (!requireAuth()) {
+      return;
+    }
+    if (creatingGroup) return;
+    const trimmedName = createGroupName.trim();
+    if (!trimmedName) {
+      setCreateGroupError("Enter a topic group name.");
+      return;
+    }
     setCreatingGroup(true);
+    setCreateGroupError(null);
     try {
       const response = await createTopicGroup({
-        name: name.trim(),
-        isPublic: makePublic,
+        name: trimmedName,
+        isPublic: false,
       });
       setGroups((prev) => [...prev, response.group]);
       setSelectedGroupId(response.group.uuid);
+      handleCreateGroupOpen(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to create topic group.";
       setGroupsError(message);
+      setCreateGroupError(message);
     } finally {
       setCreatingGroup(false);
     }
@@ -369,6 +457,166 @@ export function Layout({ children }: SidebarProps) {
     }
     setSelectedTopicUuid(topic.uuid);
     navigate(`/topics?edit=${topic.uuid}`);
+  };
+
+  const handleChangeGroupOpen = (open: boolean) => {
+    setChangeGroupOpen(open);
+    if (!open) {
+      setChangeGroupTopic(null);
+      setChangeGroupValue("");
+      setChangeGroupError(null);
+    }
+  };
+
+  const handleChangeGroupClick = (topic: TopicItem) => {
+    if (!requireAuth()) {
+      return;
+    }
+    setChangeGroupTopic(topic);
+    setChangeGroupValue(topic.groupName ?? "");
+    setChangeGroupError(null);
+    setChangeGroupOpen(true);
+    setTopicMenuOpenId(null);
+  };
+
+  const handleChangeGroupSave = async () => {
+    if (!changeGroupTopic) {
+      return;
+    }
+    if (!requireAuth()) {
+      return;
+    }
+    const trimmedValue = changeGroupValue.trim();
+    if (!trimmedValue) {
+      setChangeGroupError("Enter a topic group name.");
+      return;
+    }
+    const normalizedValue = trimmedValue.toLowerCase();
+    const currentName = changeGroupTopic.groupName?.trim().toLowerCase() ?? "";
+    if (currentName && normalizedValue === currentName) {
+      setChangeGroupError("This topic is already in that group.");
+      return;
+    }
+    const existingGroup = groups.find(
+      (group) => group.name.trim().toLowerCase() === normalizedValue
+    );
+    setChangeGroupSaving(true);
+    setChangeGroupError(null);
+    try {
+      let targetGroupId = existingGroup?.uuid ?? "";
+      if (!targetGroupId) {
+        const response = await createTopicGroup({
+          name: trimmedValue,
+          isPublic: false,
+        });
+        setGroups((prev) => [...prev, response.group]);
+        targetGroupId = response.group.uuid;
+      }
+      const updated = await updateTopic(changeGroupTopic.uuid, {
+        groupUuid: targetGroupId,
+      });
+      const mapped = toTopicItem(updated);
+      setTopics((prev) =>
+        prev.map((item) => (item.uuid === mapped.uuid ? mapped : item))
+      );
+      handleChangeGroupOpen(false);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to change the topic group.";
+      setChangeGroupError(message);
+    } finally {
+      setChangeGroupSaving(false);
+    }
+  };
+
+  const handleGroupEditOpen = (open: boolean) => {
+    setGroupEditOpen(open);
+    if (!open) {
+      setGroupEditTarget(null);
+      setGroupEditName("");
+      setGroupEditError(null);
+      setGroupEditSaving(false);
+      setGroupEditDeleting(false);
+    }
+  };
+
+  const handleGroupEditClick = (group: ApiTopicGroupItem) => {
+    if (!requireAuth()) {
+      return;
+    }
+    setGroupSelectOpen(false);
+    setGroupEditTarget(group);
+    setGroupEditName(group.name);
+    setGroupEditError(null);
+    setGroupEditOpen(true);
+  };
+
+  const handleGroupEditSave = async () => {
+    if (!groupEditTarget) return;
+    if (!requireAuth()) {
+      return;
+    }
+    const trimmedName = groupEditName.trim();
+    if (!trimmedName) {
+      setGroupEditError("Group name is required.");
+      return;
+    }
+    if (trimmedName === groupEditTarget.name) {
+      setGroupEditError("No changes to save.");
+      return;
+    }
+    setGroupEditSaving(true);
+    setGroupEditError(null);
+    try {
+      await updateTopicGroup(groupEditTarget.uuid, { name: trimmedName });
+      setGroups((prev) =>
+        prev.map((group) =>
+          group.uuid === groupEditTarget.uuid ? { ...group, name: trimmedName } : group
+        )
+      );
+      setTopics((prev) =>
+        prev.map((topic) =>
+          topic.groupUuid === groupEditTarget.uuid
+            ? { ...topic, groupName: trimmedName }
+            : topic
+        )
+      );
+      handleGroupEditOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to update topic group.";
+      setGroupEditError(message);
+    } finally {
+      setGroupEditSaving(false);
+    }
+  };
+
+  const handleGroupDelete = async () => {
+    if (!groupEditTarget) return;
+    if (!requireAuth()) {
+      return;
+    }
+    setGroupEditDeleting(true);
+    setGroupEditError(null);
+    try {
+      await deleteTopicGroup(groupEditTarget.uuid);
+      setGroups((prev) => prev.filter((group) => group.uuid !== groupEditTarget.uuid));
+      setTopics((prev) =>
+        prev.map((topic) =>
+          topic.groupUuid === groupEditTarget.uuid
+            ? { ...topic, groupUuid: null, groupName: null }
+            : topic
+        )
+      );
+      if (selectedGroupId === groupEditTarget.uuid) {
+        setSelectedGroupId("");
+      }
+      handleGroupEditOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to delete topic group.";
+      setGroupEditError(message);
+    } finally {
+      setGroupEditDeleting(false);
+    }
   };
 
   const formatRecency = (value: TopicItem["updateFrequency"]) => {
@@ -453,24 +701,51 @@ export function Layout({ children }: SidebarProps) {
     }
   };
 
-  const handleTopicPause = async (topic: TopicItem) => {
+  const handleDeleteTopicOpen = (open: boolean) => {
+    setDeleteTopicOpen(open);
+    if (!open) {
+      setDeleteTopicTarget(null);
+      setDeleteTopicError(null);
+      setDeleteTopicSaving(false);
+    }
+  };
+
+  const handleDeleteTopic = (topic: TopicItem) => {
+    if (!requireAuth()) {
+      return;
+    }
+    setDeleteTopicTarget(topic);
+    setDeleteTopicError(null);
+    setDeleteTopicOpen(true);
+    setTopicMenuOpenId(null);
+  };
+
+  const handleDeleteTopicConfirm = async () => {
+    if (!deleteTopicTarget) {
+      return;
+    }
     if (!requireAuth()) {
       return;
     }
     setTopicsError(null);
+    setDeleteTopicError(null);
+    setDeleteTopicSaving(true);
     try {
-      const updated = await updateTopic(topic.uuid, {
-        isActive: false,
-      });
-      const mapped = toTopicItem(updated);
+      await deleteTopic(deleteTopicTarget.uuid);
       setTopics((prev) =>
-        prev.map((item) => (item.uuid === mapped.uuid ? mapped : item))
+        prev.filter((item) => item.uuid !== deleteTopicTarget.uuid)
       );
+      if (selectedTopicUuid === deleteTopicTarget.uuid) {
+        setSelectedTopicUuid(null);
+        navigate('/');
+      }
+      handleDeleteTopicOpen(false);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to pause topic.";
+      const message = error instanceof Error ? error.message : "Unable to delete topic.";
       setTopicsError(message);
+      setDeleteTopicError(message);
     } finally {
-      setTopicMenuOpenId(null);
+      setDeleteTopicSaving(false);
     }
   };
 
@@ -478,9 +753,19 @@ export function Layout({ children }: SidebarProps) {
     topic: ApiSearchResponse["topics"][number]
   ) => {
     setSearchOpen(false);
-    if (topic.group_uuid) {
-      setSelectedGroupId(topic.group_uuid);
-      await loadTopics(topic.group_uuid);
+    const nextGroupId = topic.group_uuid ?? "";
+    if (nextGroupId) {
+      setSelectedGroupId(nextGroupId);
+      if (isAuthenticated === false) {
+        await loadTopics(nextGroupId);
+      } else {
+        await loadTopics();
+      }
+    } else {
+      setSelectedGroupId("");
+      if (isAuthenticated !== false) {
+        await loadTopics();
+      }
     }
     setSelectedTopicUuid(topic.uuid);
     navigate("/");
@@ -490,21 +775,236 @@ export function Layout({ children }: SidebarProps) {
     content: ApiSearchResponse["contents"][number]
   ) => {
     setSearchOpen(false);
-    if (content.group_uuid) {
-      setSelectedGroupId(content.group_uuid);
-      await loadTopics(content.group_uuid);
+    const nextGroupId = content.group_uuid ?? "";
+    if (nextGroupId) {
+      setSelectedGroupId(nextGroupId);
+      if (isAuthenticated === false) {
+        await loadTopics(nextGroupId);
+      } else {
+        await loadTopics();
+      }
+    } else {
+      setSelectedGroupId("");
+      if (isAuthenticated !== false) {
+        await loadTopics();
+      }
     }
     setSelectedTopicUuid(content.topic_uuid);
     navigate(`/content/${content.id}/full`);
   };
 
+  const changeGroupDisabled =
+    !changeGroupTopic ||
+    !changeGroupValue.trim() ||
+    changeGroupSaving;
+
   return (
       <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans flex-col">
         <AuthDialog isOpen={authDialogOpen} onOpenChange={setAuthDialogOpen} />
+        <Dialog open={createGroupOpen} onOpenChange={handleCreateGroupOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Create a topic group</DialogTitle>
+              <DialogDescription>
+                Give your group a name to organize related topics.
+              </DialogDescription>
+            </DialogHeader>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleCreateGroupSubmit();
+              }}
+              className="space-y-4"
+            >
+              <div className="space-y-2">
+                <Label
+                  htmlFor="create-group-name"
+                  className="text-[10px] uppercase tracking-widest text-muted-foreground/70"
+                >
+                  Group name
+                </Label>
+                <Input
+                  id="create-group-name"
+                  value={createGroupName}
+                  onChange={(event) => setCreateGroupName(event.target.value)}
+                  placeholder="e.g. Market alerts"
+                  className="h-9 text-sm"
+                  disabled={creatingGroup}
+                  autoFocus
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  You can edit the name later.
+                </p>
+              </div>
+              {createGroupError && (
+                <p className="text-sm text-destructive">{createGroupError}</p>
+              )}
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => handleCreateGroupOpen(false)}
+                  type="button"
+                  disabled={creatingGroup}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={creatingGroup}>
+                  {creatingGroup ? "Creating..." : "Create group"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={deleteTopicOpen} onOpenChange={handleDeleteTopicOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete topic</DialogTitle>
+              <DialogDescription>
+                {deleteTopicTarget
+                  ? `Delete "${deleteTopicTarget.term}"? This will permanently remove the topic.`
+                  : "Delete this topic? This action cannot be undone."}
+              </DialogDescription>
+            </DialogHeader>
+            {deleteTopicError && (
+              <p className="text-sm text-destructive">{deleteTopicError}</p>
+            )}
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={() => handleDeleteTopicOpen(false)}
+                type="button"
+                disabled={deleteTopicSaving}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => void handleDeleteTopicConfirm()}
+                type="button"
+                disabled={deleteTopicSaving}
+              >
+                {deleteTopicSaving ? "Deleting..." : "Delete topic"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={changeGroupOpen} onOpenChange={handleChangeGroupOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Change topic group</DialogTitle>
+              <DialogDescription>
+                {changeGroupTopic
+                  ? `Move "${changeGroupTopic.term}" to another group.`
+                  : "Choose a group for this topic."}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label
+                  htmlFor="change-group-input"
+                  className="text-[10px] uppercase tracking-widest text-muted-foreground/70"
+                >
+                  Topic group
+                </Label>
+                <Input
+                  id="change-group-input"
+                  list="change-group-options"
+                  value={changeGroupValue}
+                  onChange={(event) => setChangeGroupValue(event.target.value)}
+                  placeholder="Select or type a new group name"
+                  className="h-9 text-sm"
+                  disabled={changeGroupSaving}
+                />
+                <datalist id="change-group-options">
+                  {groups.map((group) => (
+                    <option key={group.uuid} value={group.name} />
+                  ))}
+                </datalist>
+                <p className="text-[11px] text-muted-foreground">
+                  Pick an existing group or type a new name to create it.
+                </p>
+              </div>
+              {changeGroupError && (
+                <p className="text-sm text-destructive">{changeGroupError}</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={() => handleChangeGroupOpen(false)}
+                type="button"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void handleChangeGroupSave()}
+                disabled={changeGroupDisabled}
+                type="button"
+              >
+                {changeGroupSaving ? "Saving..." : "Save"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={groupEditOpen} onOpenChange={handleGroupEditOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Edit topic group</DialogTitle>
+              <DialogDescription>
+                Update the group name or delete the group. Topics will remain, but their
+                group will be cleared.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="group-edit-name">Group name</Label>
+                <Input
+                  id="group-edit-name"
+                  value={groupEditName}
+                  onChange={(event) => setGroupEditName(event.target.value)}
+                  placeholder="Topic group name"
+                  disabled={groupEditSaving || groupEditDeleting}
+                />
+              </div>
+              {groupEditError && (
+                <p className="text-sm text-destructive">{groupEditError}</p>
+              )}
+            </div>
+            <DialogFooter>
+              <div className="flex w-full items-center justify-between gap-3">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  type="button"
+                  onClick={() => void handleGroupDelete()}
+                  disabled={groupEditDeleting || groupEditSaving}
+                >
+                  {groupEditDeleting ? "Deleting..." : "Delete group"}
+                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleGroupEditOpen(false)}
+                    type="button"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => void handleGroupEditSave()}
+                    disabled={groupEditSaving || groupEditDeleting || !groupEditName.trim()}
+                    type="button"
+                  >
+                    {groupEditSaving ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         {/* Top Navbar - 100% Width */}
         <header className="h-16 border-b border-border bg-background/80 backdrop-blur-md flex items-center justify-between px-6 z-20 sticky top-0 w-full shrink-0">
          <div className="flex items-center gap-4">
-            <a href="#/" className="flex items-center gap-3 group">
+            <Link to="/" className="flex items-center gap-3 group">
                <div className="relative flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary border border-primary/20 group-hover:bg-primary/20 transition-all duration-300">
                   <Radio className="h-5 w-5 animate-pulse" />
                   <div className="absolute inset-0 rounded-lg ring-1 ring-primary/50 animate-ping opacity-10 duration-1000"></div>
@@ -513,7 +1013,7 @@ export function Layout({ children }: SidebarProps) {
                  <h1 className="font-bold text-base tracking-tight leading-none text-foreground">NewsRadar</h1>
                  <span className="text-[10px] text-muted-foreground font-mono mt-1 opacity-60 uppercase">Agenda Monitor</span>
                </div>
-            </a>
+            </Link>
          </div>
          
          <div className="flex items-center gap-4">
@@ -661,26 +1161,75 @@ export function Layout({ children }: SidebarProps) {
           <aside className="w-80 border-r border-border bg-card/30 hidden lg:flex flex-col shrink-0">
           <div className="p-4 border-b border-border bg-background/50">
              <Select
-               value={selectedGroupId || undefined}
+               value={groupSelectValue}
                onValueChange={handleGroupChange}
+               open={groupSelectOpen}
+               onOpenChange={setGroupSelectOpen}
              >
                 <SelectTrigger className="w-full bg-muted/30 border-border/50 text-xs h-9 rounded-none font-bold tracking-widest">
-                  <SelectValue placeholder="Select group" />
+                  <SelectValue
+                    placeholder={isAuthenticated === false ? "Topic groups" : "All topics"}
+                  />
                 </SelectTrigger>
                 <SelectContent className="rounded-none border-border">
+                  {isAuthenticated !== false && (
+                    <>
+                      <SelectGroup>
+                        <SelectItem
+                          value={ALL_TOPICS_VALUE}
+                          className="text-xs font-bold tracking-widest rounded-none"
+                        >
+                          All topics
+                        </SelectItem>
+                      </SelectGroup>
+                      <SelectSeparator className="bg-border/50" />
+                    </>
+                  )}
                   <SelectGroup>
                     <SelectLabel className="text-[10px] uppercase text-muted-foreground/60 px-2 py-1.5">
                       Yours
                     </SelectLabel>
                     {groupedOptions.yours.length > 0 ? (
                       groupedOptions.yours.map((group) => (
-                        <SelectItem
+                        <SelectPrimitive.Item
                           key={group.id}
                           value={group.id}
-                          className="text-xs font-bold tracking-widest rounded-none"
+                          textValue={group.name}
+                          className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-xs font-bold tracking-widest outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 rounded-none"
                         >
-                          {group.name}
-                        </SelectItem>
+                          <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                            <SelectPrimitive.ItemIndicator>
+                              <Check className="h-4 w-4" />
+                            </SelectPrimitive.ItemIndicator>
+                          </span>
+                          <SelectPrimitive.ItemText className="flex-1 truncate">
+                            {group.name}
+                          </SelectPrimitive.ItemText>
+                          <div className="ml-auto flex items-center gap-2">
+                            <span className="text-[10px] font-mono text-muted-foreground/70">
+                              {groupTopicCounts[group.id] ?? 0}
+                            </span>
+                            {isAuthenticated !== false && group.isOwner && (
+                              <button
+                                type="button"
+                                className="rounded-md p-1 text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
+                                onPointerDown={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  handleGroupEditClick(group.group);
+                                }}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                }}
+                                aria-label={`Edit ${group.name}`}
+                                title="Edit group"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                        </SelectPrimitive.Item>
                       ))
                     ) : (
                       <div className="px-2 py-2 text-[10px] uppercase tracking-widest text-muted-foreground/60">
@@ -696,13 +1245,45 @@ export function Layout({ children }: SidebarProps) {
                           Featured
                         </SelectLabel>
                         {groupedOptions.publicGroups.map((group) => (
-                          <SelectItem
+                          <SelectPrimitive.Item
                             key={group.id}
                             value={group.id}
-                            className="text-xs font-bold tracking-widest rounded-none"
+                            textValue={group.name}
+                            className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-xs font-bold tracking-widest outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 rounded-none"
                           >
-                            {group.name}
-                          </SelectItem>
+                            <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                              <SelectPrimitive.ItemIndicator>
+                                <Check className="h-4 w-4" />
+                              </SelectPrimitive.ItemIndicator>
+                            </span>
+                            <SelectPrimitive.ItemText className="flex-1 truncate">
+                              {group.name}
+                            </SelectPrimitive.ItemText>
+                            <div className="ml-auto flex items-center gap-2">
+                              <span className="text-[10px] font-mono text-muted-foreground/70">
+                                {groupTopicCounts[group.id] ?? 0}
+                              </span>
+                              {isAuthenticated !== false && group.isOwner && (
+                                <button
+                                  type="button"
+                                  className="rounded-md p-1 text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
+                                  onPointerDown={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    handleGroupEditClick(group.group);
+                                  }}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                  }}
+                                  aria-label={`Edit ${group.name}`}
+                                  title="Edit group"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          </SelectPrimitive.Item>
                         ))}
                       </SelectGroup>
                     </>
@@ -719,6 +1300,18 @@ export function Layout({ children }: SidebarProps) {
                   >
                     <Plus className="h-3 w-3" />
                     Create a topic group
+                  </button>
+                  <button
+                    className="w-full flex items-center gap-2 px-2 py-2 text-[10px] font-bold uppercase tracking-widest text-primary hover:bg-primary/5 transition-colors"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      handleAddTopicClick();
+                    }}
+                    type="button"
+                  >
+                    <PlusCircle className="h-3 w-3" />
+                    Create a topic
                   </button>
                 </SelectContent>
              </Select>
@@ -800,46 +1393,89 @@ export function Layout({ children }: SidebarProps) {
                             className="absolute right-0 mt-2 w-48 rounded-xl border border-border bg-background shadow-lg p-2 z-50"
                             onClick={(event) => event.stopPropagation()}
                           >
-                            <p className="px-3 pt-2 text-[10px] uppercase tracking-widest text-muted-foreground/70">
-                              Scan
-                            </p>
                             <button
                               className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
                               onClick={() => void handleTopicScanNow(topic)}
                               type="button"
                             >
-                              Now
+                              Scan now
                             </button>
+                            <div className="h-px bg-border/70 my-2" />
+                            <p className="px-3 pt-1 text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                              Scan frequency
+                            </p>
                             <button
-                              className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                              className={cn(
+                                "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
+                                topic.updateFrequency === "day"
+                                  ? "text-foreground"
+                                  : "text-muted-foreground",
+                                "hover:text-foreground hover:bg-muted/60"
+                              )}
                               onClick={() => void handleTopicFrequency(topic, "day")}
                               type="button"
                             >
+                              <span
+                                className={cn(
+                                  "h-1.5 w-1.5 rounded-full",
+                                  topic.updateFrequency === "day"
+                                    ? "bg-primary"
+                                    : "bg-transparent opacity-0"
+                                )}
+                              />
                               Daily
                             </button>
                             <button
-                              className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                              className={cn(
+                                "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
+                                topic.updateFrequency === "week"
+                                  ? "text-foreground"
+                                  : "text-muted-foreground",
+                                "hover:text-foreground hover:bg-muted/60"
+                              )}
                               onClick={() => void handleTopicFrequency(topic, "week")}
                               type="button"
                             >
+                              <span
+                                className={cn(
+                                  "h-1.5 w-1.5 rounded-full",
+                                  topic.updateFrequency === "week"
+                                    ? "bg-primary"
+                                    : "bg-transparent opacity-0"
+                                )}
+                              />
                               Weekly
                             </button>
                             <button
-                              className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                              className={cn(
+                                "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
+                                topic.updateFrequency === "manual"
+                                  ? "text-foreground"
+                                  : "text-muted-foreground",
+                                "hover:text-foreground hover:bg-muted/60"
+                              )}
                               onClick={() => void handleTopicFrequency(topic, "manual")}
                               type="button"
                             >
-
-                              Manually
+                              <span
+                                className={cn(
+                                  "h-1.5 w-1.5 rounded-full",
+                                  topic.updateFrequency === "manual"
+                                    ? "bg-primary"
+                                    : "bg-transparent opacity-0"
+                                )}
+                              />
+                              Manual
                             </button>
                             <div className="h-px bg-border/70 my-2" />
                             <button
                               className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
-                              onClick={() => void handleTopicPause(topic)}
+                              onClick={() => handleChangeGroupClick(topic)}
                               type="button"
                             >
-                              Pause
+                              Change group
                             </button>
+                            <div className="h-px bg-border/70 my-2" />
                             <button
                               className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
                               onClick={() => {
@@ -849,6 +1485,13 @@ export function Layout({ children }: SidebarProps) {
                               type="button"
                             >
                               Edit
+                            </button>
+                            <button
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-destructive hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                              onClick={() => void handleDeleteTopic(topic)}
+                              type="button"
+                            >
+                              Delete
                             </button>
                           </div>
                         )}
