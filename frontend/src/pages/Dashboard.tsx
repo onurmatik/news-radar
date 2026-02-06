@@ -1146,8 +1146,8 @@ export default function Dashboard() {
               <div aria-busy={loading}>
                 {filteredNews.map((item) => (
                   <div key={item.id}>
-                      <Card className="group relative overflow-hidden border-none bg-card/40 backdrop-blur-sm transition-all duration-300 hover:bg-card/60">
-                        <div className="flex flex-col gap-6 p-6 sm:flex-row">
+                      <Card className="group relative overflow-hidden border-0 bg-card/40 backdrop-blur-sm transition-all duration-300 hover:bg-card/60">
+                        <div className="flex flex-col gap-6 py-6 sm:flex-row">
                           <div className="flex-1 space-y-3">
                             <div className="flex flex-wrap items-center justify-between gap-4">
                               <div className="flex flex-wrap items-center gap-3">
