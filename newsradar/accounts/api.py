@@ -12,6 +12,7 @@ from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 from sesame.utils import get_query_string
 
+from newsradar.accounts.models import Profile
 
 api = NinjaAPI(title="Accounts API", urls_namespace="accounts")
 
@@ -114,6 +115,8 @@ def request_magic_link(request, payload: MagicLinkRequest):
 def current_user(request):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    profile.record_visit()
     return CurrentUserResponse(
         id=request.user.id,
         username=request.user.get_username(),

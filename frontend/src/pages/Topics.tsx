@@ -5,7 +5,7 @@ import { useTopicGroup } from '@/components/TopicGroupContext';
 import { TopicForm } from '@/components/TopicForm';
 
 export default function Topics() {
-  const { selectedGroupName, setSelectedTopicUuid } = useTopicGroup();
+  const { setSelectedTopicUuid } = useTopicGroup();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const editingTopicId = searchParams.get("edit");
@@ -24,15 +24,12 @@ export default function Topics() {
 
   return (
     <Layout>
-      <div className="mx-auto space-y-8 p-4 md:p-6 lg:p-10">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">{selectedGroupName}</h2>
-          <p className="text-muted-foreground mt-1">Manage monitoring targets and AI search parameters.</p>
-        </div>
-
+      <div className="h-full w-full">
         <TopicForm
           mode={mode}
           topicUuid={editingTopicId}
+          className="h-full w-full"
+          variant="full"
           onCancel={mode === "edit" ? clearEditMode : closeCreateMode}
           onSaved={(topic, savedMode) => {
             if (savedMode === "edit") {

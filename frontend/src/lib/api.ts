@@ -4,6 +4,7 @@ import type {
   ApiContentFeedResponse,
   ApiCurrentUser,
   ApiExecutionDetail,
+  ApiNotificationsResponse,
   ApiSearchResponse,
   ApiTopicCreateResponse,
   ApiTopicGroupCreateResponse,
@@ -129,6 +130,7 @@ export async function updateTopic(
   payload: {
     isActive?: boolean;
     queries?: string[];
+    groupUuid?: string | null;
     domainAllowlist?: string[] | null;
     domainBlocklist?: string[] | null;
     languageFilter?: string[] | null;
@@ -141,6 +143,7 @@ export async function updateTopic(
     body: JSON.stringify({
       is_active: payload.isActive,
       queries: payload.queries,
+      group_uuid: payload.groupUuid,
       search_domain_allowlist: payload.domainAllowlist ?? null,
       search_domain_blocklist: payload.domainBlocklist ?? null,
       search_language_filter: payload.languageFilter ?? null,
@@ -215,10 +218,12 @@ export async function listContentFeed(params?: {
   topicUuid?: string;
   limit?: number;
   offset?: number;
+  onlyNew?: boolean;
 }): Promise<ApiContentFeedResponse> {
   const search = new URLSearchParams();
   if (params?.limit) search.set("limit", String(params.limit));
   if (params?.offset) search.set("offset", String(params.offset));
+  if (params?.onlyNew) search.set("only_new", "true");
   const query = search.toString();
   if (params?.topicUuid) {
     return requestJson<ApiContentFeedResponse>(
@@ -233,11 +238,13 @@ export async function listContentByGroup(
   params?: {
     limit?: number;
     offset?: number;
+    onlyNew?: boolean;
   }
 ): Promise<ApiContentFeedResponse> {
   const search = new URLSearchParams();
   if (params?.limit) search.set("limit", String(params.limit));
   if (params?.offset) search.set("offset", String(params.offset));
+  if (params?.onlyNew) search.set("only_new", "true");
   const query = search.toString();
   return requestJson<ApiContentFeedResponse>(
     `/api/contents/groups/${groupUuid}${query ? `?${query}` : ""}`
@@ -284,6 +291,10 @@ export async function deleteBookmark(contentId: number): Promise<void> {
 
 export async function getCurrentUser(): Promise<ApiCurrentUser> {
   return requestJson<ApiCurrentUser>("/api/auth/me");
+}
+
+export async function getNotifications(): Promise<ApiNotificationsResponse> {
+  return requestJson<ApiNotificationsResponse>("/api/contents/notifications");
 }
 
 export async function logout(): Promise<void> {

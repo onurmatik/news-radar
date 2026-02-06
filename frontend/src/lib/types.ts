@@ -53,6 +53,19 @@ export interface ApiCurrentUser {
   email: string;
 }
 
+export interface ApiNotificationTopicItem {
+  topic_uuid: string;
+  topic_queries: string[];
+  group_uuid: string | null;
+  group_name: string | null;
+  new_count: number;
+}
+
+export interface ApiNotificationsResponse {
+  total_new: number;
+  topics: ApiNotificationTopicItem[];
+}
+
 export interface ApiContentFeedItem {
   id: number;
   url: string;

@@ -77,9 +77,9 @@ export default function ContentFullDetail() {
 
   const buildShareUrl = (contentId: number) => {
     if (typeof window === "undefined") {
-      return `#/content/${contentId}/full`;
+      return `/content/${contentId}/full`;
     }
-    return `${window.location.origin}${window.location.pathname}#/content/${contentId}/full`;
+    return `${window.location.origin}/content/${contentId}/full`;
   };
 
   const handleShare = (contentId: number) => {

@@ -1,6 +1,8 @@
 from uuid import UUID
 
 from django.http import HttpResponse
+from django.db.models import DateTimeField
+from django.db.models.functions import Coalesce
 from ninja import NinjaAPI
 from ninja.errors import HttpError
 
@@ -42,7 +44,15 @@ def list_content_by_topic_rss(
                 execution__topic__uuid=topic_uuid,
             )
             .select_related("execution", "execution__topic")
-            .order_by("-created_at", "-id")[offset : offset + limit]
+            .order_by(
+                Coalesce(
+                    "last_updated",
+                    "date",
+                    "created_at",
+                    output_field=DateTimeField(),
+                ).desc(),
+                "-id",
+            )[offset : offset + limit]
         )
     else:
         contents = (
@@ -50,7 +60,15 @@ def list_content_by_topic_rss(
                 execution__topic=topic,
             )
             .select_related("execution", "execution__topic")
-            .order_by("-created_at", "-id")[offset : offset + limit]
+            .order_by(
+                Coalesce(
+                    "last_updated",
+                    "date",
+                    "created_at",
+                    output_field=DateTimeField(),
+                ).desc(),
+                "-id",
+            )[offset : offset + limit]
         )
 
     title = f"NewsRadar Topic: {topic.primary_query or 'Topic'}"
@@ -94,7 +112,15 @@ def list_content_by_group_rss(
                 execution__topic__group__uuid=group_uuid,
             )
             .select_related("execution", "execution__topic")
-            .order_by("-created_at", "-id")[offset : offset + limit]
+            .order_by(
+                Coalesce(
+                    "last_updated",
+                    "date",
+                    "created_at",
+                    output_field=DateTimeField(),
+                ).desc(),
+                "-id",
+            )[offset : offset + limit]
         )
     else:
         contents = (
@@ -103,7 +129,15 @@ def list_content_by_group_rss(
                 execution__topic__is_active=True,
             )
             .select_related("execution", "execution__topic")
-            .order_by("-created_at", "-id")[offset : offset + limit]
+            .order_by(
+                Coalesce(
+                    "last_updated",
+                    "date",
+                    "created_at",
+                    output_field=DateTimeField(),
+                ).desc(),
+                "-id",
+            )[offset : offset + limit]
         )
 
     title = f"NewsRadar Group: {group.name}"
