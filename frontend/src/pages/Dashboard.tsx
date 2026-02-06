@@ -34,7 +34,6 @@ import {
   Loader2,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -1145,15 +1144,8 @@ export default function Dashboard() {
 
             {filteredNews.length > 0 && (
               <div aria-busy={loading}>
-                <AnimatePresence mode="popLayout">
-                  {filteredNews.map((item, index) => (
-                    <motion.div
-                      key={item.id}
-                      initial={{ opacity: 0, y: 30 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.98 }}
-                      transition={{ duration: 0.4, delay: index * 0.05, ease: "easeOut" }}
-                    >
+                {filteredNews.map((item) => (
+                  <div key={item.id}>
                       <Card className="group relative overflow-hidden border-none bg-card/40 backdrop-blur-sm transition-all duration-300 hover:bg-card/60">
                         <div className="flex flex-col gap-6 p-6 sm:flex-row">
                           <div className="flex-1 space-y-3">
@@ -1212,9 +1204,8 @@ export default function Dashboard() {
                           </div>
                         </div>
                       </Card>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+                  </div>
+                ))}
               </div>
             )}
 
