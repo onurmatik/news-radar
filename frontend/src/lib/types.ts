@@ -14,6 +14,7 @@ export interface ApiTopicListItem {
   search_language_filter: string[] | null;
   country: string | null;
   update_frequency: "day" | "week" | "manual";
+  additional_queries_mode: "auto" | "manual";
 }
 
 export interface ApiTopicListResponse {
@@ -147,6 +148,7 @@ export interface TopicItem {
   languageFilter: string[] | null;
   country: string | null;
   updateFrequency: "day" | "week" | "manual";
+  additionalQueriesMode: "auto" | "manual";
 }
 
 export interface NewsItem {

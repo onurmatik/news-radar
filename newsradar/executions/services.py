@@ -1,4 +1,6 @@
 import uuid
+import json
+import logging
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -6,12 +8,15 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from django.conf import settings
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
+from openai import OpenAI
 from perplexity import Perplexity
 
 from newsradar.contents.models import Content
 from newsradar.executions.models import Execution
-from newsradar.topics.models import Topic
+from newsradar.topics.models import Topic, normalize_topic_query
 from newsradar.topics.services import normalize_domain_value
+
+logger = logging.getLogger(__name__)
 
 
 def _build_search_domain_filter(topic: Topic) -> list[str] | None:
@@ -66,6 +71,87 @@ def _build_perplexity_search_payload(topic: Topic, query: str | list[str]) -> di
         )
 
     return payload
+
+
+def _parse_json_from_text(text: str) -> Any:
+    stripped = (text or "").strip()
+    if not stripped:
+        return None
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+
+    for start_char, end_char in (("{", "}"), ("[", "]")):
+        start = stripped.find(start_char)
+        end = stripped.rfind(end_char)
+        if start == -1 or end == -1 or end <= start:
+            continue
+        candidate = stripped[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def _normalize_generated_queries(raw_values: Any, primary_query: str) -> list[str]:
+    if not isinstance(raw_values, list):
+        return []
+    normalized_primary = normalize_topic_query(primary_query)
+    seen: set[str] = set()
+    normalized_queries: list[str] = []
+    for item in raw_values:
+        if not isinstance(item, str):
+            continue
+        cleaned = normalize_topic_query(item)
+        if not cleaned:
+            continue
+        if cleaned == normalized_primary or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized_queries.append(cleaned)
+    return normalized_queries[:4]
+
+
+def _generate_auto_additional_queries(topic: Topic, primary_query: str) -> list[str]:
+    if not settings.OPENAI_API_KEY:
+        return []
+
+    agenda_parts = [f"Primary topic: {primary_query}"]
+    if topic.group:
+        agenda_parts.append(f"Agenda group: {topic.group.name}")
+        if topic.group.description:
+            agenda_parts.append(f"Agenda notes: {topic.group.description}")
+    if topic.country:
+        agenda_parts.append(f"Country focus: {topic.country}")
+    if topic.search_language_filter:
+        agenda_parts.append(
+            "Language focus: " + ", ".join(topic.search_language_filter)
+        )
+
+    prompt = (
+        "Generate 2-4 additional web search queries for a news-monitoring agenda. "
+        "Return strict JSON only, in this format: "
+        '{"queries":["query 1","query 2"]}. '
+        "Keep queries short, concrete, and complementary to the primary topic.\n\n"
+        + "\n".join(agenda_parts)
+    )
+
+    try:
+        client = OpenAI(timeout=settings.OPENAI_RESPONSES_TIMEOUT_SECONDS)
+        response = client.responses.create(
+            model=settings.OPENAI_RESPONSES_MODEL,
+            input=prompt,
+            max_output_tokens=200,
+        )
+        parsed = _parse_json_from_text(getattr(response, "output_text", ""))
+        if isinstance(parsed, dict):
+            return _normalize_generated_queries(parsed.get("queries"), primary_query)
+        return _normalize_generated_queries(parsed, primary_query)
+    except Exception:
+        logger.exception("Failed to generate auto additional queries for topic %s", topic.uuid)
+        return []
 
 
 def _normalize_source_url(url: str) -> str:
@@ -166,6 +252,12 @@ def execute_web_search(
     queries = [query for query in (topic.queries or []) if query][:5]
     if not queries:
         raise ValueError("Topic queries are required for web search.")
+
+    if topic.additional_queries_mode == Topic.ADDITIONAL_QUERIES_MODE_AUTO:
+        primary_query = queries[0]
+        auto_queries = _generate_auto_additional_queries(topic, primary_query)
+        queries = [primary_query, *auto_queries][:5]
+
     search_query: str | list[str] = queries[0] if len(queries) == 1 else queries
 
     if execution is None:

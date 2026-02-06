@@ -19,11 +19,12 @@ class TopicAdmin(admin.ModelAdmin):
         "primary_query",
         "group",
         "update_frequency",
+        "additional_queries_mode",
         "is_active",
         "created_at",
         "last_fetched_at",
     )
-    list_editable = ("update_frequency",)
+    list_editable = ("update_frequency", "additional_queries_mode")
     list_filter = ("user", "group", "is_active", "last_fetched_at", "created_at")
     search_fields = ("queries", "user__username", "user__email")
     actions = (

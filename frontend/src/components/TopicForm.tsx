@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { createTopic, deleteTopic, updateTopic } from '@/lib/api';
 import type { ApiTopicListItem, TopicItem } from '@/lib/types';
-import { Plus, X, PlusCircle } from 'lucide-react';
+import { X, PlusCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type TopicFormMode = "create" | "edit";
@@ -56,6 +56,7 @@ export function TopicForm({
     !!selectedGroupId && selectedGroup ? !selectedGroup.is_owner : false;
   const [topicName, setTopicName] = useState("");
   const [queries, setQueries] = useState<string[]>([""]);
+  const [additionalQueriesMode, setAdditionalQueriesMode] = useState<"auto" | "manual">("manual");
   const [domainInputs, setDomainInputs] = useState<string[]>([""]);
   const [domainMode, setDomainMode] = useState<"allow" | "block">("allow");
   const [languageSelections, setLanguageSelections] = useState<string[]>([""]);
@@ -109,6 +110,7 @@ export function TopicForm({
     languageFilter: topic.search_language_filter,
     country: topic.country,
     updateFrequency: topic.update_frequency,
+    additionalQueriesMode: topic.additional_queries_mode ?? "manual",
   });
 
   const normalizeList = (values: string[]) =>
@@ -125,6 +127,7 @@ export function TopicForm({
   const resetForm = () => {
     setTopicName("");
     setQueries([""]);
+    setAdditionalQueriesMode("manual");
     setDomainInputs([""]);
     setDomainMode("allow");
     setLanguageSelections([""]);
@@ -136,6 +139,7 @@ export function TopicForm({
     setTopicName(topic.queries[0] ?? "");
     const additionalQueries = topic.queries.slice(1, MAX_TOPIC_QUERIES);
     setQueries(additionalQueries.length ? additionalQueries : [""]);
+    setAdditionalQueriesMode(topic.additionalQueriesMode ?? "manual");
     if (topic.domainAllowlist?.length) {
       setDomainMode("allow");
       setDomainInputs(topic.domainAllowlist.length ? topic.domainAllowlist : [""]);
@@ -206,7 +210,7 @@ export function TopicForm({
   };
 
   const addTopic = async () => {
-    const normalizedQueries = [topicName, ...queries]
+    const normalizedQueries = [topicName, ...(additionalQueriesMode === "manual" ? queries : [])]
       .map((query) => query.trim())
       .filter(Boolean);
     if (!normalizedQueries.length) return;
@@ -225,6 +229,7 @@ export function TopicForm({
         domainBlocklist: domainMode === "block" ? domainList : null,
         languageFilter: languageList,
         country: country ? country : null,
+        additionalQueriesMode,
       });
       const created = toTopicItem(response.topic);
       setTopics((prev) => [created, ...prev]);
@@ -240,7 +245,7 @@ export function TopicForm({
 
   const saveTopic = async () => {
     if (!topicUuid) return;
-    const normalizedQueries = [topicName, ...queries]
+    const normalizedQueries = [topicName, ...(additionalQueriesMode === "manual" ? queries : [])]
       .map((query) => query.trim())
       .filter(Boolean);
     if (!normalizedQueries.length) return;
@@ -259,6 +264,7 @@ export function TopicForm({
         domainBlocklist: domainMode === "block" ? domainList : null,
         languageFilter: languageList,
         country: country ? country : null,
+        additionalQueriesMode,
       });
       const updated = toTopicItem(response);
       setTopics((prev) =>
@@ -432,39 +438,58 @@ export function TopicForm({
             <div className="flex items-center justify-between">
               <p className="text-sm font-bold text-slate-900">Additional queries to extend the search</p>
             </div>
-            <div className="space-y-4">
-              {queries.map((query, index) => (
-                <div key={index} className="flex items-center gap-3">
-                  <Input
-                    placeholder="Query variation or keyword"
-                    value={query}
-                    onChange={(event) => updateQuery(index, event.target.value)}
-                    onKeyDown={(event) =>
-                      event.key === "Enter" && void (isEditing ? saveTopic() : addTopic())
-                    }
-                    className="h-11 rounded-lg border-slate-200 bg-white px-4 text-sm focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500"
-                  />
-                  <button
-                    className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
-                    onClick={() => removeQueryField(index)}
-                    type="button"
-                    disabled={queries.length === 1}
-                  >
-                    <span className="sr-only">Remove query</span>
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-              <button
-                className="flex items-center gap-2 text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50/50 px-1 py-1 rounded transition-colors w-fit uppercase tracking-widest disabled:opacity-50"
-                onClick={addQueryField}
-                type="button"
-                disabled={queries.length >= MAX_ADDITIONAL_QUERIES}
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                Additional query mode
+              </label>
+              <select
+                className="flex h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500 transition-all appearance-none cursor-pointer"
+                value={additionalQueriesMode}
+                onChange={(event) => setAdditionalQueriesMode(event.target.value as "auto" | "manual")}
               >
-                <PlusCircle className="h-4 w-4" />
-                Add another query variation
-              </button>
+                <option value="auto">Auto (AI-managed from agenda)</option>
+                <option value="manual">Manual (custom additional queries)</option>
+              </select>
             </div>
+            {additionalQueriesMode === "manual" ? (
+              <div className="space-y-4">
+                {queries.map((query, index) => (
+                  <div key={index} className="flex items-center gap-3">
+                    <Input
+                      placeholder="Query variation or keyword"
+                      value={query}
+                      onChange={(event) => updateQuery(index, event.target.value)}
+                      onKeyDown={(event) =>
+                        event.key === "Enter" && void (isEditing ? saveTopic() : addTopic())
+                      }
+                      className="h-11 rounded-lg border-slate-200 bg-white px-4 text-sm focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500"
+                    />
+                    <button
+                      className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
+                      onClick={() => removeQueryField(index)}
+                      type="button"
+                      disabled={queries.length === 1}
+                    >
+                      <span className="sr-only">Remove query</span>
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  className="flex items-center gap-2 text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50/50 px-1 py-1 rounded transition-colors w-fit uppercase tracking-widest disabled:opacity-50"
+                  onClick={addQueryField}
+                  type="button"
+                  disabled={queries.length >= MAX_ADDITIONAL_QUERIES}
+                >
+                  <PlusCircle className="h-4 w-4" />
+                  Add another query variation
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 px-4 py-3 text-sm text-emerald-800">
+                Additional queries will be generated automatically by AI from this topic agenda.
+              </div>
+            )}
           </div>
 
           <div className="pt-1 border-slate-100 space-y-6">

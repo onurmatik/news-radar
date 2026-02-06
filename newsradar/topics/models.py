@@ -48,6 +48,13 @@ def validate_topic_queries(value: list[str] | None) -> None:
 
 
 class Topic(models.Model):
+    ADDITIONAL_QUERIES_MODE_AUTO = "auto"
+    ADDITIONAL_QUERIES_MODE_MANUAL = "manual"
+    ADDITIONAL_QUERIES_MODE_CHOICES = [
+        (ADDITIONAL_QUERIES_MODE_AUTO, ADDITIONAL_QUERIES_MODE_AUTO),
+        (ADDITIONAL_QUERIES_MODE_MANUAL, ADDITIONAL_QUERIES_MODE_MANUAL),
+    ]
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -75,6 +82,11 @@ class Topic(models.Model):
     queries = models.JSONField(
         default=list,
         validators=[validate_topic_queries],
+    )
+    additional_queries_mode = models.CharField(
+        max_length=6,
+        choices=ADDITIONAL_QUERIES_MODE_CHOICES,
+        default=ADDITIONAL_QUERIES_MODE_MANUAL,
     )
     search_domain_allowlist = models.JSONField(
         blank=True,
@@ -138,6 +150,8 @@ class Topic(models.Model):
 
         if not normalized_queries:
             raise ValidationError("Provide at least one topic query.")
+        if self.additional_queries_mode == self.ADDITIONAL_QUERIES_MODE_AUTO:
+            normalized_queries = normalized_queries[:1]
         validate_json_list_max_length(normalized_queries, 5)
 
         aggregate_query = ", ".join(normalized_queries)

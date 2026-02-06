@@ -158,6 +158,7 @@ export function Layout({ children }: SidebarProps) {
     languageFilter: topic.search_language_filter,
     country: topic.country,
     updateFrequency: topic.update_frequency,
+    additionalQueriesMode: topic.additional_queries_mode ?? "manual",
   });
 
   const loadTopics = async (groupUuid?: string | null) => {

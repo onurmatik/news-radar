@@ -9,6 +9,7 @@ import type {
   ApiTopicCreateResponse,
   ApiTopicGroupCreateResponse,
   ApiTopicGroupListResponse,
+  ApiTopicListItem,
   ApiTopicListResponse,
 } from "@/lib/types";
 
@@ -109,6 +110,7 @@ export async function createTopic(
     languageFilter?: string[] | null;
     country?: string | null;
     updateFrequency?: "day" | "week" | "manual" | null;
+    additionalQueriesMode?: "auto" | "manual" | null;
   }
 ): Promise<ApiTopicCreateResponse> {
   return requestJson<ApiTopicCreateResponse>("/api/topics/", {
@@ -121,6 +123,7 @@ export async function createTopic(
       search_language_filter: options?.languageFilter ?? null,
       country: options?.country ?? null,
       update_frequency: options?.updateFrequency ?? null,
+      additional_queries_mode: options?.additionalQueriesMode ?? null,
     }),
   });
 }
@@ -136,6 +139,7 @@ export async function updateTopic(
     languageFilter?: string[] | null;
     country?: string | null;
     updateFrequency?: "day" | "week" | "manual" | null;
+    additionalQueriesMode?: "auto" | "manual" | null;
   }
 ): Promise<ApiTopicListItem> {
   return requestJson<ApiTopicListItem>(`/api/topics/${uuid}`, {
@@ -149,6 +153,7 @@ export async function updateTopic(
       search_language_filter: payload.languageFilter ?? null,
       country: payload.country ?? null,
       update_frequency: payload.updateFrequency ?? null,
+      additional_queries_mode: payload.additionalQueriesMode ?? null,
     }),
   });
 }

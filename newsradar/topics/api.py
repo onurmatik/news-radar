@@ -49,6 +49,7 @@ class TopicListItem(Schema):
     search_language_filter: list[str] | None
     country: str | None
     update_frequency: str
+    additional_queries_mode: str
 
 
 class TopicListResponse(Schema):
@@ -63,6 +64,7 @@ class TopicCreateRequest(Schema):
     search_language_filter: list[str] | None = None
     country: str | None = None
     update_frequency: str | None = None
+    additional_queries_mode: str | None = None
 
 
 class TopicCreateResponse(Schema):
@@ -78,6 +80,7 @@ class TopicUpdateRequest(Schema):
     search_language_filter: list[str] | None = None
     country: str | None = None
     update_frequency: str | None = None
+    additional_queries_mode: str | None = None
 
 
 class TopicGroupItem(Schema):
@@ -185,6 +188,7 @@ def list_topics(
                 search_language_filter=topic.search_language_filter,
                 country=topic.country,
                 update_frequency=topic.update_frequency,
+                additional_queries_mode=topic.additional_queries_mode,
             )
             for topic in topics
         ]
@@ -274,6 +278,20 @@ def create_topic(request, payload: TopicCreateRequest):
         if update_frequency == "":
             update_frequency = None
 
+    additional_queries_mode = payload.additional_queries_mode
+    if additional_queries_mode is not None:
+        additional_queries_mode = additional_queries_mode.strip().lower()
+        if additional_queries_mode not in {
+            Topic.ADDITIONAL_QUERIES_MODE_AUTO,
+            Topic.ADDITIONAL_QUERIES_MODE_MANUAL,
+        }:
+            raise HttpError(400, "Invalid additional queries mode.")
+    else:
+        additional_queries_mode = Topic.ADDITIONAL_QUERIES_MODE_MANUAL
+
+    if additional_queries_mode == Topic.ADDITIONAL_QUERIES_MODE_AUTO:
+        normalized_queries = normalized_queries[:1]
+
     if group:
         if language_filter is None:
             language_filter = group.default_search_language_filter
@@ -291,6 +309,7 @@ def create_topic(request, payload: TopicCreateRequest):
         search_language_filter=language_filter,
         country=country or None,
         update_frequency=update_frequency or "manual",
+        additional_queries_mode=additional_queries_mode,
     )
 
     return TopicCreateResponse(
@@ -309,7 +328,8 @@ def create_topic(request, payload: TopicCreateRequest):
             search_domain_blocklist=topic.search_domain_blocklist,
             search_language_filter=topic.search_language_filter,
             country=topic.country,
-            update_frequency=topic.update_frequency
+            update_frequency=topic.update_frequency,
+            additional_queries_mode=topic.additional_queries_mode,
         )
     )
 
@@ -646,11 +666,29 @@ def update_topic(request, topic_uuid: uuid.UUID, payload: TopicUpdateRequest):
             raise HttpError(400, "Invalid update frequency value.")
         updates["update_frequency"] = update_frequency or "manual"
 
+    if payload.additional_queries_mode is not None:
+        additional_queries_mode = payload.additional_queries_mode.strip().lower()
+        if additional_queries_mode not in {
+            Topic.ADDITIONAL_QUERIES_MODE_AUTO,
+            Topic.ADDITIONAL_QUERIES_MODE_MANUAL,
+        }:
+            raise HttpError(400, "Invalid additional queries mode.")
+        updates["additional_queries_mode"] = additional_queries_mode
+
     if not updates:
         raise HttpError(400, "Provide at least one field to update.")
 
     for field, value in updates.items():
         setattr(topic, field, value)
+
+    if (
+        topic.additional_queries_mode == Topic.ADDITIONAL_QUERIES_MODE_AUTO
+        and topic.queries
+    ):
+        trimmed_queries = topic.queries[:1]
+        if trimmed_queries != topic.queries:
+            topic.queries = trimmed_queries
+            updates["queries"] = trimmed_queries
 
     if "queries" in updates:
         topic.save()
@@ -686,6 +724,7 @@ def update_topic(request, topic_uuid: uuid.UUID, payload: TopicUpdateRequest):
         search_language_filter=topic.search_language_filter,
         country=topic.country,
         update_frequency=topic.update_frequency,
+        additional_queries_mode=topic.additional_queries_mode,
     )
 
 
