@@ -4,6 +4,7 @@ import type {
   ApiContentFeedResponse,
   ApiCurrentUser,
   ApiExecutionDetail,
+  ApiAIInteractionResponse,
   ApiNotificationsResponse,
   ApiSearchResponse,
   ApiTopicCreateResponse,
@@ -262,6 +263,21 @@ export async function getContentItem(contentId: number): Promise<ApiContentFeedI
 
 export async function getContentDetail(contentId: number): Promise<ApiContentDetailItem> {
   return requestJson<ApiContentDetailItem>(`/api/contents/items/${contentId}/detail`);
+}
+
+export async function requestContentAIResponse(payload: {
+  contentIds: number[];
+  instruction: string;
+  model?: string | null;
+}): Promise<ApiAIInteractionResponse> {
+  return requestJson<ApiAIInteractionResponse>("/api/contents/ai/respond", {
+    method: "POST",
+    body: JSON.stringify({
+      content_ids: payload.contentIds,
+      instruction: payload.instruction,
+      model: payload.model ?? null,
+    }),
+  });
 }
 
 export async function runTopicScan(topicUuid: string): Promise<{

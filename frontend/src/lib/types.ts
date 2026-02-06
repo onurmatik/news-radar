@@ -89,6 +89,16 @@ export interface ApiContentFeedResponse {
   items: ApiContentFeedItem[];
 }
 
+export interface ApiAIInteractionResponse {
+  answer: string;
+  model: string;
+  response_id: string | null;
+  content_count: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+}
+
 export interface ApiSearchTopicItem {
   id: number;
   uuid: string;

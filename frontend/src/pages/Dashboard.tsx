@@ -9,11 +9,41 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { createBookmark, deleteBookmark, getExecution, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
-import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
+import {
+  createBookmark,
+  deleteBookmark,
+  getExecution,
+  listContentByGroup,
+  listContentFeed,
+  requestContentAIResponse,
+  runTopicScan,
+  updateTopicGroup,
+} from '@/lib/api';
+import type { ApiAIInteractionResponse, ApiContentFeedItem, NewsItem } from '@/lib/types';
 import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle, Sparkles } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+const AI_PRESET_INSTRUCTIONS = [
+  {
+    label: "Summarize",
+    instruction: "Summarize the key developments in these news items.",
+  },
+  {
+    label: "List facts",
+    instruction: "List the most important facts from these items as bullet points.",
+  },
+  {
+    label: "List entities",
+    instruction: "List named entities (people, organizations, locations) and why each matters.",
+  },
+  {
+    label: "Risks & opportunities",
+    instruction: "Highlight risks, opportunities, and open questions based on this context.",
+  },
+];
 
 /**
  * Dashboard component serving as the main interface.
@@ -58,6 +88,12 @@ export default function Dashboard() {
   const [shareUrl, setShareUrl] = useState("");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const [aiInstruction, setAiInstruction] = useState(
+    AI_PRESET_INSTRUCTIONS[0].instruction
+  );
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiResponse, setAiResponse] = useState<ApiAIInteractionResponse | null>(null);
   const feedCache = useRef<Map<string, NewsItem[]>>(new Map());
   const latestRequestId = useRef(0);
   const pageTopRef = useRef<HTMLDivElement | null>(null);
@@ -327,6 +363,7 @@ export default function Dashboard() {
       return true;
     });
   }, [bookmarkedOnly, domainFilters, news]);
+  const aiContextIds = useMemo(() => filteredNews.map((item) => item.id), [filteredNews]);
   const hasActiveFilters = domainFilters.length > 0 || bookmarkedOnly || newOnly;
   const availableDomains = useMemo(
     () =>
@@ -356,6 +393,38 @@ export default function Dashboard() {
         ? prev.filter((entry) => entry !== domain)
         : [...prev, domain]
     );
+  };
+
+  const handleRunAI = async () => {
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
+    const instruction = aiInstruction.trim();
+    if (!instruction) {
+      setAiError("Instruction cannot be empty.");
+      return;
+    }
+    if (aiContextIds.length === 0) {
+      setAiError("No content in the current list to analyze.");
+      return;
+    }
+
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const response = await requestContentAIResponse({
+        contentIds: aiContextIds,
+        instruction,
+      });
+      setAiResponse(response);
+    } catch (aiCallError) {
+      const message =
+        aiCallError instanceof Error ? aiCallError.message : "Unable to generate AI response.";
+      setAiError(message);
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const handleToggleNewOnly = () => {
@@ -781,114 +850,116 @@ export default function Dashboard() {
           </DialogContent>
         </Dialog>
 
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative" ref={domainMenuRef}>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 rounded-full px-3 text-[11px]"
-                onClick={() => setDomainMenuOpen((prev) => !prev)}
-                aria-expanded={domainMenuOpen}
-                aria-haspopup="true"
-              >
-                {domainFilters.length > 0
-                  ? `Domains (${domainFilters.length})`
-                  : `All domains (${availableDomains.length})`}
-              </Button>
-              {domainMenuOpen && (
-                <div
-                  className="absolute left-0 top-full z-20 mt-2 w-64 rounded-lg border border-border/70 bg-background p-3 shadow-lg"
-                  role="menu"
-                >
-                  <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
-                    <label className="flex items-center gap-2 text-xs text-foreground/80">
-                      <input
-                        type="checkbox"
-                        className="h-3.5 w-3.5"
-                        checked={domainFilters.length === 0}
-                        onChange={() => setDomainFilters([])}
-                      />
-                      All domains
-                    </label>
-                    {availableDomains.length > 0 ? (
-                      availableDomains.map((domain) => (
-                        <label
-                          key={domain}
-                          className="flex items-center gap-2 text-xs text-foreground/80"
-                        >
-                          <input
-                            type="checkbox"
-                            className="h-3.5 w-3.5"
-                            checked={domainFilters.includes(domain)}
-                            onChange={() => handleToggleDomain(domain)}
-                          />
-                          {domain}
-                        </label>
-                      ))
-                    ) : (
-                      <span className="text-[11px] text-muted-foreground/70">
-                        No domains yet.
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {selectedTopic && (
-              <Button
-                type="button"
-                variant={newOnly ? "secondary" : "outline"}
-                size="sm"
-                className="h-8 rounded-full px-3 text-[11px] flex items-center gap-2"
-                onClick={handleToggleNewOnly}
-                aria-pressed={newOnly}
-                disabled={isAuthenticated !== true}
-                title={
-                  isAuthenticated
-                    ? "Show only new content in this topic."
-                    : "Sign in to use the new filter."
-                }
-              >
-                <Sparkles className={`h-3.5 w-3.5 ${newOnly ? "fill-current" : ""}`} />
-                New
-              </Button>
-            )}
-
-            <Button
-              type="button"
-              variant={bookmarkedOnly ? "secondary" : "outline"}
-              size="sm"
-              className="h-8 rounded-full px-3 text-[11px] flex items-center gap-2"
-              onClick={() => setBookmarkedOnly((prev) => !prev)}
-              aria-pressed={bookmarkedOnly}
-              disabled={isAuthenticated !== true}
-              title={
-                isAuthenticated ? "Show only bookmarked content." : "Sign in to filter bookmarks."
-              }
-            >
-              <Star className={`h-3.5 w-3.5 ${bookmarkedOnly ? "fill-current" : ""}`} />
-              Bookmarked
-            </Button>
-
-            <div className="ml-auto flex items-center gap-3">
-              <span className="text-[11px] text-muted-foreground/70">
-                {countsLabel} results
-              </span>
-              {hasActiveFilters && (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
+          <div className="min-w-0 space-y-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative" ref={domainMenuRef}>
                 <Button
+                  type="button"
                   variant="outline"
                   size="sm"
                   className="h-8 rounded-full px-3 text-[11px]"
-                  onClick={handleClearFilters}
+                  onClick={() => setDomainMenuOpen((prev) => !prev)}
+                  aria-expanded={domainMenuOpen}
+                  aria-haspopup="true"
                 >
-                  Clear all filters
+                  {domainFilters.length > 0
+                    ? `Domains (${domainFilters.length})`
+                    : `All domains (${availableDomains.length})`}
+                </Button>
+                {domainMenuOpen && (
+                  <div
+                    className="absolute left-0 top-full z-20 mt-2 w-64 rounded-lg border border-border/70 bg-background p-3 shadow-lg"
+                    role="menu"
+                  >
+                    <div className="flex max-h-64 flex-col gap-2 overflow-y-auto">
+                      <label className="flex items-center gap-2 text-xs text-foreground/80">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5"
+                          checked={domainFilters.length === 0}
+                          onChange={() => setDomainFilters([])}
+                        />
+                        All domains
+                      </label>
+                      {availableDomains.length > 0 ? (
+                        availableDomains.map((domain) => (
+                          <label
+                            key={domain}
+                            className="flex items-center gap-2 text-xs text-foreground/80"
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5"
+                              checked={domainFilters.includes(domain)}
+                              onChange={() => handleToggleDomain(domain)}
+                            />
+                            {domain}
+                          </label>
+                        ))
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground/70">
+                          No domains yet.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {selectedTopic && (
+                <Button
+                  type="button"
+                  variant={newOnly ? "secondary" : "outline"}
+                  size="sm"
+                  className="flex h-8 items-center gap-2 rounded-full px-3 text-[11px]"
+                  onClick={handleToggleNewOnly}
+                  aria-pressed={newOnly}
+                  disabled={isAuthenticated !== true}
+                  title={
+                    isAuthenticated
+                      ? "Show only new content in this topic."
+                      : "Sign in to use the new filter."
+                  }
+                >
+                  <Sparkles className={`h-3.5 w-3.5 ${newOnly ? "fill-current" : ""}`} />
+                  New
                 </Button>
               )}
+
+              <Button
+                type="button"
+                variant={bookmarkedOnly ? "secondary" : "outline"}
+                size="sm"
+                className="flex h-8 items-center gap-2 rounded-full px-3 text-[11px]"
+                onClick={() => setBookmarkedOnly((prev) => !prev)}
+                aria-pressed={bookmarkedOnly}
+                disabled={isAuthenticated !== true}
+                title={
+                  isAuthenticated ? "Show only bookmarked content." : "Sign in to filter bookmarks."
+                }
+              >
+                <Star className={`h-3.5 w-3.5 ${bookmarkedOnly ? "fill-current" : ""}`} />
+                Bookmarked
+              </Button>
+
+              <div className="ml-auto flex items-center gap-3">
+                <span className="text-[11px] text-muted-foreground/70">
+                  {countsLabel} results
+                </span>
+                {hasActiveFilters && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-full px-3 text-[11px]"
+                    onClick={handleClearFilters}
+                  >
+                    Clear all filters
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
+
             {filteredNews.length > 0 && (
               <div
                 className={loading ? "pointer-events-none opacity-60" : ""}
@@ -903,61 +974,61 @@ export default function Dashboard() {
                       exit={{ opacity: 0, scale: 0.98 }}
                       transition={{ duration: 0.4, delay: index * 0.05, ease: "easeOut" }}
                     >
-                      <Card className="group border-none bg-card/40 backdrop-blur-sm hover:bg-card/60 transition-all duration-300 relative overflow-hidden">
-                        <div className="flex flex-col sm:flex-row p-6 gap-6">
+                      <Card className="group relative overflow-hidden border-none bg-card/40 backdrop-blur-sm transition-all duration-300 hover:bg-card/60">
+                        <div className="flex flex-col gap-6 p-6 sm:flex-row">
                           <div className="flex-1 space-y-3">
-                            <div className="flex items-center justify-between gap-4 flex-wrap">
-                              <div className="flex items-center gap-3 flex-wrap">
-                                <Badge className="text-[9px] font-medium border-border/50 text-muted-foreground bg-light hover:bg-muted">
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                              <div className="flex flex-wrap items-center gap-3">
+                                <Badge className="bg-light text-[9px] font-medium text-muted-foreground border-border/50 hover:bg-muted">
                                   {item.source}
                                 </Badge>
-                                <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-medium">
+                                <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
                                   <Clock className="h-3 w-3" />
                                   {formatDistanceToNow(item.timestamp, { addSuffix: true })}
                                 </span>
-                                <div className="h-1 w-1 rounded-full bg-border"></div>
-                                <span className="text-[11px] text-muted-foreground/60 lowercase italic">
+                                <div className="h-1 w-1 rounded-full bg-border" />
+                                <span className="text-[11px] lowercase italic text-muted-foreground/60">
                                   {item.keywords[0]}
                                 </span>
                               </div>
                               <div className="flex items-center gap-1">
-                                 <Button
-                                   size="icon" variant="ghost"
-                                   className={`h-8 w-8 rounded-full transition-colors hover:bg-emerald-500/10 ${item.isBookmarked ? 'text-yellow-500 bg-yellow-500/10' : 'text-muted-foreground hover:text-foreground'}`}
-                                   onClick={() => toggleBookmark(item)}
-                                 >
-                                    <Star className={`h-3.5 w-3.5 ${item.isBookmarked ? 'fill-current' : ''}`} />
-                                 </Button>
-                                 <Button
-                                   size="icon"
-                                   variant="ghost"
-                                   className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
-                                   onClick={() => handleShare(item)}
-                                 >
-                                    <Share2 className="h-3.5 w-3.5" />
-                                 </Button>
-                                 <Button
-                                   variant="ghost"
-                                   size="sm"
-                                   className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-emerald-500/10"
-                                   asChild
-                                 >
-                                   <a href={item.url} target="_blank" rel="noreferrer">
-                                     <ExternalLink className="h-3.5 w-3.5" />
-                                   </a>
-                                 </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className={`h-8 w-8 rounded-full transition-colors hover:bg-emerald-500/10 ${item.isBookmarked ? 'bg-yellow-500/10 text-yellow-500' : 'text-muted-foreground hover:text-foreground'}`}
+                                  onClick={() => toggleBookmark(item)}
+                                >
+                                  <Star className={`h-3.5 w-3.5 ${item.isBookmarked ? 'fill-current' : ''}`} />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 rounded-full text-muted-foreground hover:bg-emerald-500/10 hover:text-foreground"
+                                  onClick={() => handleShare(item)}
+                                >
+                                  <Share2 className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 rounded-full text-muted-foreground hover:bg-emerald-500/10 hover:text-foreground"
+                                  asChild
+                                >
+                                  <a href={item.url} target="_blank" rel="noreferrer">
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                  </a>
+                                </Button>
                               </div>
                             </div>
 
                             <Link to={`/content/${item.id}/full`} className="contents">
-                              <h3 className="text-xl font-bold leading-tight group-hover:text-primary transition-colors cursor-pointer">
+                              <h3 className="cursor-pointer text-xl font-bold leading-tight transition-colors group-hover:text-primary">
                                 {item.title}
                               </h3>
-                              <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">
+                              <p className="line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">
                                 {item.summary}
                               </p>
                             </Link>
-
                           </div>
                         </div>
                       </Card>
@@ -968,57 +1039,37 @@ export default function Dashboard() {
             )}
 
             {showEmptyState && (
-               <div className="text-center py-24 border border-dashed border-border/50 rounded-2xl bg-muted/5">
-                  <div className="flex justify-center mb-4">
-                     <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-                        {hasTopicsInGroup ? (
-                          <Filter className="h-6 w-6 text-muted-foreground/40" />
-                        ) : (
-                          <PlusCircle className="h-6 w-6 text-muted-foreground/40" />
-                        )}
-                     </div>
+              <div className="rounded-2xl border border-dashed border-border/50 bg-muted/5 py-24 text-center">
+                <div className="mb-4 flex justify-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                    {hasTopicsInGroup ? (
+                      <Filter className="h-6 w-6 text-muted-foreground/40" />
+                    ) : (
+                      <PlusCircle className="h-6 w-6 text-muted-foreground/40" />
+                    )}
                   </div>
-                  <h4 className="text-lg font-bold">
-                    {hasTopicsInGroup
-                      ? selectedTopic
-                        ? hasActiveFilters
-                          ? "No filtered results"
-                          : "No content found"
-                        : "No signals found"
-                      : "No topics created"}
-                  </h4>
-                  <p className="text-sm text-muted-foreground mt-1 mb-6">
-                    {hasTopicsInGroup
-                      ? selectedTopic
-                        ? hasActiveFilters
-                          ? "Clear filters to see all content in this topic."
-                          : "Fetch now to populate this topic."
-                        : "Adjust your filters or check back after the next scan."
-                      : "Create a topic to start monitoring this group."}
-                  </p>
-                  {hasTopicsInGroup ? (
-                    selectedTopic ? (
-                      hasActiveFilters ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleClearFilters}
-                          className="rounded-full"
-                        >
-                          Clear all filters
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleFetchNow()}
-                          className="rounded-full"
-                          disabled={loading}
-                        >
-                          Fetch now
-                        </Button>
-                      )
-                    ) : hasActiveFilters ? (
+                </div>
+                <h4 className="text-lg font-bold">
+                  {hasTopicsInGroup
+                    ? selectedTopic
+                      ? hasActiveFilters
+                        ? "No filtered results"
+                        : "No content found"
+                      : "No signals found"
+                    : "No topics created"}
+                </h4>
+                <p className="mb-6 mt-1 text-sm text-muted-foreground">
+                  {hasTopicsInGroup
+                    ? selectedTopic
+                      ? hasActiveFilters
+                        ? "Clear filters to see all content in this topic."
+                        : "Fetch now to populate this topic."
+                      : "Adjust your filters or check back after the next scan."
+                    : "Create a topic to start monitoring this group."}
+                </p>
+                {hasTopicsInGroup ? (
+                  selectedTopic ? (
+                    hasActiveFilters ? (
                       <Button
                         variant="outline"
                         size="sm"
@@ -1027,20 +1078,170 @@ export default function Dashboard() {
                       >
                         Clear all filters
                       </Button>
-                    ) : null
-                  ) : (
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleFetchNow()}
+                        className="rounded-full"
+                        disabled={loading}
+                      >
+                        Fetch now
+                      </Button>
+                    )
+                  ) : hasActiveFilters ? (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={handleAddTopic}
+                      onClick={handleClearFilters}
                       className="rounded-full"
                     >
-                      Add a new topic
+                      Clear all filters
                     </Button>
-                  )}
-               </div>
+                  ) : null
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddTopic}
+                    className="rounded-full"
+                  >
+                    Add a new topic
+                  </Button>
+                )}
+              </div>
             )}
           </div>
+
+          <Card className="flex min-h-[560px] flex-col border-border/60 bg-card/55 backdrop-blur-sm xl:sticky xl:top-24 xl:h-[calc(100vh-11rem)]">
+            <CardHeader className="space-y-2 pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Sparkles className="h-4 w-4 text-primary" />
+                AI Interaction
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Analyze the currently listed content items with your own instruction.
+              </CardDescription>
+              <div className="text-[11px] text-muted-foreground">
+                Context: {aiContextIds.length} item{aiContextIds.length === 1 ? "" : "s"}
+              </div>
+            </CardHeader>
+
+            <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
+              <div className="custom-scrollbar flex-1 overflow-y-auto rounded-xl border border-border/60 bg-muted/20 p-3">
+                {aiLoading ? (
+                  <p className="text-sm text-muted-foreground">Generating response...</p>
+                ) : aiResponse ? (
+                  <ReactMarkdown
+                    className="space-y-3 text-sm leading-relaxed text-muted-foreground"
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({ node, ...props }) => (
+                        <h1 className="text-lg font-semibold text-foreground" {...props} />
+                      ),
+                      h2: ({ node, ...props }) => (
+                        <h2 className="text-base font-semibold text-foreground" {...props} />
+                      ),
+                      h3: ({ node, ...props }) => (
+                        <h3 className="text-sm font-semibold text-foreground" {...props} />
+                      ),
+                      p: ({ node, ...props }) => (
+                        <p className="text-sm leading-relaxed text-muted-foreground" {...props} />
+                      ),
+                      ul: ({ node, ...props }) => (
+                        <ul className="list-disc space-y-1 pl-5" {...props} />
+                      ),
+                      ol: ({ node, ...props }) => (
+                        <ol className="list-decimal space-y-1 pl-5" {...props} />
+                      ),
+                      li: ({ node, ...props }) => (
+                        <li className="text-sm text-muted-foreground" {...props} />
+                      ),
+                      a: ({ node, ...props }) => (
+                        <a
+                          className="text-primary underline-offset-4 hover:underline"
+                          target="_blank"
+                          rel="noreferrer"
+                          {...props}
+                        />
+                      ),
+                      code: ({ node, ...props }) => (
+                        <code
+                          className="rounded bg-muted px-1 py-0.5 text-[12px] text-foreground"
+                          {...props}
+                        />
+                      ),
+                      pre: ({ node, ...props }) => (
+                        <pre
+                          className="overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-[12px]"
+                          {...props}
+                        />
+                      ),
+                    }}
+                  >
+                    {aiResponse.answer}
+                  </ReactMarkdown>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Run an instruction to see the AI response here.
+                  </p>
+                )}
+              </div>
+
+              {aiResponse && (
+                <p className="text-[11px] text-muted-foreground/80">
+                  Generated from {aiResponse.content_count} item
+                  {aiResponse.content_count === 1 ? "" : "s"}
+                  {" · "}
+                  Model: {aiResponse.model}
+                  {aiResponse.total_tokens ? ` · ${aiResponse.total_tokens} tokens` : ""}
+                </p>
+              )}
+              {aiError && <p className="text-xs text-destructive">{aiError}</p>}
+
+              <div className="mt-auto space-y-3 border-t border-border/60 pt-3">
+                <div className="flex flex-wrap gap-2">
+                  {AI_PRESET_INSTRUCTIONS.map((preset) => (
+                    <Button
+                      key={preset.label}
+                      type="button"
+                      variant={preset.instruction === aiInstruction ? "secondary" : "outline"}
+                      size="sm"
+                      className="h-auto rounded-full px-3 py-1 text-[11px]"
+                      onClick={() => {
+                        setAiInstruction(preset.instruction);
+                        setAiError(null);
+                      }}
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
+                </div>
+
+                <textarea
+                  className="h-28 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  placeholder="Ask anything about the current content list..."
+                  value={aiInstruction}
+                  onChange={(event) => {
+                    setAiInstruction(event.target.value);
+                    if (aiError) {
+                      setAiError(null);
+                    }
+                  }}
+                />
+
+                <Button
+                  type="button"
+                  className="w-full"
+                  onClick={() => void handleRunAI()}
+                  disabled={aiLoading || aiContextIds.length === 0 || !aiInstruction.trim()}
+                >
+                  {aiLoading ? "Generating..." : "Run AI Instruction"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </Layout>
   );
