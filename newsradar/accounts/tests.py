@@ -1,3 +1,5 @@
+import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -76,3 +78,101 @@ class AccountsApiTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 401)
+
+    def test_api_access_returns_upgrade_message_for_non_pro(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get("/api/auth/api-access")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "is_pro": False,
+                "api_key": None,
+                "key_created_at": None,
+            },
+        )
+
+    def test_api_access_returns_key_for_pro_user(self):
+        Profile.objects.create(user=self.user, is_pro=True, pro_plan=Profile.PLAN_MONTHLY)
+        self.client.force_login(self.user)
+
+        response = self.client.get("/api/auth/api-access")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["is_pro"])
+        self.assertTrue(payload["api_key"].startswith("nr_"))
+        self.assertIsNotNone(payload["key_created_at"])
+        profile = Profile.objects.get(user=self.user)
+        self.assertEqual(payload["api_key"], profile.api_key)
+
+    def test_rotate_api_access_key_requires_pro(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post("/api/auth/api-access/rotate")
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_rotate_api_access_key_changes_key(self):
+        profile = Profile.objects.create(
+            user=self.user,
+            is_pro=True,
+            pro_plan=Profile.PLAN_MONTHLY,
+        )
+        original_key = profile.rotate_api_key()
+        self.client.force_login(self.user)
+
+        response = self.client.post("/api/auth/api-access/rotate")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertNotEqual(payload["api_key"], original_key)
+        profile.refresh_from_db()
+        self.assertEqual(payload["api_key"], profile.api_key)
+
+    def test_api_key_authenticates_me_endpoint_without_session(self):
+        profile = Profile.objects.create(
+            user=self.user,
+            is_pro=True,
+            pro_plan=Profile.PLAN_MONTHLY,
+        )
+        api_key = profile.rotate_api_key()
+
+        response = self.client.get(
+            "/api/auth/me",
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["email"], "tester@example.com")
+
+    def test_non_pro_api_key_cannot_authenticate(self):
+        profile = Profile.objects.create(user=self.user, is_pro=False)
+        api_key = profile.rotate_api_key()
+
+        response = self.client.get(
+            "/api/auth/me",
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_api_key_can_create_topic_on_existing_endpoint(self):
+        profile = Profile.objects.create(user=self.user, is_pro=True, pro_plan=Profile.PLAN_MONTHLY)
+        api_key = profile.rotate_api_key()
+
+        with patch("newsradar.topics.models.OpenAI") as openai_cls:
+            openai_cls.return_value.embeddings.create.return_value = SimpleNamespace(
+                data=[SimpleNamespace(embedding=[0.0] * 1536)]
+            )
+            response = self.client.post(
+                "/api/topics/",
+                data=json.dumps({"queries": ["global supply chain"]}),
+                content_type="application/json",
+                HTTP_X_API_KEY=api_key,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["topic"]["queries"], ["global supply chain"])

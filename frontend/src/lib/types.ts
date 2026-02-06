@@ -56,6 +56,12 @@ export interface ApiCurrentUser {
   pro_plan: "monthly" | "yearly" | null;
 }
 
+export interface ApiAccessState {
+  is_pro: boolean;
+  api_key: string | null;
+  key_created_at: string | null;
+}
+
 export interface ApiNotificationTopicItem {
   topic_uuid: string;
   topic_queries: string[];

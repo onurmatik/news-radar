@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Radio, Search, Bell, User, PlusCircle, Plus, MoreVertical, Pencil, Check, Sparkles } from 'lucide-react';
+import { Radio, Search, Bell, User, PlusCircle, Plus, MoreVertical, Pencil, Check, Sparkles, KeyRound } from 'lucide-react';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -489,6 +489,11 @@ export function Layout({ children }: SidebarProps) {
   const handleUpgradeClick = () => {
     setProfileMenuOpen(false);
     navigate('/upgrade');
+  };
+
+  const handleApiAccessClick = () => {
+    setProfileMenuOpen(false);
+    navigate('/api-access');
   };
 
   const handleCreateGroupOpen = (open: boolean) => {
@@ -1129,6 +1134,13 @@ export function Layout({ children }: SidebarProps) {
                 </div>
               )}
             </div>
+            <Link
+              to="/api-access"
+              className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/20 px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              API
+            </Link>
 
             <div className="flex items-center gap-2 border-l border-border pl-4">
               {isAuthenticated ? (
@@ -1224,6 +1236,15 @@ export function Layout({ children }: SidebarProps) {
                         <p className="px-3 pb-2 text-xs font-semibold text-foreground truncate">
                           {currentUser?.email || currentUser?.username || "User"}
                         </p>
+                        <div className="h-px bg-border/70 my-2" />
+                        <button
+                          className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors flex items-center gap-2"
+                          onClick={handleApiAccessClick}
+                          type="button"
+                        >
+                          <KeyRound className="h-3.5 w-3.5" />
+                          API Access
+                        </button>
                         {!currentUser?.is_pro && (
                           <>
                             <div className="h-px bg-border/70 my-2" />

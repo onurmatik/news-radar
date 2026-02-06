@@ -5,6 +5,7 @@ import type {
   ApiCurrentUser,
   ApiExecutionDetail,
   ApiAIInteractionResponse,
+  ApiAccessState,
   ApiNotificationsResponse,
   ApiSearchResponse,
   ApiTopicCreateResponse,
@@ -312,6 +313,19 @@ export async function deleteBookmark(contentId: number): Promise<void> {
 
 export async function getCurrentUser(): Promise<ApiCurrentUser> {
   return requestJson<ApiCurrentUser>("/api/auth/me");
+}
+
+export async function getApiAccessState(): Promise<ApiAccessState> {
+  return requestJson<ApiAccessState>("/api/auth/api-access");
+}
+
+export async function rotateApiAccessKey(): Promise<{
+  api_key: string;
+  key_created_at: string;
+}> {
+  return requestJson("/api/auth/api-access/rotate", {
+    method: "POST",
+  });
 }
 
 export async function createProCheckoutSession(payload: {

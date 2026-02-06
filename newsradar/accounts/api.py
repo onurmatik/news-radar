@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlparse
 
@@ -48,6 +49,17 @@ class CheckoutSessionResponse(Schema):
 
 class LogoutResponse(Schema):
     logged_out: bool
+
+
+class ApiAccessResponse(Schema):
+    is_pro: bool
+    api_key: str | None = None
+    key_created_at: datetime | None = None
+
+
+class ApiAccessRotateResponse(Schema):
+    api_key: str
+    key_created_at: datetime
 
 
 def _build_username(user_model, email: str) -> str:
@@ -192,6 +204,39 @@ def current_user(request):
         email=request.user.email or "",
         is_pro=profile.is_pro,
         pro_plan=profile.pro_plan or None,
+    )
+
+
+@api.get("/api-access", response=ApiAccessResponse)
+def api_access(request):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    if not profile.is_pro:
+        return ApiAccessResponse(is_pro=False, api_key=None, key_created_at=None)
+
+    api_key = profile.ensure_api_key()
+    return ApiAccessResponse(
+        is_pro=True,
+        api_key=api_key,
+        key_created_at=profile.api_key_created_at,
+    )
+
+
+@api.post("/api-access/rotate", response=ApiAccessRotateResponse)
+def rotate_api_access_key(request):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    if not profile.is_pro:
+        raise HttpError(403, "Upgrade to Pro to get your API key.")
+
+    api_key = profile.rotate_api_key()
+    return ApiAccessRotateResponse(
+        api_key=api_key,
+        key_created_at=profile.api_key_created_at,
     )
 
 

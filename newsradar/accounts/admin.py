@@ -44,6 +44,7 @@ class ProfileAdmin(admin.ModelAdmin):
         "is_pro",
         "pro_plan",
         "pro_current_period_ends_at",
+        "api_key_created_at",
         "stripe_customer_id",
     )
     list_filter = ("is_pro", "pro_plan")
