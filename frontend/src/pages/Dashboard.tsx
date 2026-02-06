@@ -28,9 +28,7 @@ import {
   Star,
   PlusCircle,
   Sparkles,
-  Save,
-  Check,
-  List,
+  Bookmark,
   Play,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -167,6 +165,7 @@ export default function Dashboard() {
   const contentTitle = selectedTopic
     ? `${selectedGroupName} / ${selectedTopic.term}`
     : selectedGroupName;
+  const isAllTopicsView = !selectedTopicUuid && !selectedGroupId;
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
   const topicEndpoint = selectedTopicUuid
     ? `${apiBaseUrl}/api/contents/topics/${selectedTopicUuid}`
@@ -234,9 +233,9 @@ export default function Dashboard() {
       return `topic:${selectedTopicUuid}:${newOnly ? "new" : "all"}`;
     }
     if (selectedGroupId) {
-      return `group:${selectedGroupId}`;
+      return `group:${selectedGroupId}:${newOnly ? "new" : "all"}`;
     }
-    return "all";
+    return `all:${newOnly ? "new" : "all"}`;
   };
 
   const waitForExecutionCompletion = async (executionId: number) => {
@@ -266,13 +265,13 @@ export default function Dashboard() {
   }, [newOnly, searchParams]);
 
   useEffect(() => {
-    if (selectedTopicUuid) return;
+    if (selectedTopicUuid || selectedGroupId || isAuthenticated === true) return;
     if (!newOnly) return;
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("filter");
     setSearchParams(nextParams, { replace: true });
     setNewOnly(false);
-  }, [newOnly, searchParams, selectedTopicUuid, setSearchParams]);
+  }, [isAuthenticated, newOnly, searchParams, selectedGroupId, selectedTopicUuid, setSearchParams]);
 
 
   useEffect(() => {
@@ -301,8 +300,8 @@ export default function Dashboard() {
       const response = selectedTopicUuid
         ? await listContentFeed({ topicUuid: selectedTopicUuid, onlyNew: newOnly })
         : selectedGroupId
-          ? await listContentByGroup(selectedGroupId)
-          : await listContentFeed();
+          ? await listContentByGroup(selectedGroupId, { onlyNew: newOnly })
+          : await listContentFeed({ onlyNew: newOnly });
       if (requestId !== latestRequestId.current) return;
       const mapped = response.items
         .map(mapNewsItem)
@@ -583,7 +582,6 @@ export default function Dashboard() {
   const canRunAI = !aiLoading && aiContextIds.length > 0 && Boolean(aiInstruction.trim());
 
   const handleToggleNewOnly = () => {
-    if (!selectedTopicUuid) return;
     if (!isAuthenticated) {
       openAuthDialog();
       return;
@@ -727,7 +725,7 @@ export default function Dashboard() {
                   <span>{selectedTopic.term}</span>
                 </span>
               ) : (
-                contentTitle
+                isAllTopicsView ? "All content" : contentTitle
               )}
             </h2>
             {error && (
@@ -744,25 +742,27 @@ export default function Dashboard() {
             >
               API
             </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              className="rounded-full px-5"
-              onClick={() => {
-                if (!isAuthenticated) {
-                  openAuthDialog();
-                  return;
-                }
-                if (selectedTopic) {
-                  navigate(`/topics?edit=${selectedTopic.uuid}`);
-                  return;
-                }
-                setConfigDialogOpen(true);
-              }}
-              title={selectedTopic ? "Edit topic details" : "Configure selection"}
-            >
-              {selectedTopic ? "Edit" : "Config"}
-            </Button>
+            {!isAllTopicsView && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="rounded-full px-5"
+                onClick={() => {
+                  if (!isAuthenticated) {
+                    openAuthDialog();
+                    return;
+                  }
+                  if (selectedTopic) {
+                    navigate(`/topics?edit=${selectedTopic.uuid}`);
+                    return;
+                  }
+                  setConfigDialogOpen(true);
+                }}
+                title={selectedTopic ? "Edit topic details" : "Configure selection"}
+              >
+                {selectedTopic ? "Edit" : "Config"}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1062,7 +1062,7 @@ export default function Dashboard() {
                 )}
               </div>
 
-              {selectedTopic && (
+              {(selectedTopic || selectedGroupId || isAuthenticated === true) && (
                 <Button
                   type="button"
                   variant={newOnly ? "secondary" : "outline"}
@@ -1073,7 +1073,9 @@ export default function Dashboard() {
                   disabled={isAuthenticated !== true}
                   title={
                     isAuthenticated
-                      ? "Show only new content in this topic."
+                      ? `Show only new content in this ${
+                          selectedTopic ? "topic" : selectedGroupId ? "group" : "all-topics view"
+                        }.`
                       : "Sign in to use the new filter."
                   }
                 >
@@ -1370,7 +1372,7 @@ export default function Dashboard() {
                       onClick={() => setAiInstructionMenuOpen((prev) => !prev)}
                       title="Browse saved instructions"
                     >
-                      <List className="h-3.5 w-3.5" />
+                      <Bookmark className="h-3.5 w-3.5" />
                     </Button>
                     {aiInstructionMenuOpen && (
                       <div className="custom-scrollbar absolute bottom-full right-0 z-30 mb-2 max-h-72 w-72 overflow-y-auto rounded-lg border border-border/70 bg-background p-2 shadow-lg">
@@ -1424,17 +1426,15 @@ export default function Dashboard() {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute bottom-1.5 left-0 shadow-none hover:text-green-600 hover:bg-transparent"
+                    className={`absolute bottom-1.5 left-0 shadow-none hover:text-green-600 hover:bg-transparent ${
+                      aiSaveFeedback === "saved" ? "text-green-600" : ""
+                    }`}
                     onClick={handleSaveInstruction}
                     disabled={!aiInstruction.trim()}
                     title={aiSaveFeedback === "saved" ? "Saved" : "Save instruction"}
                     aria-label={aiSaveFeedback === "saved" ? "Instruction saved" : "Save instruction"}
                   >
-                    {aiSaveFeedback === "saved" ? (
-                      <Check className="h-3.5 w-3.5" />
-                    ) : (
-                      <Save className="h-3.5 w-3.5" />
-                    )}
+                    <Bookmark className={`h-3.5 w-3.5 ${aiSaveFeedback === "saved" ? "fill-current" : ""}`} />
                   </Button>
                   <Button
                     type="button"
