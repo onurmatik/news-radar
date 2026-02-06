@@ -52,6 +52,8 @@ export interface ApiCurrentUser {
   id: number;
   username: string;
   email: string;
+  is_pro: boolean;
+  pro_plan: "monthly" | "yearly" | null;
 }
 
 export interface ApiNotificationTopicItem {

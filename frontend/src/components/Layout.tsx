@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Radio, Search, Bell, User, PlusCircle, Plus, MoreVertical, Pencil, Check } from 'lucide-react';
+import { Radio, Search, Bell, User, PlusCircle, Plus, MoreVertical, Pencil, Check, Sparkles } from 'lucide-react';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -484,6 +484,11 @@ export function Layout({ children }: SidebarProps) {
   const handleLogout = async () => {
     await signOut();
     setProfileMenuOpen(false);
+  };
+
+  const handleUpgradeClick = () => {
+    setProfileMenuOpen(false);
+    navigate('/upgrade');
   };
 
   const handleCreateGroupOpen = (open: boolean) => {
@@ -1219,6 +1224,19 @@ export function Layout({ children }: SidebarProps) {
                         <p className="px-3 pb-2 text-xs font-semibold text-foreground truncate">
                           {currentUser?.email || currentUser?.username || "User"}
                         </p>
+                        {!currentUser?.is_pro && (
+                          <>
+                            <div className="h-px bg-border/70 my-2" />
+                            <button
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-primary hover:text-primary hover:bg-primary/10 rounded-lg transition-colors flex items-center gap-2"
+                              onClick={handleUpgradeClick}
+                              type="button"
+                            >
+                              <Sparkles className="h-3.5 w-3.5" />
+                              Upgrade to Pro
+                            </button>
+                          </>
+                        )}
                         <div className="h-px bg-border/70 my-2" />
                         <button
                           className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
@@ -1253,7 +1271,7 @@ export function Layout({ children }: SidebarProps) {
              >
                 <SelectTrigger className="w-full bg-muted/30 border-border/50 text-xs h-9 rounded-none font-bold tracking-widest">
                   <SelectValue
-                    placeholder={isAuthenticated === false ? "Topic groups" : "All topics"}
+                    placeholder={isAuthenticated === false ? "Topic groups" : "All content"}
                   />
                 </SelectTrigger>
                 <SelectContent className="rounded-none border-border">
@@ -1417,10 +1435,10 @@ export function Layout({ children }: SidebarProps) {
                      navigate('/');
                    }}
                 >
-                   <div className="flex items-center justify-between">
+                   <div className="flex items-center gap-2">
                       <span
                         className={cn(
-                          "font-semibold text-foreground truncate max-w-[160px]",
+                          "flex-1 min-w-0 font-semibold text-foreground truncate",
                           topic.isActive ? "" : "text-muted-foreground/70"
                         )}
                       >

@@ -1,5 +1,7 @@
-from urllib.parse import parse_qsl, urlencode
+from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlparse
 
+import stripe
 from django.conf import settings
 from django.contrib.auth import get_user_model, logout
 from django.core.exceptions import ValidationError
@@ -30,6 +32,18 @@ class CurrentUserResponse(Schema):
     id: int
     username: str
     email: str
+    is_pro: bool
+    pro_plan: Literal["monthly", "yearly"] | None = None
+
+
+class CheckoutSessionRequest(Schema):
+    plan: Literal["monthly", "yearly"]
+    success_url: str | None = None
+    cancel_url: str | None = None
+
+
+class CheckoutSessionResponse(Schema):
+    checkout_url: str
 
 
 class LogoutResponse(Schema):
@@ -63,6 +77,61 @@ def _build_magic_link(request, user, redirect_url: str | None) -> str:
     if redirect_url:
         params["next"] = redirect_url
     return f"{login_url}?{urlencode(params)}"
+
+
+def _get_frontend_origin() -> str | None:
+    frontend_url = (settings.FRONTEND_BASE_URL or "").strip()
+    if not frontend_url:
+        return None
+    parsed = urlparse(frontend_url)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _is_allowed_checkout_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False
+    frontend_origin = _get_frontend_origin()
+    if not frontend_origin:
+        return True
+    return parsed.netloc == urlparse(frontend_origin).netloc
+
+
+def _default_success_url() -> str:
+    configured = (settings.STRIPE_CHECKOUT_SUCCESS_URL or "").strip()
+    if configured:
+        return configured
+    frontend_origin = _get_frontend_origin()
+    if frontend_origin:
+        return f"{frontend_origin}/upgrade?checkout=success"
+    return "http://localhost:5173/upgrade?checkout=success"
+
+
+def _default_cancel_url() -> str:
+    configured = (settings.STRIPE_CHECKOUT_CANCEL_URL or "").strip()
+    if configured:
+        return configured
+    frontend_origin = _get_frontend_origin()
+    if frontend_origin:
+        return f"{frontend_origin}/upgrade?checkout=cancelled"
+    return "http://localhost:5173/upgrade?checkout=cancelled"
+
+
+def _resolve_checkout_url(provided: str | None, fallback: str, field_name: str) -> str:
+    resolved = (provided or fallback).strip()
+    if not resolved:
+        raise HttpError(400, f"{field_name} is required.")
+    if not _is_allowed_checkout_url(resolved):
+        raise HttpError(400, f"{field_name} host is not allowed.")
+    return resolved
+
+
+def _get_price_id(plan: Literal["monthly", "yearly"]) -> str:
+    if plan == Profile.PLAN_MONTHLY:
+        return (settings.STRIPE_PRICE_ID_MONTHLY or "").strip()
+    return (settings.STRIPE_PRICE_ID_YEARLY or "").strip()
 
 
 @api.post("/magic-link", response=MagicLinkResponse)
@@ -121,7 +190,69 @@ def current_user(request):
         id=request.user.id,
         username=request.user.get_username(),
         email=request.user.email or "",
+        is_pro=profile.is_pro,
+        pro_plan=profile.pro_plan or None,
     )
+
+
+@api.post("/billing/checkout", response=CheckoutSessionResponse)
+def create_billing_checkout_session(request, payload: CheckoutSessionRequest):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+
+    stripe_secret_key = (settings.STRIPE_SECRET_KEY or "").strip()
+    if not stripe_secret_key:
+        raise HttpError(500, "Stripe is not configured.")
+
+    price_id = _get_price_id(payload.plan)
+    if not price_id:
+        raise HttpError(500, f"Stripe price is not configured for plan '{payload.plan}'.")
+
+    success_url = _resolve_checkout_url(
+        payload.success_url,
+        _default_success_url(),
+        "success_url",
+    )
+    cancel_url = _resolve_checkout_url(
+        payload.cancel_url,
+        _default_cancel_url(),
+        "cancel_url",
+    )
+
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    stripe.api_key = stripe_secret_key
+
+    checkout_args = {
+        "mode": "subscription",
+        "line_items": [{"price": price_id, "quantity": 1}],
+        "success_url": success_url,
+        "cancel_url": cancel_url,
+        "metadata": {
+            "user_id": str(request.user.id),
+            "plan": payload.plan,
+        },
+        "subscription_data": {
+            "metadata": {
+                "user_id": str(request.user.id),
+                "plan": payload.plan,
+            }
+        },
+        "allow_promotion_codes": True,
+    }
+    if profile.stripe_customer_id:
+        checkout_args["customer"] = profile.stripe_customer_id
+    elif request.user.email:
+        checkout_args["customer_email"] = request.user.email
+
+    try:
+        session = stripe.checkout.Session.create(**checkout_args)
+    except stripe.error.StripeError as exc:
+        raise HttpError(502, "Unable to start Stripe checkout right now.") from exc
+
+    checkout_url = getattr(session, "url", None)
+    if not checkout_url:
+        raise HttpError(502, "Stripe checkout URL is unavailable.")
+    return CheckoutSessionResponse(checkout_url=checkout_url)
 
 
 @api.post("/logout", response=LogoutResponse)

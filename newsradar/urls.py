@@ -18,7 +18,7 @@ from django.contrib import admin
 from django.urls import path
 
 from newsradar.accounts.api import api as accounts_api
-from newsradar.accounts.views import SesameLoginView
+from newsradar.accounts.views import SesameLoginView, stripe_webhook
 from newsradar.contents.api import api as contents_api
 from newsradar.contents.rss import api as contents_rss_api
 from newsradar.executions.api import api as executions_api
@@ -30,6 +30,7 @@ urlpatterns = [
     path('nrAdmin/', admin.site.urls),
     path('api/auth/sesame/', SesameLoginView.as_view(), name='sesame-login'),
     path('api/auth/', accounts_api.urls),
+    path('api/auth/stripe/webhook', stripe_webhook, name='stripe-webhook'),
     path('api/contents/', contents_api.urls),
     path('api/executions/', executions_api.urls),
     path('api/search/', search_api.urls),

@@ -314,6 +314,21 @@ export async function getCurrentUser(): Promise<ApiCurrentUser> {
   return requestJson<ApiCurrentUser>("/api/auth/me");
 }
 
+export async function createProCheckoutSession(payload: {
+  plan: "monthly" | "yearly";
+  successUrl?: string;
+  cancelUrl?: string;
+}): Promise<{ checkout_url: string }> {
+  return requestJson<{ checkout_url: string }>("/api/auth/billing/checkout", {
+    method: "POST",
+    body: JSON.stringify({
+      plan: payload.plan,
+      success_url: payload.successUrl ?? null,
+      cancel_url: payload.cancelUrl ?? null,
+    }),
+  });
+}
+
 export async function getNotifications(): Promise<ApiNotificationsResponse> {
   return requestJson<ApiNotificationsResponse>("/api/contents/notifications");
 }

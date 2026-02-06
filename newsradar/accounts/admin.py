@@ -38,7 +38,14 @@ class AccountUserAdmin(UserAdmin):
 
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ("id", "user")
+    list_display = (
+        "id",
+        "user",
+        "is_pro",
+        "pro_plan",
+        "pro_current_period_ends_at",
+        "stripe_customer_id",
+    )
+    list_filter = ("is_pro", "pro_plan")
     search_fields = ("user__username", "user__email")
     list_select_related = ("user",)
-
