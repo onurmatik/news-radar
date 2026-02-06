@@ -1,19 +1,33 @@
+import json
+import logging
 from datetime import datetime, timezone as dt_timezone
 from email.utils import format_datetime
+from typing import Any
 from uuid import UUID
 from xml.sax.saxutils import escape
+from django.conf import settings
 from django.db.models import Count, DateTimeField, Exists, OuterRef
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.utils import timezone
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    OpenAI,
+    RateLimitError,
+)
 
 from newsradar.accounts.models import Profile
 from newsradar.contents.models import Bookmark, Content
 from newsradar.topics.models import Topic, TopicGroup
 
 api = NinjaAPI(title="Contents API", urls_namespace="contents")
+logger = logging.getLogger(__name__)
 
 
 def _format_rss_datetime(value: datetime | None) -> str:
@@ -82,6 +96,71 @@ def _apply_new_filter(queryset, baseline: datetime | None, only_new: bool):
     return queryset.filter(last_updated__gt=baseline)
 
 
+def _serialize_content_for_ai(content: Content) -> dict[str, Any]:
+    published_at = content.last_updated or content.date or content.created_at
+    return {
+        "id": content.id,
+        "url": content.url,
+        "title": content.title or "",
+        "source": content.normalized_domain(),
+        "summary": (content.snippet or "").strip(),
+        "published_at": (
+            published_at.isoformat() if isinstance(published_at, datetime) else None
+        ),
+        "topic_uuid": str(content.execution.topic.uuid),
+        "topic_queries": content.execution.topic.queries or [],
+    }
+
+
+def _extract_ai_response_text(response: Any) -> str:
+    output_text = getattr(response, "output_text", None)
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    output = getattr(response, "output", None) or []
+    message_chunks: list[str] = []
+    for item in output:
+        if isinstance(item, dict):
+            if item.get("type") != "message":
+                continue
+            content_chunks = item.get("content") or []
+            for chunk in content_chunks:
+                text_value = chunk.get("text") if isinstance(chunk, dict) else None
+                if isinstance(text_value, str) and text_value.strip():
+                    message_chunks.append(text_value.strip())
+            continue
+
+        if getattr(item, "type", None) != "message":
+            continue
+        for chunk in getattr(item, "content", None) or []:
+            text_value = None
+            if isinstance(chunk, dict):
+                text_value = chunk.get("text")
+            else:
+                text_value = getattr(chunk, "text", None)
+            if isinstance(text_value, str) and text_value.strip():
+                message_chunks.append(text_value.strip())
+
+    return "\n".join(message_chunks).strip()
+
+
+def _extract_response_usage_tokens(response: Any) -> tuple[int | None, int | None, int | None]:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None, None, None
+    if isinstance(usage, dict):
+        input_tokens = usage.get("input_tokens")
+        output_tokens = usage.get("output_tokens")
+        total_tokens = usage.get("total_tokens")
+        return input_tokens, output_tokens, total_tokens
+
+    return (
+        getattr(usage, "input_tokens", None),
+        getattr(usage, "output_tokens", None),
+        getattr(usage, "total_tokens", None),
+    )
+
+
 class ContentFeedItem(Schema):
     id: int
     url: str
@@ -140,6 +219,22 @@ class BookmarkCreateResponse(Schema):
 
 class BookmarkDeleteResponse(Schema):
     deleted: bool
+
+
+class AIInteractionRequest(Schema):
+    content_ids: list[int]
+    instruction: str
+    model: str | None = None
+
+
+class AIInteractionResponse(Schema):
+    answer: str
+    model: str
+    response_id: str | None
+    content_count: int
+    input_tokens: int | None
+    output_tokens: int | None
+    total_tokens: int | None
 
 
 class NotificationTopicItem(Schema):
@@ -242,6 +337,144 @@ def get_content_detail(request, content_id: int):
         relevance_score=None,
         is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
     )
+
+
+@api.post("/ai/respond", response=AIInteractionResponse)
+def ai_respond(request, payload: AIInteractionRequest):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+    if not settings.OPENAI_API_KEY:
+        logger.error("OPENAI_API_KEY is not configured.")
+        raise HttpError(500, "AI provider is not configured.")
+
+    instruction = (payload.instruction or "").strip()
+    if not instruction:
+        raise HttpError(400, "Instruction cannot be empty.")
+    if len(instruction) > settings.OPENAI_RESPONSES_MAX_INSTRUCTION_CHARS:
+        raise HttpError(
+            400,
+            (
+                "Instruction is too long. Maximum length is "
+                f"{settings.OPENAI_RESPONSES_MAX_INSTRUCTION_CHARS} characters."
+            ),
+        )
+
+    normalized_content_ids: list[int] = []
+    seen_content_ids: set[int] = set()
+    for content_id in payload.content_ids or []:
+        if not isinstance(content_id, int) or content_id <= 0:
+            raise HttpError(400, "content_ids must contain positive integers.")
+        if content_id not in seen_content_ids:
+            normalized_content_ids.append(content_id)
+            seen_content_ids.add(content_id)
+
+    if not normalized_content_ids:
+        raise HttpError(400, "Provide at least one content ID.")
+    if len(normalized_content_ids) > settings.OPENAI_RESPONSES_MAX_CONTENT_ITEMS:
+        raise HttpError(
+            400,
+            (
+                "Too many content IDs. Maximum is "
+                f"{settings.OPENAI_RESPONSES_MAX_CONTENT_ITEMS}."
+            ),
+        )
+
+    model_name = (payload.model or "").strip() or settings.OPENAI_RESPONSES_MODEL.strip()
+    if not model_name:
+        logger.error("OPENAI_RESPONSES_MODEL is empty.")
+        raise HttpError(500, "AI model is not configured.")
+
+    selected_contents = list(
+        Content.objects.filter(
+            id__in=normalized_content_ids,
+            execution__topic__user=request.user,
+        ).select_related("execution", "execution__topic")
+    )
+    contents_by_id = {content.id: content for content in selected_contents}
+    missing_content_ids = [
+        content_id
+        for content_id in normalized_content_ids
+        if content_id not in contents_by_id
+    ]
+    if missing_content_ids:
+        raise HttpError(404, "One or more content items were not found for user.")
+
+    ordered_contents = [
+        contents_by_id[content_id]
+        for content_id in normalized_content_ids
+    ]
+    news_context = [
+        _serialize_content_for_ai(content)
+        for content in ordered_contents
+    ]
+    ai_input = json.dumps(
+        {
+            "instruction": instruction,
+            "news_context": news_context,
+        },
+        ensure_ascii=False,
+    )
+
+    try:
+        client = OpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=settings.OPENAI_RESPONSES_TIMEOUT_SECONDS,
+        )
+        response = client.responses.create(
+            model=model_name,
+            instructions=(
+                "You are a precise news assistant. Use only the provided news_context. "
+                "If the context is insufficient, explicitly state the uncertainty."
+            ),
+            input=ai_input,
+            max_output_tokens=settings.OPENAI_RESPONSES_MAX_OUTPUT_TOKENS,
+        )
+        answer = _extract_ai_response_text(response)
+        if not answer:
+            logger.error(
+                "Responses API returned empty output. response_id=%s",
+                getattr(response, "id", None),
+            )
+            raise HttpError(502, "AI provider returned an empty response.")
+        input_tokens, output_tokens, total_tokens = _extract_response_usage_tokens(response)
+        return AIInteractionResponse(
+            answer=answer,
+            model=getattr(response, "model", model_name),
+            response_id=getattr(response, "id", None),
+            content_count=len(ordered_contents),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )
+    except HttpError:
+        raise
+    except BadRequestError:
+        logger.exception("AI provider rejected request.")
+        raise HttpError(400, "Invalid AI interaction request.")
+    except AuthenticationError:
+        logger.exception("AI provider authentication failed.")
+        raise HttpError(502, "AI provider authentication failed.")
+    except RateLimitError:
+        logger.warning("AI provider rate limit reached.", exc_info=True)
+        raise HttpError(429, "AI provider rate limit reached. Please retry.")
+    except (APIConnectionError, APITimeoutError):
+        logger.warning("AI provider unavailable.", exc_info=True)
+        raise HttpError(503, "AI provider is temporarily unavailable. Please retry.")
+    except APIStatusError as exc:
+        status_code = getattr(exc, "status_code", None)
+        logger.warning(
+            "AI provider returned status error. status_code=%s",
+            status_code,
+            exc_info=True,
+        )
+        if status_code == 429:
+            raise HttpError(429, "AI provider rate limit reached. Please retry.")
+        if isinstance(status_code, int) and status_code >= 500:
+            raise HttpError(503, "AI provider is temporarily unavailable. Please retry.")
+        raise HttpError(502, "AI provider request failed.")
+    except Exception:
+        logger.exception("Unexpected error during AI interaction endpoint.")
+        raise HttpError(500, "Unexpected error during AI interaction.")
 
 
 @api.get("/", response=ContentFeedResponse)

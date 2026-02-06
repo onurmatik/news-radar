@@ -34,6 +34,20 @@ ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if os.getenv("D
 WEB_SEARCH_MAX_RESULTS = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "10"))
 WEB_SEARCH_MAX_TOKENS = int(os.getenv("WEB_SEARCH_MAX_TOKENS", "25000"))
 WEB_SEARCH_MAX_TOKENS_PER_PAGE = int(os.getenv("WEB_SEARCH_MAX_TOKENS_PER_PAGE", "2048"))
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_RESPONSES_MODEL = os.getenv("OPENAI_RESPONSES_MODEL", "gpt-4.1-mini")
+OPENAI_RESPONSES_TIMEOUT_SECONDS = float(
+    os.getenv("OPENAI_RESPONSES_TIMEOUT_SECONDS", "30")
+)
+OPENAI_RESPONSES_MAX_CONTENT_ITEMS = int(
+    os.getenv("OPENAI_RESPONSES_MAX_CONTENT_ITEMS", "20")
+)
+OPENAI_RESPONSES_MAX_INSTRUCTION_CHARS = int(
+    os.getenv("OPENAI_RESPONSES_MAX_INSTRUCTION_CHARS", "4000")
+)
+OPENAI_RESPONSES_MAX_OUTPUT_TOKENS = int(
+    os.getenv("OPENAI_RESPONSES_MAX_OUTPUT_TOKENS", "1200")
+)
 
 
 def _validate_web_search_setting(value: int, min_value: int, max_value: int, name: str) -> None:
@@ -44,6 +58,26 @@ def _validate_web_search_setting(value: int, min_value: int, max_value: int, nam
 _validate_web_search_setting(WEB_SEARCH_MAX_RESULTS, 1, 20, "WEB_SEARCH_MAX_RESULTS")
 _validate_web_search_setting(WEB_SEARCH_MAX_TOKENS, 1, 1_000_000, "WEB_SEARCH_MAX_TOKENS")
 _validate_web_search_setting(WEB_SEARCH_MAX_TOKENS_PER_PAGE, 1, 1_000_000, "WEB_SEARCH_MAX_TOKENS_PER_PAGE")
+_validate_web_search_setting(
+    OPENAI_RESPONSES_MAX_CONTENT_ITEMS,
+    1,
+    100,
+    "OPENAI_RESPONSES_MAX_CONTENT_ITEMS",
+)
+_validate_web_search_setting(
+    OPENAI_RESPONSES_MAX_INSTRUCTION_CHARS,
+    1,
+    200_000,
+    "OPENAI_RESPONSES_MAX_INSTRUCTION_CHARS",
+)
+_validate_web_search_setting(
+    OPENAI_RESPONSES_MAX_OUTPUT_TOKENS,
+    1,
+    100_000,
+    "OPENAI_RESPONSES_MAX_OUTPUT_TOKENS",
+)
+if OPENAI_RESPONSES_TIMEOUT_SECONDS <= 0:
+    raise ValueError("OPENAI_RESPONSES_TIMEOUT_SECONDS must be greater than 0.")
 
 # Application definition
 
