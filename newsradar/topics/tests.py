@@ -56,6 +56,27 @@ class TopicAdditionalQueriesModeTests(TestCase):
         self.assertEqual(body["topic"]["additional_queries_mode"], "auto")
         self.assertEqual(body["topic"]["queries"], ["semiconductor policy"])
 
+    def test_create_topic_api_defaults_additional_queries_mode_to_auto(self):
+        self.client.force_login(self.user)
+        with self._mock_embeddings() as openai_cls:
+            openai_cls.return_value.embeddings.create.return_value = SimpleNamespace(
+                data=[SimpleNamespace(embedding=[0.0] * 1536)]
+            )
+            response = self.client.post(
+                "/api/topics/",
+                data=json.dumps(
+                    {
+                        "queries": ["climate adaptation", "urban resilience"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["topic"]["additional_queries_mode"], "auto")
+        self.assertEqual(body["topic"]["queries"], ["climate adaptation"])
+
     def test_update_topic_api_switches_to_auto_and_trims_queries(self):
         with self._mock_embeddings() as openai_cls:
             openai_cls.return_value.embeddings.create.return_value = SimpleNamespace(

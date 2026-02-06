@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { createTopic, deleteTopic, updateTopic } from '@/lib/api';
 import type { ApiTopicListItem, TopicItem } from '@/lib/types';
-import { Plus, X, PlusCircle } from 'lucide-react';
+import { ChevronDown, Plus, X, PlusCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type TopicFormMode = "create" | "edit";
@@ -56,11 +56,13 @@ export function TopicForm({
     !!selectedGroupId && selectedGroup ? !selectedGroup.is_owner : false;
   const [topicName, setTopicName] = useState("");
   const [queries, setQueries] = useState<string[]>([""]);
-  const [additionalQueriesMode, setAdditionalQueriesMode] = useState<"auto" | "manual">("manual");
+  const [additionalQueriesMode, setAdditionalQueriesMode] = useState<"auto" | "manual">("auto");
   const [domainInputs, setDomainInputs] = useState<string[]>([""]);
   const [domainMode, setDomainMode] = useState<"allow" | "block">("allow");
   const [languageSelections, setLanguageSelections] = useState<string[]>([""]);
   const [country, setCountry] = useState("");
+  const [isDomainFiltersOpen, setIsDomainFiltersOpen] = useState(false);
+  const [isLocalityFiltersOpen, setIsLocalityFiltersOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -110,11 +112,17 @@ export function TopicForm({
     languageFilter: topic.search_language_filter,
     country: topic.country,
     updateFrequency: topic.update_frequency,
-    additionalQueriesMode: topic.additional_queries_mode ?? "manual",
+    additionalQueriesMode: topic.additional_queries_mode ?? "auto",
   });
 
   const normalizeList = (values: string[]) =>
     Array.from(new Set(values.map((entry) => entry.trim()).filter(Boolean)));
+
+  const hasDomainFilterContent = (values: string[]) =>
+    values.some((entry) => entry.trim().length > 0);
+
+  const hasLocalityFilterContent = (selectedCountry: string, languages: string[]) =>
+    selectedCountry.trim().length > 0 || languages.some((entry) => entry.trim().length > 0);
 
   const requireAuth = () => {
     if (isAuthenticated) {
@@ -127,33 +135,39 @@ export function TopicForm({
   const resetForm = () => {
     setTopicName("");
     setQueries([""]);
-    setAdditionalQueriesMode("manual");
+    setAdditionalQueriesMode("auto");
     setDomainInputs([""]);
     setDomainMode("allow");
     setLanguageSelections([""]);
     setCountry("");
+    setIsDomainFiltersOpen(false);
+    setIsLocalityFiltersOpen(false);
     setError(null);
   };
 
   const applyTopicToForm = (topic: TopicItem) => {
+    const nextDomainMode: "allow" | "block" = topic.domainAllowlist?.length ? "allow" : "block";
+    const nextDomainInputs =
+      topic.domainAllowlist?.length
+        ? topic.domainAllowlist
+        : topic.domainBlocklist?.length
+          ? topic.domainBlocklist
+          : [""];
+    const nextLanguageSelections = topic.languageFilter?.length ? topic.languageFilter : [""];
+    const nextCountry = topic.country ?? "";
+
     setTopicName(topic.queries[0] ?? "");
     const additionalQueries = topic.queries.slice(1, MAX_TOPIC_QUERIES);
     setQueries(additionalQueries.length ? additionalQueries : [""]);
-    setAdditionalQueriesMode(topic.additionalQueriesMode ?? "manual");
-    if (topic.domainAllowlist?.length) {
-      setDomainMode("allow");
-      setDomainInputs(topic.domainAllowlist.length ? topic.domainAllowlist : [""]);
-    } else if (topic.domainBlocklist?.length) {
-      setDomainMode("block");
-      setDomainInputs(topic.domainBlocklist.length ? topic.domainBlocklist : [""]);
-    } else {
-      setDomainMode("allow");
-      setDomainInputs([""]);
-    }
-    setLanguageSelections(
-      topic.languageFilter?.length ? topic.languageFilter : [""]
+    setAdditionalQueriesMode(topic.additionalQueriesMode ?? "auto");
+    setDomainMode(nextDomainMode);
+    setDomainInputs(nextDomainInputs);
+    setLanguageSelections(nextLanguageSelections);
+    setCountry(nextCountry);
+    setIsDomainFiltersOpen(hasDomainFilterContent(nextDomainInputs));
+    setIsLocalityFiltersOpen(
+      hasLocalityFilterContent(nextCountry, nextLanguageSelections)
     );
-    setCountry(topic.country ?? "");
     setError(null);
   };
 
@@ -511,143 +525,171 @@ export function TopicForm({
           </div>
 
           <div className="pt-1 border-slate-100 space-y-6">
-            <div className="flex items-center gap-4 text-xs font-bold uppercase tracking-widest text-slate-400">
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 text-xs font-bold uppercase tracking-widest text-slate-400"
+              onClick={() => setIsDomainFiltersOpen((prev) => !prev)}
+              aria-expanded={isDomainFiltersOpen}
+              aria-controls="domain-filters-section"
+            >
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 transition-transform",
+                  isDomainFiltersOpen ? "rotate-0" : "-rotate-90"
+                )}
+              />
               <span className="shrink-0">Domain filters</span>
               <div className="h-px flex-1 bg-slate-100"></div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                  Mode
-                </label>
-                <select
-                  className="flex h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500 transition-all appearance-none cursor-pointer"
-                  value={domainMode}
-                  onChange={(event) => setDomainMode(event.target.value as "allow" | "block")}
-                >
-                  <option value="allow">Restrict to these domains</option>
-                  <option value="block">Exclude these domains</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                  Domains
-                </label>
-                <div className="space-y-3">
-                  {domainInputs.map((domain, index) => (
-                    <div key={index} className="flex items-center gap-3">
-                      <Input
-                        placeholder="e.g. bloomberg.com"
-                        value={domain}
-                        onChange={(event) => updateDomainInput(index, event.target.value)}
-                        className="h-11 rounded-lg border-slate-200 bg-white px-4 text-sm focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500"
-                      />
-                      <button
-                        className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
-                        onClick={() => removeDomainInput(index)}
-                        type="button"
-                        disabled={domainInputs.length === 1}
-                      >
-                        <span className="sr-only">Remove domain</span>
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    className="flex items-center gap-2 text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50/50 px-1 py-1 rounded transition-colors w-fit uppercase tracking-widest"
-                    onClick={addDomainInput}
-                    type="button"
+            </button>
+            {isDomainFiltersOpen && (
+              <div id="domain-filters-section" className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                    Mode
+                  </label>
+                  <select
+                    className="flex h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500 transition-all appearance-none cursor-pointer"
+                    value={domainMode}
+                    onChange={(event) => setDomainMode(event.target.value as "allow" | "block")}
                   >
-                    <PlusCircle className="h-4 w-4" />
-                    Add another domain
-                  </button>
+                    <option value="allow">Restrict to these domains</option>
+                    <option value="block">Exclude these domains</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                    Domains
+                  </label>
+                  <div className="space-y-3">
+                    {domainInputs.map((domain, index) => (
+                      <div key={index} className="flex items-center gap-3">
+                        <Input
+                          placeholder="e.g. bloomberg.com"
+                          value={domain}
+                          onChange={(event) => updateDomainInput(index, event.target.value)}
+                          className="h-11 rounded-lg border-slate-200 bg-white px-4 text-sm focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500"
+                        />
+                        <button
+                          className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
+                          onClick={() => removeDomainInput(index)}
+                          type="button"
+                          disabled={domainInputs.length === 1}
+                        >
+                          <span className="sr-only">Remove domain</span>
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      className="flex items-center gap-2 text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50/50 px-1 py-1 rounded transition-colors w-fit uppercase tracking-widest"
+                      onClick={addDomainInput}
+                      type="button"
+                    >
+                      <PlusCircle className="h-4 w-4" />
+                      Add another domain
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            <div className="flex items-center gap-4 text-xs font-bold uppercase tracking-widest text-slate-400">
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 text-xs font-bold uppercase tracking-widest text-slate-400"
+              onClick={() => setIsLocalityFiltersOpen((prev) => !prev)}
+              aria-expanded={isLocalityFiltersOpen}
+              aria-controls="locality-filters-section"
+            >
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 transition-transform",
+                  isLocalityFiltersOpen ? "rotate-0" : "-rotate-90"
+                )}
+              />
               <span className="shrink-0">Locality filters</span>
               <div className="h-px flex-1 bg-slate-100"></div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                  Country
-                </label>
-                <select
-                  className="flex h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500 transition-all appearance-none cursor-pointer"
-                  value={country}
-                  onChange={(event) => setCountry(event.target.value)}
-                >
-                  <option value="">All countries</option>
-                  <option value="AU">Australia</option>
-                  <option value="BR">Brazil</option>
-                  <option value="CA">Canada</option>
-                  <option value="CN">China</option>
-                  <option value="FR">France</option>
-                  <option value="DE">Germany</option>
-                  <option value="IN">India</option>
-                  <option value="IE">Ireland</option>
-                  <option value="IL">Israel</option>
-                  <option value="IT">Italy</option>
-                  <option value="JP">Japan</option>
-                  <option value="MX">Mexico</option>
-                  <option value="NL">Netherlands</option>
-                  <option value="NZ">New Zealand</option>
-                  <option value="NO">Norway</option>
-                  <option value="PL">Poland</option>
-                  <option value="SG">Singapore</option>
-                  <option value="ZA">South Africa</option>
-                  <option value="ES">Spain</option>
-                  <option value="SE">Sweden</option>
-                  <option value="CH">Switzerland</option>
-                  <option value="TR">Turkey</option>
-                  <option value="AE">United Arab Emirates</option>
-                  <option value="GB">United Kingdom</option>
-                  <option value="US">United States</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                  Languages
-                </label>
-                <div className="space-y-3">
-                  {languageSelections.map((language, index) => (
-                    <div key={index} className="flex items-center gap-3">
-                      <select
-                        className="flex h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500 transition-all appearance-none cursor-pointer"
-                        value={language}
-                        onChange={(event) => updateLanguageSelection(index, event.target.value)}
-                      >
-                        <option value="">Select language</option>
-                        {languageOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
-                        onClick={() => removeLanguageSelection(index)}
-                        type="button"
-                        disabled={languageSelections.length === 1}
-                      >
-                        <span className="sr-only">Remove language</span>
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    className="flex items-center gap-2 text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50/50 px-1 py-1 rounded transition-colors w-fit uppercase tracking-widest"
-                    onClick={addLanguageSelection}
-                    type="button"
+            </button>
+            {isLocalityFiltersOpen && (
+              <div id="locality-filters-section" className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                    Country
+                  </label>
+                  <select
+                    className="flex h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500 transition-all appearance-none cursor-pointer"
+                    value={country}
+                    onChange={(event) => setCountry(event.target.value)}
                   >
-                    <PlusCircle className="h-4 w-4" />
-                    Add another language
-                  </button>
+                    <option value="">All countries</option>
+                    <option value="AU">Australia</option>
+                    <option value="BR">Brazil</option>
+                    <option value="CA">Canada</option>
+                    <option value="CN">China</option>
+                    <option value="FR">France</option>
+                    <option value="DE">Germany</option>
+                    <option value="IN">India</option>
+                    <option value="IE">Ireland</option>
+                    <option value="IL">Israel</option>
+                    <option value="IT">Italy</option>
+                    <option value="JP">Japan</option>
+                    <option value="MX">Mexico</option>
+                    <option value="NL">Netherlands</option>
+                    <option value="NZ">New Zealand</option>
+                    <option value="NO">Norway</option>
+                    <option value="PL">Poland</option>
+                    <option value="SG">Singapore</option>
+                    <option value="ZA">South Africa</option>
+                    <option value="ES">Spain</option>
+                    <option value="SE">Sweden</option>
+                    <option value="CH">Switzerland</option>
+                    <option value="TR">Turkey</option>
+                    <option value="AE">United Arab Emirates</option>
+                    <option value="GB">United Kingdom</option>
+                    <option value="US">United States</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                    Languages
+                  </label>
+                  <div className="space-y-3">
+                    {languageSelections.map((language, index) => (
+                      <div key={index} className="flex items-center gap-3">
+                        <select
+                          className="flex h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500 transition-all appearance-none cursor-pointer"
+                          value={language}
+                          onChange={(event) => updateLanguageSelection(index, event.target.value)}
+                        >
+                          <option value="">Select language</option>
+                          {languageOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
+                          onClick={() => removeLanguageSelection(index)}
+                          type="button"
+                          disabled={languageSelections.length === 1}
+                        >
+                          <span className="sr-only">Remove language</span>
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      className="flex items-center gap-2 text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50/50 px-1 py-1 rounded transition-colors w-fit uppercase tracking-widest"
+                      onClick={addLanguageSelection}
+                      type="button"
+                    >
+                      <PlusCircle className="h-4 w-4" />
+                      Add another language
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {error && <div className="text-sm text-destructive">{error}</div>}

@@ -86,7 +86,7 @@ class Topic(models.Model):
     additional_queries_mode = models.CharField(
         max_length=6,
         choices=ADDITIONAL_QUERIES_MODE_CHOICES,
-        default=ADDITIONAL_QUERIES_MODE_MANUAL,
+        default=ADDITIONAL_QUERIES_MODE_AUTO,
     )
     search_domain_allowlist = models.JSONField(
         blank=True,

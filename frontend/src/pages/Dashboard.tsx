@@ -31,6 +31,7 @@ import {
   Bookmark,
   Play,
   Trash2,
+  Loader2,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -484,6 +485,7 @@ export default function Dashboard() {
     [news]
   );
   const showEmptyState = filteredNews.length === 0 && !loading;
+  const activityMessage = loading ? "Loading content..." : null;
   const hasTopicsInGroup = selectedGroupTopicCount > 0 || Boolean(selectedTopic);
   const countsLabel = hasActiveFilters
     ? `${filteredNews.length} of ${news.length}`
@@ -1113,6 +1115,17 @@ export default function Dashboard() {
                 Bookmarked
               </Button>
 
+              {activityMessage && (
+                <span
+                  className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  {activityMessage}
+                </span>
+              )}
+
               <div className="ml-auto flex items-center gap-3">
                 <span className="text-[11px] text-muted-foreground/70">
                   {countsLabel} results
@@ -1131,10 +1144,7 @@ export default function Dashboard() {
             </div>
 
             {filteredNews.length > 0 && (
-              <div
-                className={loading ? "pointer-events-none opacity-60" : ""}
-                aria-busy={loading}
-              >
+              <div aria-busy={loading}>
                 <AnimatePresence mode="popLayout">
                   {filteredNews.map((item, index) => (
                     <motion.div

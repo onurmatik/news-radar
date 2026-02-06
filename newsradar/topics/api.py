@@ -287,7 +287,7 @@ def create_topic(request, payload: TopicCreateRequest):
         }:
             raise HttpError(400, "Invalid additional queries mode.")
     else:
-        additional_queries_mode = Topic.ADDITIONAL_QUERIES_MODE_MANUAL
+        additional_queries_mode = Topic.ADDITIONAL_QUERIES_MODE_AUTO
 
     if additional_queries_mode == Topic.ADDITIONAL_QUERIES_MODE_AUTO:
         normalized_queries = normalized_queries[:1]
