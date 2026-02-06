@@ -1166,7 +1166,7 @@ export function Layout({ children }: SidebarProps) {
                             notifications &&
                             notifications.topics.length === 0 && (
                               <p className="text-xs text-muted-foreground">
-                                No new content yet.
+                                No new content.
                               </p>
                             )}
                           {!notificationsLoading &&

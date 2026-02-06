@@ -1292,6 +1292,7 @@ export default function Dashboard() {
               </CardTitle>
               <CardDescription className="text-xs">
                 Analyze the currently listed content items with AI.
+                Filter the list to adjust the context.
               </CardDescription>
               <div className="text-[11px] text-muted-foreground">
                 Context: {aiContextIds.length} item{aiContextIds.length === 1 ? "" : "s"}
