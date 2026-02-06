@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { createTopic, deleteTopic, updateTopic } from '@/lib/api';
 import type { ApiTopicListItem, TopicItem } from '@/lib/types';
-import { X, PlusCircle } from 'lucide-react';
+import { Plus, X, PlusCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type TopicFormMode = "create" | "edit";
@@ -435,21 +435,39 @@ export function TopicForm({
                 className="h-11 rounded-lg border-slate-200 bg-white px-4 text-sm focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500"
               />
             </div>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm font-bold text-slate-900">Additional queries to extend the search</p>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                Additional query mode
-              </label>
-              <select
-                className="flex h-11 w-full rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 focus-visible:border-emerald-500 transition-all appearance-none cursor-pointer"
-                value={additionalQueriesMode}
-                onChange={(event) => setAdditionalQueriesMode(event.target.value as "auto" | "manual")}
-              >
-                <option value="auto">Auto (AI-managed from agenda)</option>
-                <option value="manual">Manual (custom additional queries)</option>
-              </select>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                  Mode
+                </label>
+                <div className="inline-flex rounded-md border border-slate-200 bg-white p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setAdditionalQueriesMode("auto")}
+                    className={cn(
+                      "h-7 rounded-sm px-2 text-[11px] font-bold uppercase tracking-wide transition-colors",
+                      additionalQueriesMode === "auto"
+                        ? "bg-emerald-600 text-white"
+                        : "text-slate-600 hover:bg-slate-100"
+                    )}
+                  >
+                    Auto
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdditionalQueriesMode("manual")}
+                    className={cn(
+                      "h-7 rounded-sm px-2 text-[11px] font-bold uppercase tracking-wide transition-colors",
+                      additionalQueriesMode === "manual"
+                        ? "bg-emerald-600 text-white"
+                        : "text-slate-600 hover:bg-slate-100"
+                    )}
+                  >
+                    Manual
+                  </button>
+                </div>
+              </div>
             </div>
             {additionalQueriesMode === "manual" ? (
               <div className="space-y-4">

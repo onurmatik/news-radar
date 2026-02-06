@@ -1117,10 +1117,10 @@ export default function Dashboard() {
             <CardHeader className="space-y-2 pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Sparkles className="h-4 w-4 text-primary" />
-                AI Interaction
+                Analyze
               </CardTitle>
               <CardDescription className="text-xs">
-                Analyze the currently listed content items with your own instruction.
+                Analyze the currently listed content items with AI.
               </CardDescription>
               <div className="text-[11px] text-muted-foreground">
                 Context: {aiContextIds.length} item{aiContextIds.length === 1 ? "" : "s"}
