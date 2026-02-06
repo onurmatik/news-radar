@@ -1283,7 +1283,7 @@ export default function Dashboard() {
             </CardHeader>
 
             <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
-              <div className="custom-scrollbar flex-1 overflow-y-auto rounded-xl border border-border/60 bg-muted/20 p-3">
+              <div className="custom-scrollbar flex-1 overflow-y-auto text-muted-foreground border-t border-border/60 pt-3">
                 {aiLoading ? (
                   <p className="text-sm text-muted-foreground">Generating response...</p>
                 ) : aiResponse ? (
@@ -1337,8 +1337,8 @@ export default function Dashboard() {
                     {aiResponse.answer}
                   </ReactMarkdown>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Run an instruction to see the AI response here.
+                  <p className="text-sm">
+                    Run an instruction to see the response here.
                   </p>
                 )}
               </div>
@@ -1424,7 +1424,7 @@ export default function Dashboard() {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute bottom-1.5 left-0 shadow-none hover:bg-gray-300"
+                    className="absolute bottom-1.5 left-0 shadow-none hover:text-green-600 hover:bg-transparent"
                     onClick={handleSaveInstruction}
                     disabled={!aiInstruction.trim()}
                     title={aiSaveFeedback === "saved" ? "Saved" : "Save instruction"}
@@ -1440,7 +1440,7 @@ export default function Dashboard() {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute bottom-1.5 right-0 shadow-none hover:text-green-600"
+                    className="absolute bottom-1.5 right-0 shadow-none hover:text-green-600 hover:bg-transparent"
                     onClick={() => void handleRunAI()}
                     disabled={!canRunAI}
                     title="Run instruction (Enter)"
