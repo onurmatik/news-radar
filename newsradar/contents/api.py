@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 from xml.sax.saxutils import escape
 from django.conf import settings
-from django.db.models import Count, DateTimeField, Exists, OuterRef
+from django.db.models import Count, DateTimeField, Exists, OuterRef, Q
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.utils import timezone
@@ -95,6 +95,34 @@ def _apply_new_filter(queryset, baseline: datetime | None, only_new: bool):
     if not baseline:
         return queryset.none()
     return queryset.filter(last_updated__gt=baseline)
+
+
+def _content_published_at_expression():
+    return Coalesce(
+        "last_updated",
+        "date",
+        "created_at",
+        output_field=DateTimeField(),
+    )
+
+
+def _latest_content_per_topic_url(queryset):
+    queryset = queryset.annotate(content_published_at=_content_published_at_expression())
+    newer_content_subquery = (
+        Content.objects.filter(
+            topic_id=OuterRef("topic_id"),
+            url=OuterRef("url"),
+        )
+        .annotate(content_published_at=_content_published_at_expression())
+        .filter(
+            Q(content_published_at__gt=OuterRef("content_published_at"))
+            | Q(
+                content_published_at=OuterRef("content_published_at"),
+                id__gt=OuterRef("id"),
+            )
+        )
+    )
+    return queryset.filter(~Exists(newer_content_subquery))
 
 
 def _serialize_content_for_ai(content: Content) -> dict[str, Any]:
@@ -295,7 +323,8 @@ def get_content_item(request, content_id: int):
     if request.user.is_authenticated:
         bookmark_subquery = Bookmark.objects.filter(
             user=request.user,
-            content_id=OuterRef("pk"),
+            content__topic_id=OuterRef("topic_id"),
+            content__url=OuterRef("url"),
         )
         content = (
             Content.objects.filter(
@@ -339,7 +368,8 @@ def get_content_detail(request, content_id: int):
     if request.user.is_authenticated:
         bookmark_subquery = Bookmark.objects.filter(
             user=request.user,
-            content_id=OuterRef("pk"),
+            content__topic_id=OuterRef("topic_id"),
+            content__url=OuterRef("url"),
         )
         content = (
             Content.objects.filter(
@@ -616,23 +646,17 @@ def list_content(
         else:
             queryset = Content.objects.filter(execution__topic__user=request.user)
 
+        queryset = _latest_content_per_topic_url(queryset)
         queryset = _apply_new_filter(queryset, baseline, only_new)
         bookmark_subquery = Bookmark.objects.filter(
             user=request.user,
-            content_id=OuterRef("pk"),
+            content__topic_id=OuterRef("topic_id"),
+            content__url=OuterRef("url"),
         )
         contents = (
             queryset.select_related("execution", "execution__topic")
             .annotate(is_bookmarked=Exists(bookmark_subquery))
-            .order_by(
-                Coalesce(
-                    "last_updated",
-                    "date",
-                    "created_at",
-                    output_field=DateTimeField(),
-                ).desc(),
-                "-id",
-            )[offset : offset + limit]
+            .order_by("-content_published_at", "-id")[offset : offset + limit]
         )
     else:
         topic = Topic.objects.filter(
@@ -642,20 +666,15 @@ def list_content(
         ).first()
         if not topic:
             raise HttpError(404, "Topic not found.")
-        contents = (
+        queryset = _latest_content_per_topic_url(
             Content.objects.filter(
                 execution__topic=topic,
             )
+        )
+        contents = (
+            queryset
             .select_related("execution", "execution__topic")
-            .order_by(
-                Coalesce(
-                    "last_updated",
-                    "date",
-                    "created_at",
-                    output_field=DateTimeField(),
-                ).desc(),
-                "-id",
-            )[offset : offset + limit]
+            .order_by("-content_published_at", "-id")[offset : offset + limit]
         )
 
     return ContentFeedResponse(
@@ -767,27 +786,21 @@ def list_content_by_group(
             execution__topic__user=request.user,
             execution__topic__group__uuid=group_uuid,
         )
+        queryset = _latest_content_per_topic_url(queryset)
         if only_new:
             baseline = _get_visit_baseline(request.user)
             queryset = _apply_new_filter(queryset, baseline, only_new)
 
         bookmark_subquery = Bookmark.objects.filter(
             user=request.user,
-            content_id=OuterRef("pk"),
+            content__topic_id=OuterRef("topic_id"),
+            content__url=OuterRef("url"),
         )
 
         contents = (
             queryset.select_related("execution", "execution__topic")
             .annotate(is_bookmarked=Exists(bookmark_subquery))
-            .order_by(
-                Coalesce(
-                    "last_updated",
-                    "date",
-                    "created_at",
-                    output_field=DateTimeField(),
-                ).desc(),
-                "-id",
-            )[offset : offset + limit]
+            .order_by("-content_published_at", "-id")[offset : offset + limit]
         )
     else:
         group = TopicGroup.objects.filter(
@@ -796,21 +809,16 @@ def list_content_by_group(
         ).first()
         if not group:
             raise HttpError(404, "Topic group not found.")
-        contents = (
+        queryset = _latest_content_per_topic_url(
             Content.objects.filter(
                 execution__topic__group=group,
                 execution__topic__is_active=True,
             )
+        )
+        contents = (
+            queryset
             .select_related("execution", "execution__topic")
-            .order_by(
-                Coalesce(
-                    "last_updated",
-                    "date",
-                    "created_at",
-                    output_field=DateTimeField(),
-                ).desc(),
-                "-id",
-            )[offset : offset + limit]
+            .order_by("-content_published_at", "-id")[offset : offset + limit]
         )
 
     return ContentFeedResponse(
@@ -930,21 +938,47 @@ def create_bookmark(request, payload: BookmarkCreateRequest):
     if not content:
         raise HttpError(404, "Content not found for user.")
 
-    bookmark, created = Bookmark.objects.get_or_create(
-        user=request.user,
-        content=content,
+    bookmark = (
+        Bookmark.objects.filter(
+            user=request.user,
+            content__topic_id=content.topic_id,
+            content__url=content.url,
+        )
+        .select_related(
+            "content",
+            "content__execution",
+            "content__execution__topic",
+        )
+        .order_by("-created_at", "-id")
+        .first()
     )
+    created = False
+    if not bookmark:
+        bookmark = Bookmark.objects.create(
+            user=request.user,
+            content=content,
+        )
+        bookmark = (
+            Bookmark.objects.filter(id=bookmark.id)
+            .select_related(
+                "content",
+                "content__execution",
+                "content__execution__topic",
+            )
+            .first()
+        )
+        created = True
 
     return BookmarkCreateResponse(
         created=created,
         bookmark=BookmarkItem(
             id=bookmark.id,
             content_id=bookmark.content_id,
-            url=content.url,
-            title=content.title or "",
+            url=bookmark.content.url,
+            title=bookmark.content.title or "",
             created_at=bookmark.created_at,
-            topic_uuid=content.execution.topic.uuid,
-            topic_queries=content.execution.topic.queries or [],
+            topic_uuid=bookmark.content.execution.topic.uuid,
+            topic_queries=bookmark.content.execution.topic.queries or [],
         ),
     )
 
@@ -954,14 +988,25 @@ def delete_bookmark(request, content_id: int):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
 
-    bookmark = Bookmark.objects.filter(
+    content = (
+        Content.objects.filter(
+            id=content_id,
+            execution__topic__user=request.user,
+        )
+        .only("id", "topic_id", "url")
+        .first()
+    )
+    if not content:
+        raise HttpError(404, "Content not found for user.")
+
+    deleted_count, _ = Bookmark.objects.filter(
         user=request.user,
-        content_id=content_id,
-    ).first()
-    if not bookmark:
+        content__topic_id=content.topic_id,
+        content__url=content.url,
+    ).delete()
+    if deleted_count == 0:
         raise HttpError(404, "Bookmark not found.")
 
-    bookmark.delete()
     return BookmarkDeleteResponse(deleted=True)
 
 

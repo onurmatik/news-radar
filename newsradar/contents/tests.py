@@ -1,13 +1,15 @@
 import json
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
-from newsradar.contents.models import AIInteraction, Content
+from newsradar.contents.models import AIInteraction, Bookmark, Content
 from newsradar.executions.models import Execution
-from newsradar.topics.models import Topic
+from newsradar.topics.models import Topic, TopicGroup
 
 
 @override_settings(
@@ -192,3 +194,186 @@ class ContentAIEndpointTests(TestCase):
         interaction = AIInteraction.objects.get(user=self.user)
         self.assertEqual(interaction.status, AIInteraction.Status.FAILED)
         self.assertEqual(interaction.error_message, "AI provider returned an empty response.")
+
+
+class ContentFeedVersioningTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username="feed-user",
+            email="feed-user@example.com",
+            password="password123",
+        )
+        self.client.force_login(self.user)
+
+    def _create_topic_for_user(
+        self,
+        user,
+        query: str,
+        group: TopicGroup | None = None,
+    ) -> Topic:
+        with patch("newsradar.topics.models.OpenAI") as openai_cls:
+            openai_cls.return_value.embeddings.create.return_value = SimpleNamespace(
+                data=[SimpleNamespace(embedding=[0.0] * 1536)]
+            )
+            return Topic.objects.create(
+                user=user,
+                group=group,
+                queries=[query],
+                update_frequency="manual",
+            )
+
+    def _create_content(
+        self,
+        topic: Topic,
+        *,
+        url: str,
+        title: str,
+        last_updated=None,
+    ) -> Content:
+        execution = Execution.objects.create(
+            topic=topic,
+            initiator=Execution.Initiator.USER,
+            status=Execution.Status.COMPLETED,
+        )
+        return Content.objects.create(
+            execution=execution,
+            topic=topic,
+            url=url,
+            title=title,
+            last_updated=last_updated,
+            snippet=f"{title} snippet",
+        )
+
+    def test_list_content_returns_latest_revision_per_topic_url(self):
+        topic = self._create_topic_for_user(self.user, query="energy markets")
+        now = timezone.now()
+        old_revision = self._create_content(
+            topic,
+            url="https://example.com/story",
+            title="Story old",
+            last_updated=now - timedelta(days=2),
+        )
+        latest_revision = self._create_content(
+            topic,
+            url="https://example.com/story",
+            title="Story latest",
+            last_updated=now - timedelta(days=1),
+        )
+        other_content = self._create_content(
+            topic,
+            url="https://example.com/another-story",
+            title="Another story",
+            last_updated=now - timedelta(hours=1),
+        )
+
+        response = self.client.get("/api/contents/")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        items = body["items"]
+        returned_ids = {item["id"] for item in items}
+        self.assertIn(latest_revision.id, returned_ids)
+        self.assertIn(other_content.id, returned_ids)
+        self.assertNotIn(old_revision.id, returned_ids)
+        self.assertEqual(sum(1 for item in items if item["url"] == "https://example.com/story"), 1)
+
+    def test_list_content_by_group_returns_latest_revision_per_topic_url(self):
+        group = TopicGroup.objects.create(
+            user=self.user,
+            name="Macro",
+        )
+        topic = self._create_topic_for_user(
+            self.user,
+            query="macro economy",
+            group=group,
+        )
+        now = timezone.now()
+        old_revision = self._create_content(
+            topic,
+            url="https://example.com/group-story",
+            title="Group story old",
+            last_updated=now - timedelta(days=3),
+        )
+        latest_revision = self._create_content(
+            topic,
+            url="https://example.com/group-story",
+            title="Group story latest",
+            last_updated=now - timedelta(days=1),
+        )
+
+        response = self.client.get(f"/api/contents/groups/{group.uuid}")
+
+        self.assertEqual(response.status_code, 200)
+        items = response.json()["items"]
+        returned_ids = {item["id"] for item in items}
+        self.assertIn(latest_revision.id, returned_ids)
+        self.assertNotIn(old_revision.id, returned_ids)
+
+    def test_bookmark_state_is_derived_from_any_revision_and_delete_is_article_level(self):
+        topic = self._create_topic_for_user(self.user, query="semiconductors")
+        now = timezone.now()
+        old_revision = self._create_content(
+            topic,
+            url="https://example.com/chips",
+            title="Chips old",
+            last_updated=now - timedelta(days=2),
+        )
+        latest_revision = self._create_content(
+            topic,
+            url="https://example.com/chips",
+            title="Chips latest",
+            last_updated=now - timedelta(hours=2),
+        )
+        Bookmark.objects.create(
+            user=self.user,
+            content=old_revision,
+        )
+
+        response = self.client.get("/api/contents/")
+        self.assertEqual(response.status_code, 200)
+        items = response.json()["items"]
+        latest_item = next(item for item in items if item["url"] == "https://example.com/chips")
+        self.assertEqual(latest_item["id"], latest_revision.id)
+        self.assertTrue(latest_item["is_bookmarked"])
+
+        delete_response = self.client.delete(f"/api/contents/bookmarks/{latest_revision.id}")
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertFalse(
+            Bookmark.objects.filter(
+                user=self.user,
+                content__topic=topic,
+                content__url="https://example.com/chips",
+            ).exists()
+        )
+
+        refreshed_response = self.client.get("/api/contents/")
+        refreshed_items = refreshed_response.json()["items"]
+        refreshed_item = next(
+            item for item in refreshed_items if item["url"] == "https://example.com/chips"
+        )
+        self.assertFalse(refreshed_item["is_bookmarked"])
+
+    def test_get_content_item_uses_article_level_bookmark_state(self):
+        topic = self._create_topic_for_user(self.user, query="supply chain")
+        old_revision = self._create_content(
+            topic,
+            url="https://example.com/logistics",
+            title="Logistics old",
+        )
+        latest_revision = self._create_content(
+            topic,
+            url="https://example.com/logistics",
+            title="Logistics latest",
+        )
+        Bookmark.objects.create(
+            user=self.user,
+            content=old_revision,
+        )
+
+        response = self.client.get(f"/api/contents/items/{latest_revision.id}")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["id"], latest_revision.id)
+        self.assertTrue(body["is_bookmarked"])
