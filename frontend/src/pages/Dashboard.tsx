@@ -30,6 +30,7 @@ import {
   Sparkles,
   Bookmark,
   Play,
+  Trash2,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -60,6 +61,9 @@ const AI_PRESET_INSTRUCTIONS = [
   },
 ];
 const AI_SAVED_INSTRUCTIONS_STORAGE_KEY = "newsradar.ai.saved_instructions.v1";
+const AI_PRESET_INSTRUCTION_KEYS = new Set(
+  AI_PRESET_INSTRUCTIONS.map((entry) => entry.instruction.trim().toLowerCase())
+);
 
 function toInstructionLabel(value: string): string {
   const normalized = value.trim().replace(/\s+/g, " ");
@@ -545,6 +549,15 @@ export default function Dashboard() {
     setAiCustomInstructions((prev) => [nextInstruction, ...prev]);
     setAiError(null);
     triggerAiSaveFeedback();
+  };
+
+  const handleDeleteCustomInstruction = (instruction: string) => {
+    const target = instruction.trim().toLowerCase();
+    setAiCustomInstructions((prev) =>
+      prev.filter((entry) => entry.instruction.trim().toLowerCase() !== target)
+    );
+    setAiSaveFeedback("idle");
+    setAiError(null);
   };
 
   const handleRunAI = async () => {
@@ -1381,19 +1394,41 @@ export default function Dashboard() {
                         </p>
                         <div className="space-y-1">
                           {allSavedInstructions.map((preset) => (
-                            <button
+                            <div
                               key={`${preset.label}-${preset.instruction}`}
-                              type="button"
-                              className={`w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/70 ${
-                                preset.instruction === aiInstruction
-                                  ? "bg-muted text-foreground"
-                                  : "text-muted-foreground"
-                              }`}
-                              onClick={() => handleSelectInstruction(preset.instruction)}
+                              className="flex items-center gap-1"
                             >
-                              <p className="text-xs font-medium text-foreground">{preset.label}</p>
-                              <p className="line-clamp-2 text-[11px]">{preset.instruction}</p>
-                            </button>
+                              <button
+                                type="button"
+                                className={`w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/70 ${
+                                  preset.instruction === aiInstruction
+                                    ? "bg-muted text-foreground"
+                                    : "text-muted-foreground"
+                                }`}
+                                onClick={() => handleSelectInstruction(preset.instruction)}
+                              >
+                                <p className="text-xs font-medium text-foreground">{preset.label}</p>
+                                <p className="line-clamp-2 text-[11px]">{preset.instruction}</p>
+                              </button>
+                              {!AI_PRESET_INSTRUCTION_KEYS.has(
+                                preset.instruction.trim().toLowerCase()
+                              ) && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 shrink-0 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  title="Delete saved instruction"
+                                  aria-label={`Delete ${preset.label} instruction`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleDeleteCustomInstruction(preset.instruction);
+                                  }}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                            </div>
                           ))}
                         </div>
                       </div>
