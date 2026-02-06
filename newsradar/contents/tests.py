@@ -5,7 +5,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
-from newsradar.contents.models import Content
+from newsradar.contents.models import AIInteraction, Content
 from newsradar.executions.models import Execution
 from newsradar.topics.models import Topic
 
@@ -135,6 +135,18 @@ class ContentAIEndpointTests(TestCase):
         self.assertEqual(request_payload["instruction"], "Summarize this news item.")
         self.assertEqual(request_payload["news_context"][0]["id"], self.content.id)
 
+        interaction = AIInteraction.objects.get(user=self.user)
+        self.assertEqual(interaction.status, AIInteraction.Status.COMPLETED)
+        self.assertEqual(interaction.instruction, "Summarize this news item.")
+        self.assertEqual(interaction.context_content_ids, [self.content.id])
+        self.assertEqual(interaction.response_text, "Here is the summary.")
+        self.assertEqual(interaction.model_requested, "gpt-4.1-mini")
+        self.assertEqual(interaction.model_used, "gpt-4.1-mini")
+        self.assertEqual(interaction.input_tokens, 12)
+        self.assertEqual(interaction.output_tokens, 8)
+        self.assertEqual(interaction.total_tokens, 20)
+        self.assertEqual(str(interaction.credits_used), "20.000000")
+
     def test_maps_rate_limit_to_429(self):
         self.client.force_login(self.user)
 
@@ -154,6 +166,9 @@ class ContentAIEndpointTests(TestCase):
                 )
 
         self.assertEqual(response.status_code, 429)
+        interaction = AIInteraction.objects.get(user=self.user)
+        self.assertEqual(interaction.status, AIInteraction.Status.FAILED)
+        self.assertEqual(interaction.error_message, "AI provider rate limit reached.")
 
     def test_returns_502_when_provider_response_is_empty(self):
         self.client.force_login(self.user)
@@ -174,3 +189,6 @@ class ContentAIEndpointTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 502)
+        interaction = AIInteraction.objects.get(user=self.user)
+        self.assertEqual(interaction.status, AIInteraction.Status.FAILED)
+        self.assertEqual(interaction.error_message, "AI provider returned an empty response.")

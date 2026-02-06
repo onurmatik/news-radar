@@ -1,5 +1,6 @@
 import json
 import logging
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone as dt_timezone
 from email.utils import format_datetime
 from typing import Any
@@ -23,7 +24,7 @@ from openai import (
 )
 
 from newsradar.accounts.models import Profile
-from newsradar.contents.models import Bookmark, Content
+from newsradar.contents.models import AIInteraction, Bookmark, Content
 from newsradar.topics.models import Topic, TopicGroup
 
 api = NinjaAPI(title="Contents API", urls_namespace="contents")
@@ -159,6 +160,45 @@ def _extract_response_usage_tokens(response: Any) -> tuple[int | None, int | Non
         getattr(usage, "output_tokens", None),
         getattr(usage, "total_tokens", None),
     )
+
+
+def _extract_response_usage_payload(response: Any) -> dict[str, Any] | None:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    if isinstance(usage, dict):
+        return usage
+    model_dump = getattr(usage, "model_dump", None)
+    if callable(model_dump):
+        payload = model_dump()
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _extract_response_credits(
+    usage_payload: dict[str, Any] | None,
+    total_tokens: int | None,
+) -> Decimal | None:
+    if usage_payload:
+        for key in (
+            "credits",
+            "credit",
+            "consumed_credits",
+            "total_credits",
+            "cost",
+            "total_cost",
+        ):
+            value = usage_payload.get(key)
+            if value is None:
+                continue
+            try:
+                return Decimal(str(value))
+            except (InvalidOperation, TypeError, ValueError):
+                continue
+    if total_tokens is not None:
+        return Decimal(total_tokens)
+    return None
 
 
 class ContentFeedItem(Schema):
@@ -414,6 +454,26 @@ def ai_respond(request, payload: AIInteractionRequest):
         },
         ensure_ascii=False,
     )
+    interaction = AIInteraction.objects.create(
+        user=request.user,
+        status=AIInteraction.Status.CREATED,
+        instruction=instruction,
+        context_content_ids=normalized_content_ids,
+        context_payload=news_context,
+        model_requested=model_name,
+    )
+
+    def _mark_interaction_failed(error_message: str) -> None:
+        if interaction.status == AIInteraction.Status.COMPLETED:
+            return
+        interaction.status = AIInteraction.Status.FAILED
+        interaction.error_message = error_message
+        interaction.save(
+            update_fields=[
+                "status",
+                "error_message",
+            ]
+        )
 
     try:
         client = OpenAI(
@@ -430,38 +490,91 @@ def ai_respond(request, payload: AIInteractionRequest):
             max_output_tokens=settings.OPENAI_RESPONSES_MAX_OUTPUT_TOKENS,
         )
         answer = _extract_ai_response_text(response)
+        input_tokens, output_tokens, total_tokens = _extract_response_usage_tokens(response)
+        usage_payload = _extract_response_usage_payload(response)
+        credits_used = _extract_response_credits(usage_payload, total_tokens)
+        response_model = str(getattr(response, "model", model_name) or model_name)
+        response_id = str(getattr(response, "id", "") or "")
+
+        interaction.model_used = response_model
+        interaction.response_id = response_id
+        interaction.response_text = answer
+        interaction.usage_payload = usage_payload
+        interaction.input_tokens = input_tokens
+        interaction.output_tokens = output_tokens
+        interaction.total_tokens = total_tokens
+        interaction.credits_used = credits_used
+
         if not answer:
             logger.error(
                 "Responses API returned empty output. response_id=%s",
-                getattr(response, "id", None),
+                response_id or None,
+            )
+            interaction.status = AIInteraction.Status.FAILED
+            interaction.error_message = "AI provider returned an empty response."
+            interaction.save(
+                update_fields=[
+                    "model_used",
+                    "response_id",
+                    "response_text",
+                    "usage_payload",
+                    "input_tokens",
+                    "output_tokens",
+                    "total_tokens",
+                    "credits_used",
+                    "status",
+                    "error_message",
+                ]
             )
             raise HttpError(502, "AI provider returned an empty response.")
-        input_tokens, output_tokens, total_tokens = _extract_response_usage_tokens(response)
+
+        interaction.status = AIInteraction.Status.COMPLETED
+        interaction.error_message = None
+        interaction.save(
+            update_fields=[
+                "model_used",
+                "response_id",
+                "response_text",
+                "usage_payload",
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "credits_used",
+                "status",
+                "error_message",
+            ]
+        )
         return AIInteractionResponse(
             answer=answer,
-            model=getattr(response, "model", model_name),
-            response_id=getattr(response, "id", None),
+            model=response_model,
+            response_id=response_id or None,
             content_count=len(ordered_contents),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=total_tokens,
         )
-    except HttpError:
+    except HttpError as exc:
+        _mark_interaction_failed(str(exc))
         raise
     except BadRequestError:
+        _mark_interaction_failed("Invalid AI interaction request.")
         logger.exception("AI provider rejected request.")
         raise HttpError(400, "Invalid AI interaction request.")
     except AuthenticationError:
+        _mark_interaction_failed("AI provider authentication failed.")
         logger.exception("AI provider authentication failed.")
         raise HttpError(502, "AI provider authentication failed.")
     except RateLimitError:
+        _mark_interaction_failed("AI provider rate limit reached.")
         logger.warning("AI provider rate limit reached.", exc_info=True)
         raise HttpError(429, "AI provider rate limit reached. Please retry.")
     except (APIConnectionError, APITimeoutError):
+        _mark_interaction_failed("AI provider is temporarily unavailable.")
         logger.warning("AI provider unavailable.", exc_info=True)
         raise HttpError(503, "AI provider is temporarily unavailable. Please retry.")
     except APIStatusError as exc:
         status_code = getattr(exc, "status_code", None)
+        _mark_interaction_failed(f"AI provider request failed with status {status_code}.")
         logger.warning(
             "AI provider returned status error. status_code=%s",
             status_code,
@@ -473,6 +586,7 @@ def ai_respond(request, payload: AIInteractionRequest):
             raise HttpError(503, "AI provider is temporarily unavailable. Please retry.")
         raise HttpError(502, "AI provider request failed.")
     except Exception:
+        _mark_interaction_failed("Unexpected error during AI interaction.")
         logger.exception("Unexpected error during AI interaction endpoint.")
         raise HttpError(500, "Unexpected error during AI interaction.")
 

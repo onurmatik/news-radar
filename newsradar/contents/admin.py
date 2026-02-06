@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Bookmark, Content
+from .models import AIInteraction, Bookmark, Content
 
 
 @admin.register(Content)
@@ -16,3 +16,19 @@ class BookmarkAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "content", "created_at")
     list_select_related = ("user", "content")
     search_fields = ("user__username", "content__url", "content__title")
+
+
+@admin.register(AIInteraction)
+class AIInteractionAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "status",
+        "model_requested",
+        "model_used",
+        "credits_used",
+        "created_at",
+    )
+    list_filter = ("status", "created_at", "model_requested", "model_used")
+    search_fields = ("user__username", "instruction", "response_text", "response_id")
+    readonly_fields = ("created_at",)

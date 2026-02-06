@@ -20,11 +20,28 @@ import {
   updateTopicGroup,
 } from '@/lib/api';
 import type { ApiAIInteractionResponse, ApiContentFeedItem, NewsItem } from '@/lib/types';
-import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle, Sparkles } from 'lucide-react';
+import {
+  ExternalLink,
+  Clock,
+  Share2,
+  Filter,
+  Star,
+  PlusCircle,
+  Sparkles,
+  Save,
+  Check,
+  List,
+  Play,
+} from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+
+type AIPresetInstruction = {
+  label: string;
+  instruction: string;
+};
 
 const AI_PRESET_INSTRUCTIONS = [
   {
@@ -44,6 +61,45 @@ const AI_PRESET_INSTRUCTIONS = [
     instruction: "Highlight risks, opportunities, and open questions based on this context.",
   },
 ];
+const AI_SAVED_INSTRUCTIONS_STORAGE_KEY = "newsradar.ai.saved_instructions.v1";
+
+function toInstructionLabel(value: string): string {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  if (!normalized) return "Custom";
+  const words = normalized.split(" ").slice(0, 4).join(" ");
+  if (words.length < normalized.length) {
+    return `${words}...`;
+  }
+  return words;
+}
+
+function normalizeCustomInstructions(raw: unknown): AIPresetInstruction[] {
+  if (!Array.isArray(raw)) return [];
+  const defaultSet = new Set(
+    AI_PRESET_INSTRUCTIONS.map((entry) => entry.instruction.trim().toLowerCase())
+  );
+  const seen = new Set<string>();
+  const normalized: AIPresetInstruction[] = [];
+  raw.forEach((entry) => {
+    if (!entry || typeof entry !== "object") return;
+    const instructionValue = (entry as { instruction?: unknown }).instruction;
+    const labelValue = (entry as { label?: unknown }).label;
+    if (typeof instructionValue !== "string") return;
+    const instruction = instructionValue.trim();
+    if (!instruction) return;
+    const key = instruction.toLowerCase();
+    if (defaultSet.has(key) || seen.has(key)) return;
+    seen.add(key);
+    normalized.push({
+      label:
+        typeof labelValue === "string" && labelValue.trim()
+          ? labelValue.trim()
+          : toInstructionLabel(instruction),
+      instruction,
+    });
+  });
+  return normalized;
+}
 
 /**
  * Dashboard component serving as the main interface.
@@ -94,10 +150,15 @@ export default function Dashboard() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiResponse, setAiResponse] = useState<ApiAIInteractionResponse | null>(null);
+  const [aiCustomInstructions, setAiCustomInstructions] = useState<AIPresetInstruction[]>([]);
+  const [aiInstructionMenuOpen, setAiInstructionMenuOpen] = useState(false);
+  const [aiSaveFeedback, setAiSaveFeedback] = useState<"idle" | "saved">("idle");
   const feedCache = useRef<Map<string, NewsItem[]>>(new Map());
   const latestRequestId = useRef(0);
   const pageTopRef = useRef<HTMLDivElement | null>(null);
   const domainMenuRef = useRef<HTMLDivElement | null>(null);
+  const aiInstructionMenuRef = useRef<HTMLDivElement | null>(null);
+  const aiSaveFeedbackTimerRef = useRef<number | null>(null);
 
   const selectedGroup = groups.find((group) => group.uuid === selectedGroupId) ?? null;
   const selectedTopic = selectedTopicUuid
@@ -324,6 +385,49 @@ export default function Dashboard() {
     };
   }, [domainMenuOpen]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const rawValue = window.localStorage.getItem(AI_SAVED_INSTRUCTIONS_STORAGE_KEY);
+      if (!rawValue) return;
+      const parsed = JSON.parse(rawValue);
+      setAiCustomInstructions(normalizeCustomInstructions(parsed));
+    } catch {
+      // ignore malformed localStorage payloads
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      AI_SAVED_INSTRUCTIONS_STORAGE_KEY,
+      JSON.stringify(aiCustomInstructions)
+    );
+  }, [aiCustomInstructions]);
+
+  useEffect(() => {
+    if (!aiInstructionMenuOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!aiInstructionMenuRef.current?.contains(event.target as Node)) {
+        setAiInstructionMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      window.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [aiInstructionMenuOpen]);
+
+  useEffect(
+    () => () => {
+      if (aiSaveFeedbackTimerRef.current !== null) {
+        window.clearTimeout(aiSaveFeedbackTimerRef.current);
+        aiSaveFeedbackTimerRef.current = null;
+      }
+    },
+    []
+  );
+
   const toggleBookmark = async (item: NewsItem) => {
     if (!isAuthenticated) {
       openAuthDialog();
@@ -364,6 +468,10 @@ export default function Dashboard() {
     });
   }, [bookmarkedOnly, domainFilters, news]);
   const aiContextIds = useMemo(() => filteredNews.map((item) => item.id), [filteredNews]);
+  const allSavedInstructions = useMemo(
+    () => [...AI_PRESET_INSTRUCTIONS, ...aiCustomInstructions],
+    [aiCustomInstructions]
+  );
   const hasActiveFilters = domainFilters.length > 0 || bookmarkedOnly || newOnly;
   const availableDomains = useMemo(
     () =>
@@ -393,6 +501,51 @@ export default function Dashboard() {
         ? prev.filter((entry) => entry !== domain)
         : [...prev, domain]
     );
+  };
+
+  const handleSelectInstruction = (instruction: string) => {
+    setAiInstruction(instruction);
+    setAiError(null);
+    setAiSaveFeedback("idle");
+    setAiInstructionMenuOpen(false);
+  };
+
+  const triggerAiSaveFeedback = () => {
+    setAiSaveFeedback("saved");
+    if (aiSaveFeedbackTimerRef.current !== null) {
+      window.clearTimeout(aiSaveFeedbackTimerRef.current);
+    }
+    aiSaveFeedbackTimerRef.current = window.setTimeout(() => {
+      setAiSaveFeedback("idle");
+      aiSaveFeedbackTimerRef.current = null;
+    }, 1200);
+  };
+
+  const handleSaveInstruction = () => {
+    const trimmed = aiInstruction.trim();
+    if (!trimmed) {
+      setAiError("Instruction cannot be empty.");
+      return;
+    }
+    const normalized = trimmed.replace(/\s+/g, " ");
+    const instructionKey = normalized.toLowerCase();
+    const existingInstructions = new Set(
+      [...AI_PRESET_INSTRUCTIONS, ...aiCustomInstructions].map((entry) =>
+        entry.instruction.trim().toLowerCase()
+      )
+    );
+    if (existingInstructions.has(instructionKey)) {
+      setAiError(null);
+      triggerAiSaveFeedback();
+      return;
+    }
+    const nextInstruction = {
+      label: toInstructionLabel(normalized),
+      instruction: normalized,
+    };
+    setAiCustomInstructions((prev) => [nextInstruction, ...prev]);
+    setAiError(null);
+    triggerAiSaveFeedback();
   };
 
   const handleRunAI = async () => {
@@ -426,6 +579,8 @@ export default function Dashboard() {
       setAiLoading(false);
     }
   };
+
+  const canRunAI = !aiLoading && aiContextIds.length > 0 && Boolean(aiInstruction.trim());
 
   const handleToggleNewOnly = () => {
     if (!selectedTopicUuid) return;
@@ -1188,19 +1343,10 @@ export default function Dashboard() {
                 )}
               </div>
 
-              {aiResponse && (
-                <p className="text-[11px] text-muted-foreground/80">
-                  Generated from {aiResponse.content_count} item
-                  {aiResponse.content_count === 1 ? "" : "s"}
-                  {" · "}
-                  Model: {aiResponse.model}
-                  {aiResponse.total_tokens ? ` · ${aiResponse.total_tokens} tokens` : ""}
-                </p>
-              )}
               {aiError && <p className="text-xs text-destructive">{aiError}</p>}
 
               <div className="mt-auto space-y-3 border-t border-border/60 pt-3">
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {AI_PRESET_INSTRUCTIONS.map((preset) => (
                     <Button
                       key={preset.label}
@@ -1208,36 +1354,105 @@ export default function Dashboard() {
                       variant={preset.instruction === aiInstruction ? "secondary" : "outline"}
                       size="sm"
                       className="h-auto rounded-full px-3 py-1 text-[11px]"
-                      onClick={() => {
-                        setAiInstruction(preset.instruction);
-                        setAiError(null);
-                      }}
+                      onClick={() => handleSelectInstruction(preset.instruction)}
                     >
                       {preset.label}
                     </Button>
                   ))}
+                  <div className="relative ml-auto" ref={aiInstructionMenuRef}>
+                    <Button
+                      type="button"
+                      variant={aiInstructionMenuOpen ? "secondary" : "outline"}
+                      size="sm"
+                      className="h-auto rounded-full px-2 py-1 text-[11px]"
+                      aria-haspopup="true"
+                      aria-expanded={aiInstructionMenuOpen}
+                      onClick={() => setAiInstructionMenuOpen((prev) => !prev)}
+                      title="Browse saved instructions"
+                    >
+                      <List className="h-3.5 w-3.5" />
+                    </Button>
+                    {aiInstructionMenuOpen && (
+                      <div className="custom-scrollbar absolute bottom-full right-0 z-30 mb-2 max-h-72 w-72 overflow-y-auto rounded-lg border border-border/70 bg-background p-2 shadow-lg">
+                        <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Saved instructions
+                        </p>
+                        <div className="space-y-1">
+                          {allSavedInstructions.map((preset) => (
+                            <button
+                              key={`${preset.label}-${preset.instruction}`}
+                              type="button"
+                              className={`w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/70 ${
+                                preset.instruction === aiInstruction
+                                  ? "bg-muted text-foreground"
+                                  : "text-muted-foreground"
+                              }`}
+                              onClick={() => handleSelectInstruction(preset.instruction)}
+                            >
+                              <p className="text-xs font-medium text-foreground">{preset.label}</p>
+                              <p className="line-clamp-2 text-[11px]">{preset.instruction}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <textarea
-                  className="h-28 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  placeholder="Ask anything about the current content list..."
-                  value={aiInstruction}
-                  onChange={(event) => {
-                    setAiInstruction(event.target.value);
-                    if (aiError) {
-                      setAiError(null);
-                    }
-                  }}
-                />
-
-                <Button
-                  type="button"
-                  className="w-full"
-                  onClick={() => void handleRunAI()}
-                  disabled={aiLoading || aiContextIds.length === 0 || !aiInstruction.trim()}
-                >
-                  {aiLoading ? "Generating..." : "Run AI Instruction"}
-                </Button>
+                <div className="relative">
+                  <textarea
+                    className="h-28 w-full resize-none rounded-md border border-input bg-background px-2 py-2 pb-11 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    placeholder="Ask anything about the current content list..."
+                    value={aiInstruction}
+                    onChange={(event) => {
+                      setAiInstruction(event.target.value);
+                      setAiSaveFeedback("idle");
+                      if (aiError) {
+                        setAiError(null);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        if (canRunAI) {
+                          void handleRunAI();
+                        }
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute bottom-1.5 left-0 shadow-none hover:bg-gray-300"
+                    onClick={handleSaveInstruction}
+                    disabled={!aiInstruction.trim()}
+                    title={aiSaveFeedback === "saved" ? "Saved" : "Save instruction"}
+                    aria-label={aiSaveFeedback === "saved" ? "Instruction saved" : "Save instruction"}
+                  >
+                    {aiSaveFeedback === "saved" ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : (
+                      <Save className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute bottom-1.5 right-0 shadow-none hover:text-green-600"
+                    onClick={() => void handleRunAI()}
+                    disabled={!canRunAI}
+                    title="Run instruction (Enter)"
+                    aria-label="Run instruction"
+                  >
+                    {aiLoading ? (
+                      <span className="text-[10px] leading-none">...</span>
+                    ) : (
+                      <Play className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

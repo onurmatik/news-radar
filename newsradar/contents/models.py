@@ -78,3 +78,50 @@ class Bookmark(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id}: {self.content_id}"
+
+
+class AIInteraction(models.Model):
+    class Status(models.TextChoices):
+        CREATED = "created", "Created"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="content_ai_interactions",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.CREATED,
+    )
+    instruction = models.TextField()
+    context_content_ids = models.JSONField(default=list)
+    context_payload = models.JSONField(default=list)
+    model_requested = models.CharField(max_length=120)
+    model_used = models.CharField(max_length=120, blank=True)
+    response_id = models.CharField(max_length=120, blank=True)
+    response_text = models.TextField(blank=True)
+    usage_payload = models.JSONField(blank=True, null=True)
+    input_tokens = models.IntegerField(blank=True, null=True)
+    output_tokens = models.IntegerField(blank=True, null=True)
+    total_tokens = models.IntegerField(blank=True, null=True)
+    credits_used = models.DecimalField(
+        max_digits=20,
+        decimal_places=6,
+        blank=True,
+        null=True,
+    )
+    error_message = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-created_at"]),
+            models.Index(fields=["status", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.id}: {self.user_id}: {self.status}"
