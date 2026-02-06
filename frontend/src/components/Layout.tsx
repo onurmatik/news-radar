@@ -29,6 +29,7 @@ import {
   createTopicGroup,
   deleteTopicGroup,
   getExecution,
+  getNotifications,
   listTopicGroups,
   listTopics,
   runTopicScan,
@@ -36,7 +37,7 @@ import {
   updateTopicGroup,
   updateTopic,
 } from '@/lib/api';
-import type { ApiSearchResponse, ApiTopicGroupItem, ApiTopicListItem, TopicItem } from '@/lib/types';
+import type { ApiNotificationsResponse, ApiSearchResponse, ApiTopicGroupItem, ApiTopicListItem, TopicItem } from '@/lib/types';
 import { AuthDialog } from '@/components/AuthDialog';
 import { useAuthDialog } from '@/components/AuthDialogContext';
 import { useTopicGroup } from '@/components/TopicGroupContext';
@@ -87,7 +88,12 @@ export function Layout({ children }: SidebarProps) {
   const [createGroupError, setCreateGroupError] = useState<string | null>(null);
   const [groupSelectOpen, setGroupSelectOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState<ApiNotificationsResponse | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsError, setNotificationsError] = useState<string | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const notificationsRef = useRef<HTMLDivElement | null>(null);
   const [topicMenuOpenId, setTopicMenuOpenId] = useState<string | null>(null);
   const topicMenuRef = useRef<HTMLDivElement | null>(null);
   const [changeGroupOpen, setChangeGroupOpen] = useState(false);
@@ -113,6 +119,16 @@ export function Layout({ children }: SidebarProps) {
     return ALL_TOPICS_VALUE;
   }, [ALL_TOPICS_VALUE, isAuthenticated, selectedGroupId]);
 
+  const notificationCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    notifications?.topics.forEach((topic) => {
+      counts[topic.topic_uuid] = topic.new_count;
+    });
+    return counts;
+  }, [notifications]);
+  const notificationTotal = notifications?.total_new ?? 0;
+  const hasNewNotifications = notificationTotal > 0;
+
   const requireAuth = () => {
     if (isAuthenticated) {
       return true;
@@ -129,7 +145,10 @@ export function Layout({ children }: SidebarProps) {
     category: "General",
     isActive: topic.is_active,
     lastSearch: topic.last_fetched_at ? new Date(topic.last_fetched_at) : null,
-    hasNewItems: topic.content_source_count > 0,
+    hasNewItems:
+      notificationCounts[topic.uuid] !== undefined
+        ? notificationCounts[topic.uuid] > 0
+        : topic.content_source_count > 0,
     groupUuid: topic.group_uuid,
     groupName: topic.group_name,
     ownerUsername: topic.owner_username,
@@ -168,6 +187,23 @@ export function Layout({ children }: SidebarProps) {
     }
   };
 
+  const loadNotifications = async () => {
+    if (!isAuthenticated) return;
+    setNotificationsLoading(true);
+    setNotificationsError(null);
+    try {
+      const response = await getNotifications();
+      setNotifications(response);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to load notifications.";
+      setNotificationsError(message);
+      setNotifications(null);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (isAuthenticated === null) return;
     setGroupsLoaded(false);
@@ -179,6 +215,43 @@ export function Layout({ children }: SidebarProps) {
     setGroupsLoaded(true);
     void loadGroups();
   }, [groupsLoaded, isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated !== true) {
+      setNotifications(null);
+      setNotificationsError(null);
+      setNotificationsLoading(false);
+      setNotificationsOpen(false);
+      return;
+    }
+    void loadNotifications();
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    void loadNotifications();
+  }, [notificationsOpen]);
+
+  useEffect(() => {
+    if (isAuthenticated !== true) return;
+    const handleNotificationRefresh = () => {
+      void loadNotifications();
+    };
+    window.addEventListener("topic-scan-completed", handleNotificationRefresh);
+    return () => {
+      window.removeEventListener("topic-scan-completed", handleNotificationRefresh);
+    };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!notifications) return;
+    setTopics((prev) =>
+      prev.map((topic) => ({
+        ...topic,
+        hasNewItems: (notificationCounts[topic.uuid] ?? 0) > 0,
+      }))
+    );
+  }, [notificationCounts, notifications, setTopics]);
 
   useEffect(() => {
     if (isAuthenticated === null) return;
@@ -366,6 +439,26 @@ export function Layout({ children }: SidebarProps) {
       document.removeEventListener("keydown", handleKey);
     };
   }, [profileMenuOpen]);
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      if (!notificationsRef.current?.contains(event.target as Node)) {
+        setNotificationsOpen(false);
+      }
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setNotificationsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [notificationsOpen]);
 
   useEffect(() => {
     if (!topicMenuOpenId) return;
@@ -740,6 +833,19 @@ export function Layout({ children }: SidebarProps) {
     navigate(`/content/${content.id}/full`);
   };
 
+  const handleNotificationSelect = (
+    item: ApiNotificationsResponse["topics"][number]
+  ) => {
+    if (!requireAuth()) {
+      return;
+    }
+    const nextGroupId = item.group_uuid ?? "";
+    setSelectedGroupId(nextGroupId);
+    setSelectedTopicUuid(item.topic_uuid);
+    setNotificationsOpen(false);
+    navigate("/?filter=new");
+  };
+
   const changeGroupDisabled =
     !changeGroupTopic ||
     !changeGroupValue.trim() ||
@@ -1021,14 +1127,78 @@ export function Layout({ children }: SidebarProps) {
             <div className="flex items-center gap-2 border-l border-border pl-4">
               {isAuthenticated ? (
                 <>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted relative"
-                  >
-                    <Bell className="h-4 w-4" />
-                    <span className="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-destructive animate-pulse"></span>
-                  </Button>
+                  <div className="relative" ref={notificationsRef}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted relative"
+                      onClick={() => setNotificationsOpen((prev) => !prev)}
+                      aria-haspopup="menu"
+                      aria-expanded={notificationsOpen}
+                    >
+                      <Bell className="h-4 w-4" />
+                      {hasNewNotifications && (
+                        <span className="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-destructive animate-pulse"></span>
+                      )}
+                    </Button>
+                    {notificationsOpen && (
+                      <div className="absolute right-0 mt-2 w-72 rounded-xl border border-border bg-background shadow-lg p-3 z-50">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                            Notifications
+                          </p>
+                          {notificationTotal > 0 && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {notificationTotal} new
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {notificationsLoading && (
+                            <p className="text-xs text-muted-foreground">Loading...</p>
+                          )}
+                          {notificationsError && (
+                            <p className="text-xs text-destructive">{notificationsError}</p>
+                          )}
+                          {!notificationsLoading &&
+                            !notificationsError &&
+                            notifications &&
+                            notifications.topics.length === 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                No new content yet.
+                              </p>
+                            )}
+                          {!notificationsLoading &&
+                            !notificationsError &&
+                            notifications &&
+                            notifications.topics.length > 0 && (
+                              <div className="space-y-1">
+                                {notifications.topics.map((item) => (
+                                  <button
+                                    key={item.topic_uuid}
+                                    type="button"
+                                    className="w-full text-left px-3 py-2 rounded-lg border border-border/60 hover:bg-muted/60 transition-colors"
+                                    onClick={() => handleNotificationSelect(item)}
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-semibold text-foreground">
+                                        {item.topic_queries?.[0] || "Untitled topic"}
+                                      </span>
+                                      <span className="text-[10px] font-mono text-primary">
+                                        {item.new_count}
+                                      </span>
+                                    </div>
+                                    <div className="text-[11px] text-muted-foreground">
+                                      {item.group_name || "Private group"}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <div className="relative" ref={profileMenuRef}>
                     <Button
                       variant="ghost"

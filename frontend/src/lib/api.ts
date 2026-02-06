@@ -4,6 +4,7 @@ import type {
   ApiContentFeedResponse,
   ApiCurrentUser,
   ApiExecutionDetail,
+  ApiNotificationsResponse,
   ApiSearchResponse,
   ApiTopicCreateResponse,
   ApiTopicGroupCreateResponse,
@@ -217,10 +218,12 @@ export async function listContentFeed(params?: {
   topicUuid?: string;
   limit?: number;
   offset?: number;
+  onlyNew?: boolean;
 }): Promise<ApiContentFeedResponse> {
   const search = new URLSearchParams();
   if (params?.limit) search.set("limit", String(params.limit));
   if (params?.offset) search.set("offset", String(params.offset));
+  if (params?.onlyNew) search.set("only_new", "true");
   const query = search.toString();
   if (params?.topicUuid) {
     return requestJson<ApiContentFeedResponse>(
@@ -235,11 +238,13 @@ export async function listContentByGroup(
   params?: {
     limit?: number;
     offset?: number;
+    onlyNew?: boolean;
   }
 ): Promise<ApiContentFeedResponse> {
   const search = new URLSearchParams();
   if (params?.limit) search.set("limit", String(params.limit));
   if (params?.offset) search.set("offset", String(params.offset));
+  if (params?.onlyNew) search.set("only_new", "true");
   const query = search.toString();
   return requestJson<ApiContentFeedResponse>(
     `/api/contents/groups/${groupUuid}${query ? `?${query}` : ""}`
@@ -286,6 +291,10 @@ export async function deleteBookmark(contentId: number): Promise<void> {
 
 export async function getCurrentUser(): Promise<ApiCurrentUser> {
   return requestJson<ApiCurrentUser>("/api/auth/me");
+}
+
+export async function getNotifications(): Promise<ApiNotificationsResponse> {
+  return requestJson<ApiNotificationsResponse>("/api/contents/notifications");
 }
 
 export async function logout(): Promise<void> {

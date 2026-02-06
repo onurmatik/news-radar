@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { useAuthDialog } from '@/components/AuthDialogContext';
 import { useTopicGroup } from '@/components/TopicGroupContext';
@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { createBookmark, deleteBookmark, getExecution, listContentByGroup, listContentFeed, runTopicScan, updateTopicGroup } from '@/lib/api';
 import type { ApiContentFeedItem, NewsItem } from '@/lib/types';
-import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle } from 'lucide-react';
+import { ExternalLink, Clock, Share2, Filter, Star, PlusCircle, Sparkles } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -36,11 +36,13 @@ export default function Dashboard() {
   } = useTopicGroup();
   const { topics, setTopics } = useTopics();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [domainFilters, setDomainFilters] = useState<string[]>([]);
   const [bookmarkedOnly, setBookmarkedOnly] = useState(false);
+  const [newOnly, setNewOnly] = useState(false);
   const [domainMenuOpen, setDomainMenuOpen] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [groupIsPublic, setGroupIsPublic] = useState(false);
@@ -130,6 +132,16 @@ export default function Dashboard() {
       .map((entry) => entry.trim())
       .filter(Boolean);
 
+  const getCacheKey = () => {
+    if (selectedTopicUuid) {
+      return `topic:${selectedTopicUuid}:${newOnly ? "new" : "all"}`;
+    }
+    if (selectedGroupId) {
+      return `group:${selectedGroupId}`;
+    }
+    return "all";
+  };
+
   const waitForExecutionCompletion = async (executionId: number) => {
     const maxAttempts = 30;
     const delayMs = 2000;
@@ -147,6 +159,23 @@ export default function Dashboard() {
     }
     throw new Error("Timed out waiting for the fetch to finish.");
   };
+
+  useEffect(() => {
+    const filter = searchParams.get("filter");
+    const shouldEnable = filter === "new";
+    if (shouldEnable !== newOnly) {
+      setNewOnly(shouldEnable);
+    }
+  }, [newOnly, searchParams]);
+
+  useEffect(() => {
+    if (selectedTopicUuid) return;
+    if (!newOnly) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("filter");
+    setSearchParams(nextParams, { replace: true });
+    setNewOnly(false);
+  }, [newOnly, searchParams, selectedTopicUuid, setSearchParams]);
 
 
   useEffect(() => {
@@ -173,7 +202,7 @@ export default function Dashboard() {
     setError(null);
     try {
       const response = selectedTopicUuid
-        ? await listContentFeed({ topicUuid: selectedTopicUuid })
+        ? await listContentFeed({ topicUuid: selectedTopicUuid, onlyNew: newOnly })
         : selectedGroupId
           ? await listContentByGroup(selectedGroupId)
           : await listContentFeed();
@@ -197,11 +226,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (isAuthenticated === null) return;
-    const cacheKey = selectedTopicUuid
-      ? `topic:${selectedTopicUuid}`
-      : selectedGroupId
-        ? `group:${selectedGroupId}`
-        : "all";
+    const cacheKey = getCacheKey();
     const cached = feedCache.current.get(cacheKey);
     if (cached) {
       setNews(cached);
@@ -214,7 +239,7 @@ export default function Dashboard() {
       return;
     }
     void loadFeed(cacheKey);
-  }, [isAuthenticated, selectedGroupId, selectedTopicUuid]);
+  }, [isAuthenticated, newOnly, selectedGroupId, selectedTopicUuid]);
 
   useEffect(() => {
     const handleScanCompleted = (
@@ -225,18 +250,18 @@ export default function Dashboard() {
       if (selectedTopicUuid && topicUuid !== selectedTopicUuid) return;
 
       if (selectedTopicUuid) {
-        void loadFeed(`topic:${selectedTopicUuid}`);
+        void loadFeed(getCacheKey());
         return;
       }
 
       const scannedTopic = topics.find((topic) => topic.uuid === topicUuid);
       if (selectedGroupId && scannedTopic?.groupUuid === selectedGroupId) {
-        void loadFeed(`group:${selectedGroupId}`);
+        void loadFeed(getCacheKey());
         return;
       }
 
       if (!selectedGroupId && !selectedTopicUuid) {
-        void loadFeed("all");
+        void loadFeed(getCacheKey());
       }
     };
 
@@ -244,11 +269,11 @@ export default function Dashboard() {
     return () => {
       window.removeEventListener("topic-scan-completed", handleScanCompleted);
     };
-  }, [selectedGroupId, selectedTopicUuid, topics]);
+  }, [newOnly, selectedGroupId, selectedTopicUuid, topics]);
 
   useEffect(() => {
     pageTopRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
-  }, [selectedGroupId, selectedTopicUuid]);
+  }, [newOnly, selectedGroupId, selectedTopicUuid]);
 
   useEffect(() => {
     if (!domainMenuOpen) return;
@@ -302,7 +327,7 @@ export default function Dashboard() {
       return true;
     });
   }, [bookmarkedOnly, domainFilters, news]);
-  const hasActiveFilters = domainFilters.length > 0 || bookmarkedOnly;
+  const hasActiveFilters = domainFilters.length > 0 || bookmarkedOnly || newOnly;
   const availableDomains = useMemo(
     () =>
       Array.from(new Set(news.map((item) => item.source).filter(Boolean))).sort((a, b) =>
@@ -318,6 +343,12 @@ export default function Dashboard() {
   const handleClearFilters = () => {
     setDomainFilters([]);
     setBookmarkedOnly(false);
+    if (newOnly) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("filter");
+      setSearchParams(nextParams, { replace: true });
+      setNewOnly(false);
+    }
   };
   const handleToggleDomain = (domain: string) => {
     setDomainFilters((prev) =>
@@ -325,6 +356,23 @@ export default function Dashboard() {
         ? prev.filter((entry) => entry !== domain)
         : [...prev, domain]
     );
+  };
+
+  const handleToggleNewOnly = () => {
+    if (!selectedTopicUuid) return;
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
+    const nextValue = !newOnly;
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextValue) {
+      nextParams.set("filter", "new");
+    } else {
+      nextParams.delete("filter");
+    }
+    setSearchParams(nextParams, { replace: true });
+    setNewOnly(nextValue);
   };
 
   const handleAddTopic = () => {
@@ -359,11 +407,7 @@ export default function Dashboard() {
       openAuthDialog();
       return;
     }
-    const cacheKey = selectedTopicUuid
-      ? `topic:${selectedTopicUuid}`
-      : selectedGroupId
-        ? `group:${selectedGroupId}`
-        : "all";
+    const cacheKey = getCacheKey();
     if (!selectedTopicUuid) {
       void loadFeed(cacheKey);
       return;
@@ -792,6 +836,26 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+
+            {selectedTopic && (
+              <Button
+                type="button"
+                variant={newOnly ? "secondary" : "outline"}
+                size="sm"
+                className="h-8 rounded-full px-3 text-[11px] flex items-center gap-2"
+                onClick={handleToggleNewOnly}
+                aria-pressed={newOnly}
+                disabled={isAuthenticated !== true}
+                title={
+                  isAuthenticated
+                    ? "Show only new content in this topic."
+                    : "Sign in to use the new filter."
+                }
+              >
+                <Sparkles className={`h-3.5 w-3.5 ${newOnly ? "fill-current" : ""}`} />
+                New
+              </Button>
+            )}
 
             <Button
               type="button"
