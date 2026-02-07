@@ -106,10 +106,16 @@ def _content_published_at_expression():
     )
 
 
+def _active_contents_queryset():
+    return Content.objects.filter(deleted_at__isnull=True)
+
+
 def _latest_content_per_topic_url(queryset):
-    queryset = queryset.annotate(content_published_at=_content_published_at_expression())
+    queryset = queryset.filter(deleted_at__isnull=True).annotate(
+        content_published_at=_content_published_at_expression()
+    )
     newer_content_subquery = (
-        Content.objects.filter(
+        _active_contents_queryset().filter(
             topic_id=OuterRef("topic_id"),
             url=OuterRef("url"),
         )
@@ -123,6 +129,22 @@ def _latest_content_per_topic_url(queryset):
         )
     )
     return queryset.filter(~Exists(newer_content_subquery))
+
+
+def _latest_deleted_content_per_topic_url(queryset):
+    queryset = queryset.filter(deleted_at__isnull=False)
+    newer_deleted_content_subquery = Content.objects.filter(
+        topic_id=OuterRef("topic_id"),
+        url=OuterRef("url"),
+        deleted_at__isnull=False,
+    ).filter(
+        Q(deleted_at__gt=OuterRef("deleted_at"))
+        | Q(
+            deleted_at=OuterRef("deleted_at"),
+            id__gt=OuterRef("id"),
+        )
+    )
+    return queryset.filter(~Exists(newer_deleted_content_subquery))
 
 
 def _serialize_content_for_ai(content: Content) -> dict[str, Any]:
@@ -289,6 +311,38 @@ class BookmarkDeleteResponse(Schema):
     deleted: bool
 
 
+class ContentDeleteResponse(Schema):
+    deleted: bool
+    soft_deleted_count: int
+
+
+class ContentRestoreResponse(Schema):
+    restored: bool
+    restored_count: int
+
+
+class TrashContentItem(Schema):
+    id: int
+    url: str
+    title: str
+    summary: str
+    source: str
+    created_at: datetime
+    published_at: datetime | None
+    deleted_at: datetime
+    topic_uuid: UUID
+    topic_queries: list[str]
+
+
+class TrashContentResponse(Schema):
+    items: list[TrashContentItem]
+
+
+class TrashEmptyResponse(Schema):
+    deleted: bool
+    permanently_deleted_count: int
+
+
 class AIInteractionRequest(Schema):
     content_ids: list[int]
     instruction: str
@@ -325,9 +379,10 @@ def get_content_item(request, content_id: int):
             user=request.user,
             content__topic_id=OuterRef("topic_id"),
             content__url=OuterRef("url"),
+            content__deleted_at__isnull=True,
         )
         content = (
-            Content.objects.filter(
+            _active_contents_queryset().filter(
                 id=content_id,
                 execution__topic__user=request.user,
             )
@@ -337,7 +392,7 @@ def get_content_item(request, content_id: int):
         )
     else:
         content = (
-            Content.objects.filter(
+            _active_contents_queryset().filter(
                 id=content_id,
                 execution__topic__group__is_public=True,
                 execution__topic__is_active=True,
@@ -370,9 +425,10 @@ def get_content_detail(request, content_id: int):
             user=request.user,
             content__topic_id=OuterRef("topic_id"),
             content__url=OuterRef("url"),
+            content__deleted_at__isnull=True,
         )
         content = (
-            Content.objects.filter(
+            _active_contents_queryset().filter(
                 id=content_id,
                 execution__topic__user=request.user,
             )
@@ -382,7 +438,7 @@ def get_content_detail(request, content_id: int):
         )
     else:
         content = (
-            Content.objects.filter(
+            _active_contents_queryset().filter(
                 id=content_id,
                 execution__topic__group__is_public=True,
                 execution__topic__is_active=True,
@@ -406,6 +462,125 @@ def get_content_detail(request, content_id: int):
         topic_queries=content.execution.topic.queries or [],
         relevance_score=None,
         is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
+    )
+
+
+@api.delete("/items/{content_id}", response=ContentDeleteResponse)
+def delete_content_item(request, content_id: int):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+
+    content = (
+        Content.objects.filter(
+            id=content_id,
+            execution__topic__user=request.user,
+        )
+        .only("id", "topic_id", "url")
+        .first()
+    )
+    if not content:
+        raise HttpError(404, "Content not found for user.")
+
+    soft_deleted_count = Content.objects.filter(
+        execution__topic__user=request.user,
+        topic_id=content.topic_id,
+        url=content.url,
+        deleted_at__isnull=True,
+    ).update(deleted_at=timezone.now())
+    Bookmark.objects.filter(
+        user=request.user,
+        content__topic_id=content.topic_id,
+        content__url=content.url,
+    ).delete()
+
+    return ContentDeleteResponse(
+        deleted=True,
+        soft_deleted_count=soft_deleted_count,
+    )
+
+
+@api.post("/items/{content_id}/restore", response=ContentRestoreResponse)
+def restore_content_item(request, content_id: int):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+
+    content = (
+        Content.objects.filter(
+            id=content_id,
+            execution__topic__user=request.user,
+            deleted_at__isnull=False,
+        )
+        .only("id", "topic_id", "url")
+        .first()
+    )
+    if not content:
+        raise HttpError(404, "Deleted content not found for user.")
+
+    restored_count = Content.objects.filter(
+        execution__topic__user=request.user,
+        topic_id=content.topic_id,
+        url=content.url,
+        deleted_at__isnull=False,
+    ).update(deleted_at=None)
+
+    return ContentRestoreResponse(
+        restored=True,
+        restored_count=restored_count,
+    )
+
+
+@api.get("/trash", response=TrashContentResponse)
+def list_trashed_content(
+    request,
+    limit: int = 50,
+    offset: int = 0,
+):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    queryset = _latest_deleted_content_per_topic_url(
+        Content.objects.filter(execution__topic__user=request.user)
+    )
+    contents = (
+        queryset.select_related("execution", "execution__topic")
+        .order_by("-deleted_at", "-id")[offset : offset + limit]
+    )
+
+    return TrashContentResponse(
+        items=[
+            TrashContentItem(
+                id=content.id,
+                url=content.url,
+                title=content.title or "",
+                summary=(content.snippet or "").strip(),
+                source=content.normalized_domain(),
+                created_at=content.created_at,
+                published_at=content.last_updated or content.date or content.created_at,
+                deleted_at=content.deleted_at,
+                topic_uuid=content.execution.topic.uuid,
+                topic_queries=content.execution.topic.queries or [],
+            )
+            for content in contents
+            if content.deleted_at is not None
+        ]
+    )
+
+
+@api.delete("/trash", response=TrashEmptyResponse)
+def empty_trashed_content(request):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+
+    permanently_deleted_count, _ = Content.objects.filter(
+        execution__topic__user=request.user,
+        deleted_at__isnull=False,
+    ).delete()
+    return TrashEmptyResponse(
+        deleted=True,
+        permanently_deleted_count=permanently_deleted_count,
     )
 
 
@@ -455,7 +630,7 @@ def ai_respond(request, payload: AIInteractionRequest):
         raise HttpError(500, "AI model is not configured.")
 
     selected_contents = list(
-        Content.objects.filter(
+        _active_contents_queryset().filter(
             id__in=normalized_content_ids,
             execution__topic__user=request.user,
         ).select_related("execution", "execution__topic")
@@ -642,9 +817,9 @@ def list_content(
                 raise HttpError(404, "Topic not found.")
             if topic.user_id != request.user.id:
                 raise HttpError(404, "Topic not found.")
-            queryset = Content.objects.filter(execution__topic=topic)
+            queryset = _active_contents_queryset().filter(execution__topic=topic)
         else:
-            queryset = Content.objects.filter(execution__topic__user=request.user)
+            queryset = _active_contents_queryset().filter(execution__topic__user=request.user)
 
         queryset = _latest_content_per_topic_url(queryset)
         queryset = _apply_new_filter(queryset, baseline, only_new)
@@ -652,6 +827,7 @@ def list_content(
             user=request.user,
             content__topic_id=OuterRef("topic_id"),
             content__url=OuterRef("url"),
+            content__deleted_at__isnull=True,
         )
         contents = (
             queryset.select_related("execution", "execution__topic")
@@ -667,7 +843,7 @@ def list_content(
         if not topic:
             raise HttpError(404, "Topic not found.")
         queryset = _latest_content_per_topic_url(
-            Content.objects.filter(
+            _active_contents_queryset().filter(
                 execution__topic=topic,
             )
         )
@@ -738,7 +914,7 @@ def list_content_by_topic_rss(
         raise HttpError(404, "Topic not found.")
 
     contents = (
-        Content.objects.filter(
+        _active_contents_queryset().filter(
             execution__topic=topic,
         )
         .select_related("execution", "execution__topic")
@@ -783,6 +959,7 @@ def list_content_by_group(
         if group.user_id != request.user.id:
             raise HttpError(404, "Topic group not found.")
         queryset = Content.objects.filter(
+            deleted_at__isnull=True,
             execution__topic__user=request.user,
             execution__topic__group__uuid=group_uuid,
         )
@@ -795,6 +972,7 @@ def list_content_by_group(
             user=request.user,
             content__topic_id=OuterRef("topic_id"),
             content__url=OuterRef("url"),
+            content__deleted_at__isnull=True,
         )
 
         contents = (
@@ -810,7 +988,7 @@ def list_content_by_group(
         if not group:
             raise HttpError(404, "Topic group not found.")
         queryset = _latest_content_per_topic_url(
-            Content.objects.filter(
+            _active_contents_queryset().filter(
                 execution__topic__group=group,
                 execution__topic__is_active=True,
             )
@@ -867,7 +1045,7 @@ def list_content_by_group_rss(
     if not request.user.is_authenticated:
         contents_filter["execution__topic__is_active"] = True
     contents = (
-        Content.objects.filter(**contents_filter)
+        _active_contents_queryset().filter(**contents_filter)
         .select_related("execution", "execution__topic")
         .order_by(
             Coalesce(
@@ -898,7 +1076,10 @@ def list_bookmarks(request):
         raise HttpError(401, "Authentication required.")
 
     bookmarks = (
-        Bookmark.objects.filter(user=request.user)
+        Bookmark.objects.filter(
+            user=request.user,
+            content__deleted_at__isnull=True,
+        )
         .select_related(
             "content",
             "content__execution",
@@ -928,7 +1109,7 @@ def create_bookmark(request, payload: BookmarkCreateRequest):
         raise HttpError(401, "Authentication required.")
 
     content = (
-        Content.objects.filter(
+        _active_contents_queryset().filter(
             id=payload.content_id,
             execution__topic__user=request.user,
         )
@@ -989,7 +1170,7 @@ def delete_bookmark(request, content_id: int):
         raise HttpError(401, "Authentication required.")
 
     content = (
-        Content.objects.filter(
+        _active_contents_queryset().filter(
             id=content_id,
             execution__topic__user=request.user,
         )
@@ -1019,7 +1200,7 @@ def list_notifications(request):
         return NotificationsResponse(total_new=0, topics=[])
 
     counts = (
-        Content.objects.filter(
+        _active_contents_queryset().filter(
             execution__topic__user=request.user,
             last_updated__gt=baseline,
         )

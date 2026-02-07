@@ -11,15 +11,19 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import {
   createBookmark,
+  deleteContentItem,
   deleteBookmark,
+  emptyTrashContent,
   getExecution,
+  listTrashContent,
   listContentByGroup,
   listContentFeed,
   requestContentAIResponse,
+  restoreContentItem,
   runTopicScan,
   updateTopicGroup,
 } from '@/lib/api';
-import type { ApiAIInteractionResponse, ApiContentFeedItem, NewsItem } from '@/lib/types';
+import type { ApiAIInteractionResponse, ApiContentFeedItem, ApiTrashContentItem, NewsItem } from '@/lib/types';
 import {
   ExternalLink,
   Clock,
@@ -30,6 +34,7 @@ import {
   Sparkles,
   Bookmark,
   Play,
+  RotateCcw,
   Trash2,
   Loader2,
 } from 'lucide-react';
@@ -41,6 +46,11 @@ type AIPresetInstruction = {
   label: string;
   instruction: string;
 };
+
+type DeleteToastState = {
+  contentId: number;
+  title: string;
+} | null;
 
 const AI_PRESET_INSTRUCTIONS = [
   {
@@ -145,6 +155,14 @@ export default function Dashboard() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [trashDialogOpen, setTrashDialogOpen] = useState(false);
+  const [trashItems, setTrashItems] = useState<ApiTrashContentItem[]>([]);
+  const [trashLoading, setTrashLoading] = useState(false);
+  const [trashError, setTrashError] = useState<string | null>(null);
+  const [restoringTrashId, setRestoringTrashId] = useState<number | null>(null);
+  const [emptyingTrash, setEmptyingTrash] = useState(false);
+  const [deleteToast, setDeleteToast] = useState<DeleteToastState>(null);
+  const [deletingContentId, setDeletingContentId] = useState<number | null>(null);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
   const [aiInstruction, setAiInstruction] = useState(
     AI_PRESET_INSTRUCTIONS[0].instruction
@@ -161,6 +179,7 @@ export default function Dashboard() {
   const domainMenuRef = useRef<HTMLDivElement | null>(null);
   const aiInstructionMenuRef = useRef<HTMLDivElement | null>(null);
   const aiSaveFeedbackTimerRef = useRef<number | null>(null);
+  const deleteToastTimerRef = useRef<number | null>(null);
 
   const selectedGroup = groups.find((group) => group.uuid === selectedGroupId) ?? null;
   const selectedTopic = selectedTopicUuid
@@ -427,9 +446,28 @@ export default function Dashboard() {
         window.clearTimeout(aiSaveFeedbackTimerRef.current);
         aiSaveFeedbackTimerRef.current = null;
       }
+      if (deleteToastTimerRef.current !== null) {
+        window.clearTimeout(deleteToastTimerRef.current);
+        deleteToastTimerRef.current = null;
+      }
     },
     []
   );
+
+  useEffect(() => {
+    if (isAuthenticated !== true) {
+      setTrashItems([]);
+      setTrashError(null);
+      setTrashDialogOpen(false);
+      return;
+    }
+    void loadTrash();
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!trashDialogOpen || isAuthenticated !== true) return;
+    void loadTrash();
+  }, [isAuthenticated, trashDialogOpen]);
 
   const toggleBookmark = async (item: NewsItem) => {
     if (!isAuthenticated) {
@@ -627,6 +665,118 @@ export default function Dashboard() {
     setShareDialogOpen(true);
   };
 
+  const dismissDeleteToast = () => {
+    if (deleteToastTimerRef.current !== null) {
+      window.clearTimeout(deleteToastTimerRef.current);
+      deleteToastTimerRef.current = null;
+    }
+    setDeleteToast(null);
+  };
+
+  const showDeleteToast = (contentId: number, title: string) => {
+    if (deleteToastTimerRef.current !== null) {
+      window.clearTimeout(deleteToastTimerRef.current);
+    }
+    setDeleteToast({ contentId, title });
+    deleteToastTimerRef.current = window.setTimeout(() => {
+      setDeleteToast(null);
+      deleteToastTimerRef.current = null;
+    }, 6000);
+  };
+
+  const loadTrash = async () => {
+    if (!isAuthenticated) return;
+    setTrashLoading(true);
+    setTrashError(null);
+    try {
+      const response = await listTrashContent({ limit: 100 });
+      setTrashItems(response.items);
+    } catch (trashLoadError) {
+      const message =
+        trashLoadError instanceof Error ? trashLoadError.message : "Unable to load trash.";
+      setTrashError(message);
+      setTrashItems([]);
+    } finally {
+      setTrashLoading(false);
+    }
+  };
+
+  const handleRestoreFromTrash = async (contentId: number) => {
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
+    setRestoringTrashId(contentId);
+    setTrashError(null);
+    try {
+      await restoreContentItem(contentId);
+      setTrashItems((prev) => prev.filter((item) => item.id !== contentId));
+      if (deleteToast?.contentId === contentId) {
+        dismissDeleteToast();
+      }
+      await loadFeed(getCacheKey());
+    } catch (restoreError) {
+      const message =
+        restoreError instanceof Error ? restoreError.message : "Unable to restore content.";
+      setTrashError(message);
+    } finally {
+      setRestoringTrashId((prev) => (prev === contentId ? null : prev));
+    }
+  };
+
+  const handleUndoDelete = async () => {
+    if (!deleteToast) return;
+    await handleRestoreFromTrash(deleteToast.contentId);
+  };
+
+  const handleEmptyTrash = async () => {
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
+    setEmptyingTrash(true);
+    setTrashError(null);
+    try {
+      await emptyTrashContent();
+      setTrashItems([]);
+      dismissDeleteToast();
+    } catch (emptyError) {
+      const message =
+        emptyError instanceof Error ? emptyError.message : "Unable to empty trash.";
+      setTrashError(message);
+    } finally {
+      setEmptyingTrash(false);
+    }
+  };
+
+  const handleDeleteContent = async (item: NewsItem) => {
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
+
+    setDeletingContentId(item.id);
+    setError(null);
+    try {
+      await deleteContentItem(item.id);
+      setNews((prev) => prev.filter((entry) => entry.id !== item.id));
+      feedCache.current.forEach((items, key) => {
+        feedCache.current.set(
+          key,
+          items.filter((entry) => entry.id !== item.id)
+        );
+      });
+      showDeleteToast(item.id, item.title);
+      void loadTrash();
+    } catch (deleteError) {
+      const message =
+        deleteError instanceof Error ? deleteError.message : "Unable to delete content.";
+      setError(message);
+    } finally {
+      setDeletingContentId((prev) => (prev === item.id ? null : prev));
+    }
+  };
+
   const handleCopyShare = async () => {
     if (!shareUrl) return;
     try {
@@ -760,7 +910,7 @@ export default function Dashboard() {
             {!isAllTopicsView && (
               <Button
                 size="sm"
-                variant="secondary"
+                variant="outline"
                 className="rounded-full px-5"
                 onClick={() => {
                   if (!isAuthenticated) {
@@ -778,6 +928,25 @@ export default function Dashboard() {
                 {selectedTopic ? "Edit" : "Config"}
               </Button>
             )}
+            <Button
+              size="sm"
+              variant="secondary"
+              className="relative rounded-full px-5"
+              onClick={() => {
+                if (!isAuthenticated) {
+                  openAuthDialog();
+                  return;
+                }
+                setTrashDialogOpen(true);
+              }}
+            >
+              Trash
+              {trashItems.length > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">
+                  {trashItems.length}
+                </span>
+              )}
+            </Button>
           </div>
         </div>
 
@@ -883,6 +1052,98 @@ export default function Dashboard() {
                 disabled={!shareUrl}
               >
                 Copy link
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={trashDialogOpen}
+          onOpenChange={(open) => {
+            setTrashDialogOpen(open);
+            if (!open) {
+              setTrashError(null);
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-[640px] border-border bg-background">
+            <DialogHeader className="space-y-2">
+              <DialogTitle className="text-xl font-semibold">Trash</DialogTitle>
+              <DialogDescription>
+                Deleted items can be restored from here.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[60vh] space-y-2 overflow-y-auto custom-scrollbar">
+              {trashLoading && (
+                <p className="text-sm text-muted-foreground">Loading trash...</p>
+              )}
+              {trashError && (
+                <p className="text-sm text-destructive">{trashError}</p>
+              )}
+              {!trashLoading && !trashError && trashItems.length === 0 && (
+                <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-8 text-center">
+                  <p className="text-sm font-medium text-foreground">Trash is empty</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Content you delete appears here for restore.
+                  </p>
+                </div>
+              )}
+              {!trashLoading &&
+                !trashError &&
+                trashItems.map((trashItem) => {
+                  const deletedAt = new Date(trashItem.deleted_at);
+                  const deletedLabel = Number.isNaN(deletedAt.getTime())
+                    ? "Deleted recently"
+                    : `Deleted ${formatDistanceToNow(deletedAt, { addSuffix: true })}`;
+                  return (
+                    <div
+                      key={trashItem.id}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/20 px-3 py-3"
+                    >
+                      <div className="min-w-0 space-y-1">
+                        <p className="truncate text-sm font-semibold text-foreground">
+                          {trashItem.title || trashItem.url}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{deletedLabel}</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 shrink-0 rounded-full px-3 text-[11px]"
+                        disabled={restoringTrashId === trashItem.id}
+                        onClick={() => void handleRestoreFromTrash(trashItem.id)}
+                      >
+                        {restoringTrashId === trashItem.id ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                        )}
+                        Restore
+                      </Button>
+                    </div>
+                  );
+                })}
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => void handleEmptyTrash()}
+                disabled={trashLoading || emptyingTrash || trashItems.length === 0}
+              >
+                {emptyingTrash ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                Empty trash
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void loadTrash()}
+                disabled={trashLoading || emptyingTrash}
+              >
+                Refresh
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1189,6 +1450,22 @@ export default function Dashboard() {
                                     <ExternalLink className="h-3.5 w-3.5" />
                                   </a>
                                 </Button>
+                                {isAuthenticated && (
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8 rounded-full text-muted-foreground hover:bg-rose-500/10 hover:text-rose-500"
+                                    onClick={() => void handleDeleteContent(item)}
+                                    disabled={deletingContentId === item.id}
+                                    title="Delete content item"
+                                  >
+                                    {deletingContentId === item.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    )}
+                                  </Button>
+                                )}
                               </div>
                             </div>
 
@@ -1494,6 +1771,48 @@ export default function Dashboard() {
           </Card>
         </div>
       </div>
+      {deleteToast && (
+        <div className="fixed bottom-6 right-6 z-50 w-full max-w-sm rounded-xl border border-border/70 bg-card/95 p-3 shadow-xl backdrop-blur">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Moved to trash
+          </p>
+          <p className="truncate text-sm font-medium text-foreground">
+            {deleteToast.title}
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 rounded-full px-3 text-[11px]"
+              onClick={() => void handleUndoDelete()}
+            >
+              Undo
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 rounded-full px-3 text-[11px]"
+              onClick={() => {
+                dismissDeleteToast();
+                setTrashDialogOpen(true);
+              }}
+            >
+              View trash
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="ml-auto h-7 rounded-full px-3 text-[11px] text-muted-foreground"
+              onClick={dismissDeleteToast}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

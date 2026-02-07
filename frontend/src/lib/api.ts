@@ -7,6 +7,7 @@ import type {
   ApiAIInteractionResponse,
   ApiAccessState,
   ApiNotificationsResponse,
+  ApiTrashContentResponse,
   ApiSearchResponse,
   ApiTopicCreateResponse,
   ApiTopicGroupCreateResponse,
@@ -264,6 +265,35 @@ export async function getContentItem(contentId: number): Promise<ApiContentFeedI
 
 export async function getContentDetail(contentId: number): Promise<ApiContentDetailItem> {
   return requestJson<ApiContentDetailItem>(`/api/contents/items/${contentId}/detail`);
+}
+
+export async function deleteContentItem(contentId: number): Promise<void> {
+  await requestJson(`/api/contents/items/${contentId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function restoreContentItem(contentId: number): Promise<void> {
+  await requestJson(`/api/contents/items/${contentId}/restore`, {
+    method: "POST",
+  });
+}
+
+export async function listTrashContent(params?: {
+  limit?: number;
+  offset?: number;
+}): Promise<ApiTrashContentResponse> {
+  const search = new URLSearchParams();
+  if (params?.limit) search.set("limit", String(params.limit));
+  if (params?.offset) search.set("offset", String(params.offset));
+  const query = search.toString();
+  return requestJson<ApiTrashContentResponse>(`/api/contents/trash${query ? `?${query}` : ""}`);
+}
+
+export async function emptyTrashContent(): Promise<void> {
+  await requestJson("/api/contents/trash", {
+    method: "DELETE",
+  });
 }
 
 export async function requestContentAIResponse(payload: {

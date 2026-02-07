@@ -164,6 +164,7 @@ def list_topics(
         .annotate(
             content_source_count=Count(
                 "executions__content_items",
+                filter=Q(executions__content_items__deleted_at__isnull=True),
                 distinct=True,
             )
         )
@@ -700,6 +701,7 @@ def update_topic(request, topic_uuid: uuid.UUID, payload: TopicUpdateRequest):
         .annotate(
             content_source_count=Count(
                 "executions__content_items",
+                filter=Q(executions__content_items__deleted_at__isnull=True),
                 distinct=True,
             )
         )
@@ -752,7 +754,10 @@ def list_topic_content_sources(request, topic_uuid: uuid.UUID):
     if topic.user_id != request.user.id:
         raise HttpError(404, "Topic not found for UUID.")
 
-    content_items = Content.objects.filter(execution__topic=topic)
+    content_items = Content.objects.filter(
+        execution__topic=topic,
+        deleted_at__isnull=True,
+    )
     latest_for_url = content_items.filter(url=OuterRef("url")).order_by("-created_at", "-id")
     sources = (
         content_items.values("url")

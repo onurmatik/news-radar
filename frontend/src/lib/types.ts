@@ -97,6 +97,23 @@ export interface ApiContentFeedResponse {
   items: ApiContentFeedItem[];
 }
 
+export interface ApiTrashContentItem {
+  id: number;
+  url: string;
+  title: string;
+  summary: string;
+  source: string;
+  created_at: string;
+  published_at: string | null;
+  deleted_at: string;
+  topic_uuid: string;
+  topic_queries: string[];
+}
+
+export interface ApiTrashContentResponse {
+  items: ApiTrashContentItem[];
+}
+
 export interface ApiAIInteractionResponse {
   answer: string;
   model: string;

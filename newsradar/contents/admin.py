@@ -5,8 +5,17 @@ from .models import AIInteraction, Bookmark, Content
 
 @admin.register(Content)
 class ContentAdmin(admin.ModelAdmin):
-    list_display = ("id", "execution", "url", "title", "date", "last_updated", "created_at")
-    list_filter = ("date", "last_updated", "created_at")
+    list_display = (
+        "id",
+        "execution",
+        "url",
+        "title",
+        "date",
+        "last_updated",
+        "deleted_at",
+        "created_at",
+    )
+    list_filter = ("date", "last_updated", "deleted_at", "created_at")
     search_fields = ("topic__queries", "url", "title")
     list_select_related = ("execution", "topic")
 

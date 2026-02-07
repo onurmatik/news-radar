@@ -77,7 +77,13 @@ def search(request, q: str | None = None, limit: int = 10, group_uuid: UUID | No
             topic_queryset = topic_queryset.filter(group__uuid=group_uuid)
         topic_queryset = (
             topic_queryset.select_related("group")
-            .annotate(content_source_count=Count("executions__content_items", distinct=True))
+            .annotate(
+                content_source_count=Count(
+                    "executions__content_items",
+                    filter=Q(executions__content_items__deleted_at__isnull=True),
+                    distinct=True,
+                )
+            )
             .order_by("-last_fetched_at", "-created_at", "uuid")[:limit]
         )
 
@@ -98,6 +104,7 @@ def search(request, q: str | None = None, limit: int = 10, group_uuid: UUID | No
         content_queryset = Content.objects.filter(
             content_filter,
             execution__topic__user=request.user,
+            deleted_at__isnull=True,
         )
         if group_uuid:
             content_queryset = content_queryset.filter(
@@ -145,7 +152,13 @@ def search(request, q: str | None = None, limit: int = 10, group_uuid: UUID | No
         public_topics_queryset = (
             Topic.objects.filter(topic_filter, public_group_filter, is_active=True)
             .select_related("group")
-            .annotate(content_source_count=Count("executions__content_items", distinct=True))
+            .annotate(
+                content_source_count=Count(
+                    "executions__content_items",
+                    filter=Q(executions__content_items__deleted_at__isnull=True),
+                    distinct=True,
+                )
+            )
             .order_by("-last_fetched_at", "-created_at", "uuid")[:limit]
         )
 
@@ -167,6 +180,7 @@ def search(request, q: str | None = None, limit: int = 10, group_uuid: UUID | No
             content_filter,
             execution__topic__group__is_public=True,
             execution__topic__is_active=True,
+            deleted_at__isnull=True,
         )
         if group_uuid:
             public_contents_queryset = public_contents_queryset.filter(

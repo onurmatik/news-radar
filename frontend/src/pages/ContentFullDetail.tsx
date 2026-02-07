@@ -8,9 +8,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { createBookmark, deleteBookmark, getContentDetail } from '@/lib/api';
+import { createBookmark, deleteBookmark, deleteContentItem, getContentDetail } from '@/lib/api';
 import type { ApiContentDetailItem } from '@/lib/types';
-import { ArrowLeft, Clock, ExternalLink, Share2, Star } from 'lucide-react';
+import { ArrowLeft, Clock, ExternalLink, Loader2, Share2, Star, Trash2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -27,6 +27,7 @@ export default function ContentFullDetail() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const numericId = useMemo(() => {
     if (!contentId) return null;
@@ -134,6 +135,28 @@ export default function ContentFullDetail() {
     navigate('/');
   };
 
+  const handleDelete = async () => {
+    if (!item) return;
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
+
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteContentItem(item.id);
+      setItem(null);
+      navigate('/');
+    } catch (deleteError) {
+      const message =
+        deleteError instanceof Error ? deleteError.message : "Unable to delete content.";
+      setError(message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <Layout>
       <div className="mx-auto space-y-6 p-4 md:p-6 lg:p-10">
@@ -212,6 +235,22 @@ export default function ContentFullDetail() {
                       <ExternalLink className="h-3.5 w-3.5" />
                     </a>
                   </Button>
+                  {isAuthenticated && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 rounded-full text-muted-foreground hover:bg-rose-500/10 hover:text-rose-500"
+                      onClick={() => void handleDelete()}
+                      disabled={deleting}
+                      title="Delete content item"
+                    >
+                      {deleting ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  )}
                 </div>
               </div>
 

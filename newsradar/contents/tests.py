@@ -377,3 +377,216 @@ class ContentFeedVersioningTests(TestCase):
         body = response.json()
         self.assertEqual(body["id"], latest_revision.id)
         self.assertTrue(body["is_bookmarked"])
+
+    def test_soft_delete_hides_article_from_feed_and_detail_and_clears_bookmarks(self):
+        topic = self._create_topic_for_user(self.user, query="energy")
+        now = timezone.now()
+        old_revision = self._create_content(
+            topic,
+            url="https://example.com/deletable-story",
+            title="Deletable old",
+            last_updated=now - timedelta(days=2),
+        )
+        latest_revision = self._create_content(
+            topic,
+            url="https://example.com/deletable-story",
+            title="Deletable latest",
+            last_updated=now - timedelta(days=1),
+        )
+        keep_revision = self._create_content(
+            topic,
+            url="https://example.com/keep-story",
+            title="Keep story",
+            last_updated=now - timedelta(hours=2),
+        )
+        Bookmark.objects.create(
+            user=self.user,
+            content=old_revision,
+        )
+
+        delete_response = self.client.delete(f"/api/contents/items/{latest_revision.id}")
+        self.assertEqual(delete_response.status_code, 200)
+        payload = delete_response.json()
+        self.assertTrue(payload["deleted"])
+        self.assertEqual(payload["soft_deleted_count"], 2)
+
+        self.assertEqual(
+            Content.objects.filter(
+                topic=topic,
+                url="https://example.com/deletable-story",
+                deleted_at__isnull=False,
+            ).count(),
+            2,
+        )
+        self.assertFalse(
+            Bookmark.objects.filter(
+                user=self.user,
+                content__topic=topic,
+                content__url="https://example.com/deletable-story",
+            ).exists()
+        )
+
+        feed_response = self.client.get("/api/contents/")
+        self.assertEqual(feed_response.status_code, 200)
+        returned_ids = {item["id"] for item in feed_response.json()["items"]}
+        self.assertIn(keep_revision.id, returned_ids)
+        self.assertNotIn(old_revision.id, returned_ids)
+        self.assertNotIn(latest_revision.id, returned_ids)
+
+        item_response = self.client.get(f"/api/contents/items/{latest_revision.id}")
+        self.assertEqual(item_response.status_code, 404)
+        detail_response = self.client.get(f"/api/contents/items/{latest_revision.id}/detail")
+        self.assertEqual(detail_response.status_code, 404)
+
+    def test_soft_delete_requires_authentication(self):
+        topic = self._create_topic_for_user(self.user, query="rates")
+        content = self._create_content(
+            topic,
+            url="https://example.com/rates",
+            title="Rates",
+        )
+
+        self.client.logout()
+        response = self.client.delete(f"/api/contents/items/{content.id}")
+        self.assertEqual(response.status_code, 401)
+
+    def test_soft_delete_requires_content_ownership(self):
+        other_user = get_user_model().objects.create_user(
+            username="someone-else",
+            email="someone-else@example.com",
+            password="password123",
+        )
+        other_topic = self._create_topic_for_user(other_user, query="oil")
+        other_content = self._create_content(
+            other_topic,
+            url="https://example.com/oil",
+            title="Oil",
+        )
+
+        response = self.client.delete(f"/api/contents/items/{other_content.id}")
+        self.assertEqual(response.status_code, 404)
+
+    def test_list_trash_and_restore_content_item(self):
+        topic = self._create_topic_for_user(self.user, query="commodities")
+        now = timezone.now()
+        old_revision = self._create_content(
+            topic,
+            url="https://example.com/copper",
+            title="Copper old",
+            last_updated=now - timedelta(days=2),
+        )
+        latest_revision = self._create_content(
+            topic,
+            url="https://example.com/copper",
+            title="Copper latest",
+            last_updated=now - timedelta(days=1),
+        )
+        self._create_content(
+            topic,
+            url="https://example.com/nickel",
+            title="Nickel",
+            last_updated=now - timedelta(hours=1),
+        )
+
+        delete_response = self.client.delete(f"/api/contents/items/{latest_revision.id}")
+        self.assertEqual(delete_response.status_code, 200)
+
+        trash_response = self.client.get("/api/contents/trash")
+        self.assertEqual(trash_response.status_code, 200)
+        trash_items = trash_response.json()["items"]
+        self.assertEqual(len(trash_items), 1)
+        self.assertEqual(trash_items[0]["id"], latest_revision.id)
+        self.assertEqual(trash_items[0]["url"], "https://example.com/copper")
+
+        restore_response = self.client.post(f"/api/contents/items/{latest_revision.id}/restore")
+        self.assertEqual(restore_response.status_code, 200)
+        restore_payload = restore_response.json()
+        self.assertTrue(restore_payload["restored"])
+        self.assertEqual(restore_payload["restored_count"], 2)
+
+        self.assertEqual(
+            Content.objects.filter(
+                topic=topic,
+                url="https://example.com/copper",
+                deleted_at__isnull=True,
+            ).count(),
+            2,
+        )
+
+        refreshed_feed_response = self.client.get("/api/contents/")
+        self.assertEqual(refreshed_feed_response.status_code, 200)
+        refreshed_items = refreshed_feed_response.json()["items"]
+        restored_item = next(item for item in refreshed_items if item["url"] == "https://example.com/copper")
+        self.assertEqual(restored_item["id"], latest_revision.id)
+
+        self.assertFalse(
+            Content.objects.filter(
+                id=old_revision.id,
+                deleted_at__isnull=False,
+            ).exists()
+        )
+
+    def test_trash_and_restore_require_authentication(self):
+        topic = self._create_topic_for_user(self.user, query="rates")
+        content = self._create_content(
+            topic,
+            url="https://example.com/rates-2",
+            title="Rates 2",
+        )
+        self.client.delete(f"/api/contents/items/{content.id}")
+
+        self.client.logout()
+        trash_response = self.client.get("/api/contents/trash")
+        self.assertEqual(trash_response.status_code, 401)
+
+        restore_response = self.client.post(f"/api/contents/items/{content.id}/restore")
+        self.assertEqual(restore_response.status_code, 401)
+
+        empty_response = self.client.delete("/api/contents/trash")
+        self.assertEqual(empty_response.status_code, 401)
+
+    def test_empty_trash_permanently_removes_deleted_items(self):
+        topic = self._create_topic_for_user(self.user, query="metals")
+        now = timezone.now()
+        old_revision = self._create_content(
+            topic,
+            url="https://example.com/cobalt",
+            title="Cobalt old",
+            last_updated=now - timedelta(days=2),
+        )
+        latest_revision = self._create_content(
+            topic,
+            url="https://example.com/cobalt",
+            title="Cobalt latest",
+            last_updated=now - timedelta(days=1),
+        )
+        second_article = self._create_content(
+            topic,
+            url="https://example.com/lithium",
+            title="Lithium",
+            last_updated=now - timedelta(hours=4),
+        )
+        active_article = self._create_content(
+            topic,
+            url="https://example.com/nickel-active",
+            title="Nickel active",
+            last_updated=now - timedelta(hours=1),
+        )
+
+        self.client.delete(f"/api/contents/items/{latest_revision.id}")
+        self.client.delete(f"/api/contents/items/{second_article.id}")
+
+        empty_response = self.client.delete("/api/contents/trash")
+        self.assertEqual(empty_response.status_code, 200)
+        payload = empty_response.json()
+        self.assertTrue(payload["deleted"])
+        self.assertEqual(payload["permanently_deleted_count"], 3)
+
+        self.assertFalse(
+            Content.objects.filter(id__in=[old_revision.id, latest_revision.id, second_article.id]).exists()
+        )
+        self.assertTrue(Content.objects.filter(id=active_article.id).exists())
+
+        trash_response = self.client.get("/api/contents/trash")
+        self.assertEqual(trash_response.status_code, 200)
+        self.assertEqual(trash_response.json()["items"], [])
