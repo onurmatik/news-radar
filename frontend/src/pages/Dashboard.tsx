@@ -1330,7 +1330,7 @@ export default function Dashboard() {
                   type="text"
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search title, snippet, or URL"
+                  placeholder="Search"
                   className="h-8 rounded-full border-border/70 bg-background pl-9 pr-3 text-xs"
                 />
               </div>
