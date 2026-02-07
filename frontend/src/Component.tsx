@@ -23,7 +23,7 @@ export function NewsRadar() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/topics" element={<Topics />} />
               <Route path="/upgrade" element={<UpgradeToPro />} />
-              <Route path="/api-access" element={<ApiAccess />} />
+              <Route path="/developer-access" element={<ApiAccess />} />
               <Route path="/content/:contentId/full" element={<ContentFullDetail />} />
             </Routes>
           </BrowserRouter>

@@ -493,7 +493,7 @@ export function Layout({ children }: SidebarProps) {
 
   const handleApiAccessClick = () => {
     setProfileMenuOpen(false);
-    navigate('/api-access');
+    navigate('/developer-access');
   };
 
   const handleCreateGroupOpen = (open: boolean) => {
@@ -1135,7 +1135,7 @@ export function Layout({ children }: SidebarProps) {
               )}
             </div>
             <Link
-              to="/api-access"
+              to="/developer-access"
               className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/20 px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
             >
               <KeyRound className="h-3.5 w-3.5" />
