@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { useAuthDialog } from '@/components/AuthDialogContext';
 import { useTopicGroup } from '@/components/TopicGroupContext';
@@ -123,6 +123,7 @@ function normalizeCustomInstructions(raw: unknown): AIPresetInstruction[] {
  */
 export default function Dashboard() {
   const { isAuthenticated, openAuthDialog } = useAuthDialog();
+  const location = useLocation();
   const {
     selectedGroupId,
     selectedGroupName,
@@ -155,6 +156,7 @@ export default function Dashboard() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [showRecentDeleteIndicator, setShowRecentDeleteIndicator] = useState(false);
   const [trashDialogOpen, setTrashDialogOpen] = useState(false);
   const [trashItems, setTrashItems] = useState<ApiTrashContentItem[]>([]);
   const [trashLoading, setTrashLoading] = useState(false);
@@ -469,6 +471,16 @@ export default function Dashboard() {
     void loadTrash();
   }, [isAuthenticated, trashDialogOpen]);
 
+  useEffect(() => {
+    setShowRecentDeleteIndicator(false);
+  }, [location.pathname, selectedGroupId, selectedTopicUuid]);
+
+  useEffect(() => {
+    if (apiPanelOpen || shareDialogOpen || trashDialogOpen || configDialogOpen) {
+      setShowRecentDeleteIndicator(false);
+    }
+  }, [apiPanelOpen, shareDialogOpen, trashDialogOpen, configDialogOpen]);
+
   const toggleBookmark = async (item: NewsItem) => {
     if (!isAuthenticated) {
       openAuthDialog();
@@ -727,6 +739,7 @@ export default function Dashboard() {
   const handleUndoDelete = async () => {
     if (!deleteToast) return;
     await handleRestoreFromTrash(deleteToast.contentId);
+    setShowRecentDeleteIndicator(false);
   };
 
   const handleEmptyTrash = async () => {
@@ -766,6 +779,7 @@ export default function Dashboard() {
           items.filter((entry) => entry.id !== item.id)
         );
       });
+      setShowRecentDeleteIndicator(true);
       showDeleteToast(item.id, item.title);
       void loadTrash();
     } catch (deleteError) {
@@ -941,10 +955,8 @@ export default function Dashboard() {
               }}
             >
               Trash
-              {trashItems.length > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">
-                  {trashItems.length}
-                </span>
+              {showRecentDeleteIndicator && (
+                <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-destructive" />
               )}
             </Button>
           </div>
