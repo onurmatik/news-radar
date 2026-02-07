@@ -1405,7 +1405,7 @@ export default function Dashboard() {
                     : "Sign in to use the new filter."
                 }
               >
-                <Sparkles className={`h-3.5 w-3.5 ${newOnly ? "fill-current" : ""}`} />
+                <Clock className="h-3.5 w-3.5" />
                 New
               </Button>
 
