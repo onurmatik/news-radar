@@ -605,6 +605,10 @@ export default function Dashboard() {
   };
 
   const handleSaveInstruction = () => {
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
     const trimmed = aiInstruction.trim();
     if (!trimmed) {
       setAiError("Instruction cannot be empty.");
@@ -688,6 +692,14 @@ export default function Dashboard() {
     }
     setSearchParams(nextParams, { replace: true });
     setNewOnly(nextValue);
+  };
+
+  const handleToggleBookmarkedOnly = () => {
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
+    setBookmarkedOnly((prev) => !prev);
   };
 
   const handleAddTopic = () => {
@@ -945,9 +957,15 @@ export default function Dashboard() {
               size="sm"
               variant="outline"
               className="rounded-full px-5"
-              onClick={() => setApiPanelOpen(true)}
+              onClick={() => {
+                if (!isAuthenticated) {
+                  openAuthDialog();
+                  return;
+                }
+                setApiPanelOpen(true);
+              }}
             >
-              API
+              Connect
             </Button>
             {!isAllTopicsView && (
               <Button
@@ -1396,13 +1414,12 @@ export default function Dashboard() {
                 className="flex h-8 items-center gap-2 rounded-full px-3 text-[11px]"
                 onClick={handleToggleNewOnly}
                 aria-pressed={newOnly}
-                disabled={isAuthenticated !== true}
                 title={
                   isAuthenticated
                     ? `Show only new content in this ${
                         selectedTopic ? "topic" : selectedGroupId ? "group" : "all-topics view"
                       }.`
-                    : "Sign in to use the new filter."
+                    : "Sign up to use the new filter."
                 }
               >
                 <Clock className="h-3.5 w-3.5" />
@@ -1414,11 +1431,10 @@ export default function Dashboard() {
                 variant={bookmarkedOnly ? "secondary" : "outline"}
                 size="sm"
                 className="flex h-8 items-center gap-2 rounded-full px-3 text-[11px]"
-                onClick={() => setBookmarkedOnly((prev) => !prev)}
+                onClick={handleToggleBookmarkedOnly}
                 aria-pressed={bookmarkedOnly}
-                disabled={isAuthenticated !== true}
                 title={
-                  isAuthenticated ? "Show only bookmarked content." : "Sign in to filter bookmarks."
+                  isAuthenticated ? "Show only bookmarked content." : "Sign up to filter bookmarks."
                 }
               >
                 <Star className={`h-3.5 w-3.5 ${bookmarkedOnly ? "fill-current" : ""}`} />
@@ -1794,7 +1810,7 @@ export default function Dashboard() {
                       aiSaveFeedback === "saved" ? "text-green-600" : ""
                     }`}
                     onClick={handleSaveInstruction}
-                    disabled={!aiInstruction.trim()}
+                    disabled={isAuthenticated ? !aiInstruction.trim() : false}
                     title={aiSaveFeedback === "saved" ? "Saved" : "Save instruction"}
                     aria-label={aiSaveFeedback === "saved" ? "Instruction saved" : "Save instruction"}
                   >
@@ -1806,7 +1822,7 @@ export default function Dashboard() {
                     size="icon"
                     className="absolute bottom-1.5 right-0 shadow-none hover:text-green-600 hover:bg-transparent"
                     onClick={() => void handleRunAI()}
-                    disabled={!canRunAI}
+                    disabled={isAuthenticated ? !canRunAI : false}
                     title="Run instruction (Enter)"
                     aria-label="Run instruction"
                   >
