@@ -79,6 +79,36 @@ class AccountsApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 401)
 
+    @override_settings(
+        STRIPE_SECRET_KEY="sk_test_123",
+        STRIPE_PRICE_ID_MONTHLY="",
+        STRIPE_PRICE_ID_YEARLY="",
+        FRONTEND_BASE_URL="http://localhost:5173",
+    )
+    @patch("newsradar.accounts.api.stripe.checkout.Session.create")
+    def test_create_checkout_session_falls_back_to_inline_price_data(self, mock_create_session):
+        self.client.force_login(self.user)
+
+        class Session:
+            url = "https://checkout.stripe.com/c/pay_123"
+
+        mock_create_session.return_value = Session()
+
+        response = self.client.post(
+            "/api/auth/billing/checkout",
+            data={"plan": "yearly"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        _, kwargs = mock_create_session.call_args
+        line_item = kwargs["line_items"][0]
+        self.assertEqual(line_item["quantity"], 1)
+        self.assertEqual(line_item["price_data"]["currency"], "usd")
+        self.assertEqual(line_item["price_data"]["unit_amount"], 20000)
+        self.assertEqual(line_item["price_data"]["recurring"]["interval"], "year")
+        self.assertEqual(line_item["price_data"]["product_data"]["name"], "NewsRadar Pro Yearly")
+
     def test_api_access_returns_upgrade_message_for_non_pro(self):
         self.client.force_login(self.user)
 

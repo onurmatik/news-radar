@@ -146,6 +146,31 @@ def _get_price_id(plan: Literal["monthly", "yearly"]) -> str:
     return (settings.STRIPE_PRICE_ID_YEARLY or "").strip()
 
 
+def _build_line_item(plan: Literal["monthly", "yearly"]) -> dict:
+    price_id = _get_price_id(plan)
+    if price_id:
+        return {"price": price_id, "quantity": 1}
+
+    if plan == Profile.PLAN_MONTHLY:
+        interval = "month"
+        unit_amount = 2000
+        product_name = "NewsRadar Pro Monthly"
+    else:
+        interval = "year"
+        unit_amount = 20000
+        product_name = "NewsRadar Pro Yearly"
+
+    return {
+        "price_data": {
+            "currency": "usd",
+            "unit_amount": unit_amount,
+            "product_data": {"name": product_name},
+            "recurring": {"interval": interval},
+        },
+        "quantity": 1,
+    }
+
+
 @api.post("/magic-link", response=MagicLinkResponse)
 def request_magic_link(request, payload: MagicLinkRequest):
     email = payload.email.strip().lower() if isinstance(payload.email, str) else ""
@@ -249,10 +274,6 @@ def create_billing_checkout_session(request, payload: CheckoutSessionRequest):
     if not stripe_secret_key:
         raise HttpError(500, "Stripe is not configured.")
 
-    price_id = _get_price_id(payload.plan)
-    if not price_id:
-        raise HttpError(500, f"Stripe price is not configured for plan '{payload.plan}'.")
-
     success_url = _resolve_checkout_url(
         payload.success_url,
         _default_success_url(),
@@ -269,7 +290,7 @@ def create_billing_checkout_session(request, payload: CheckoutSessionRequest):
 
     checkout_args = {
         "mode": "subscription",
-        "line_items": [{"price": price_id, "quantity": 1}],
+        "line_items": [_build_line_item(payload.plan)],
         "success_url": success_url,
         "cancel_url": cancel_url,
         "metadata": {
