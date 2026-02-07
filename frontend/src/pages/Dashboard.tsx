@@ -126,7 +126,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [news, setNews] = useState<NewsItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [domainFilters, setDomainFilters] = useState<string[]>([]);
   const [bookmarkedOnly, setBookmarkedOnly] = useState(false);
@@ -483,8 +483,9 @@ export default function Dashboard() {
       ),
     [news]
   );
-  const showEmptyState = filteredNews.length === 0 && !loading;
-  const activityMessage = loading ? "Loading content..." : null;
+  const isFeedLoading = loading || isAuthenticated === null;
+  const showEmptyState = filteredNews.length === 0 && !isFeedLoading;
+  const activityMessage = isFeedLoading ? "Loading..." : null;
   const hasTopicsInGroup = selectedGroupTopicCount > 0 || Boolean(selectedTopic);
   const countsLabel = hasActiveFilters
     ? `${filteredNews.length} of ${news.length}`
@@ -1076,27 +1077,25 @@ export default function Dashboard() {
                 )}
               </div>
 
-              {(selectedTopic || selectedGroupId || isAuthenticated === true) && (
-                <Button
-                  type="button"
-                  variant={newOnly ? "secondary" : "outline"}
-                  size="sm"
-                  className="flex h-8 items-center gap-2 rounded-full px-3 text-[11px]"
-                  onClick={handleToggleNewOnly}
-                  aria-pressed={newOnly}
-                  disabled={isAuthenticated !== true}
-                  title={
-                    isAuthenticated
-                      ? `Show only new content in this ${
-                          selectedTopic ? "topic" : selectedGroupId ? "group" : "all-topics view"
-                        }.`
-                      : "Sign in to use the new filter."
-                  }
-                >
-                  <Sparkles className={`h-3.5 w-3.5 ${newOnly ? "fill-current" : ""}`} />
-                  New
-                </Button>
-              )}
+              <Button
+                type="button"
+                variant={newOnly ? "secondary" : "outline"}
+                size="sm"
+                className="flex h-8 items-center gap-2 rounded-full px-3 text-[11px]"
+                onClick={handleToggleNewOnly}
+                aria-pressed={newOnly}
+                disabled={isAuthenticated !== true}
+                title={
+                  isAuthenticated
+                    ? `Show only new content in this ${
+                        selectedTopic ? "topic" : selectedGroupId ? "group" : "all-topics view"
+                      }.`
+                    : "Sign in to use the new filter."
+                }
+              >
+                <Sparkles className={`h-3.5 w-3.5 ${newOnly ? "fill-current" : ""}`} />
+                New
+              </Button>
 
               <Button
                 type="button"
