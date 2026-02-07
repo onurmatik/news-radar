@@ -22,7 +22,6 @@ from newsradar.accounts.views import SesameLoginView, stripe_webhook
 from newsradar.contents.api import api as contents_api
 from newsradar.contents.rss import api as contents_rss_api
 from newsradar.executions.api import api as executions_api
-from newsradar.search.api import api as search_api
 from newsradar.topics.api import api as topics_api
 
 
@@ -33,7 +32,6 @@ urlpatterns = [
     path('api/auth/stripe/webhook', stripe_webhook, name='stripe-webhook'),
     path('api/contents/', contents_api.urls),
     path('api/executions/', executions_api.urls),
-    path('api/search/', search_api.urls),
     path('api/topics/', topics_api.urls),
     path('rss/', contents_rss_api.urls),
 ]

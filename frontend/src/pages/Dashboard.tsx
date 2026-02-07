@@ -28,6 +28,7 @@ import {
   ExternalLink,
   Clock,
   Share2,
+  Search,
   Filter,
   Star,
   PlusCircle,
@@ -139,6 +140,8 @@ export default function Dashboard() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [domainFilters, setDomainFilters] = useState<string[]>([]);
   const [bookmarkedOnly, setBookmarkedOnly] = useState(false);
   const [newOnly, setNewOnly] = useState(false);
@@ -254,13 +257,14 @@ export default function Dashboard() {
       .filter(Boolean);
 
   const getCacheKey = () => {
+    const searchKey = debouncedSearchTerm.toLowerCase();
     if (selectedTopicUuid) {
-      return `topic:${selectedTopicUuid}:${newOnly ? "new" : "all"}`;
+      return `topic:${selectedTopicUuid}:${newOnly ? "new" : "all"}:${searchKey}`;
     }
     if (selectedGroupId) {
-      return `group:${selectedGroupId}:${newOnly ? "new" : "all"}`;
+      return `group:${selectedGroupId}:${newOnly ? "new" : "all"}:${searchKey}`;
     }
-    return `all:${newOnly ? "new" : "all"}`;
+    return `all:${newOnly ? "new" : "all"}:${searchKey}`;
   };
 
   const waitForExecutionCompletion = async (executionId: number) => {
@@ -280,6 +284,15 @@ export default function Dashboard() {
     }
     throw new Error("Timed out waiting for the fetch to finish.");
   };
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm.trim());
+    }, 300);
+    return () => {
+      window.clearTimeout(handle);
+    };
+  }, [searchTerm]);
 
   useEffect(() => {
     const filter = searchParams.get("filter");
@@ -323,10 +336,20 @@ export default function Dashboard() {
     setError(null);
     try {
       const response = selectedTopicUuid
-        ? await listContentFeed({ topicUuid: selectedTopicUuid, onlyNew: newOnly })
+        ? await listContentFeed({
+            topicUuid: selectedTopicUuid,
+            onlyNew: newOnly,
+            search: debouncedSearchTerm || undefined,
+          })
         : selectedGroupId
-          ? await listContentByGroup(selectedGroupId, { onlyNew: newOnly })
-          : await listContentFeed({ onlyNew: newOnly });
+          ? await listContentByGroup(selectedGroupId, {
+              onlyNew: newOnly,
+              search: debouncedSearchTerm || undefined,
+            })
+          : await listContentFeed({
+              onlyNew: newOnly,
+              search: debouncedSearchTerm || undefined,
+            });
       if (requestId !== latestRequestId.current) return;
       const mapped = response.items
         .map(mapNewsItem)
@@ -360,7 +383,7 @@ export default function Dashboard() {
       return;
     }
     void loadFeed(cacheKey);
-  }, [isAuthenticated, newOnly, selectedGroupId, selectedTopicUuid]);
+  }, [debouncedSearchTerm, isAuthenticated, newOnly, selectedGroupId, selectedTopicUuid]);
 
   useEffect(() => {
     const handleScanCompleted = (
@@ -390,7 +413,7 @@ export default function Dashboard() {
     return () => {
       window.removeEventListener("topic-scan-completed", handleScanCompleted);
     };
-  }, [newOnly, selectedGroupId, selectedTopicUuid, topics]);
+  }, [debouncedSearchTerm, newOnly, selectedGroupId, selectedTopicUuid, topics]);
 
   useEffect(() => {
     pageTopRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
@@ -525,7 +548,11 @@ export default function Dashboard() {
     () => [...AI_PRESET_INSTRUCTIONS, ...aiCustomInstructions],
     [aiCustomInstructions]
   );
-  const hasActiveFilters = domainFilters.length > 0 || bookmarkedOnly || newOnly;
+  const hasActiveFilters =
+    domainFilters.length > 0 ||
+    bookmarkedOnly ||
+    newOnly ||
+    searchTerm.trim().length > 0;
   const availableDomains = useMemo(
     () =>
       Array.from(new Set(news.map((item) => item.source).filter(Boolean))).sort((a, b) =>
@@ -541,6 +568,7 @@ export default function Dashboard() {
     ? `${filteredNews.length} of ${news.length}`
     : `${news.length}`;
   const handleClearFilters = () => {
+    setSearchTerm("");
     setDomainFilters([]);
     setBookmarkedOnly(false);
     if (newOnly) {
@@ -1296,6 +1324,17 @@ export default function Dashboard() {
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
           <div className="min-w-0 space-y-4">
             <div className="flex flex-wrap items-center gap-3">
+              <div className="relative w-full sm:w-72">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
+                <Input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Search title, snippet, or URL"
+                  className="h-8 rounded-full border-border/70 bg-background pl-9 pr-3 text-xs"
+                />
+              </div>
+
               <div className="relative" ref={domainMenuRef}>
                 <Button
                   type="button"

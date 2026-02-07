@@ -97,6 +97,17 @@ def _apply_new_filter(queryset, baseline: datetime | None, only_new: bool):
     return queryset.filter(last_updated__gt=baseline)
 
 
+def _apply_search_filter(queryset, search: str | None):
+    search_value = (search or "").strip()
+    if not search_value:
+        return queryset
+    return queryset.filter(
+        Q(title__icontains=search_value)
+        | Q(snippet__icontains=search_value)
+        | Q(url__icontains=search_value)
+    )
+
+
 def _content_published_at_expression():
     return Coalesce(
         "last_updated",
@@ -803,6 +814,7 @@ def list_content(
     limit: int = 50,
     offset: int = 0,
     only_new: bool = False,
+    search: str | None = None,
 ):
     if not request.user.is_authenticated and not topic_uuid:
         raise HttpError(401, "Authentication required.")
@@ -823,6 +835,7 @@ def list_content(
 
         queryset = _latest_content_per_topic_url(queryset)
         queryset = _apply_new_filter(queryset, baseline, only_new)
+        queryset = _apply_search_filter(queryset, search)
         bookmark_subquery = Bookmark.objects.filter(
             user=request.user,
             content__topic_id=OuterRef("topic_id"),
@@ -847,6 +860,7 @@ def list_content(
                 execution__topic=topic,
             )
         )
+        queryset = _apply_search_filter(queryset, search)
         contents = (
             queryset
             .select_related("execution", "execution__topic")
@@ -880,6 +894,7 @@ def list_content_by_topic(
     limit: int = 50,
     offset: int = 0,
     only_new: bool = False,
+    search: str | None = None,
 ):
     return list_content(
         request,
@@ -887,6 +902,7 @@ def list_content_by_topic(
         limit=limit,
         offset=offset,
         only_new=only_new,
+        search=search,
     )
 
 
@@ -948,6 +964,7 @@ def list_content_by_group(
     limit: int = 50,
     offset: int = 0,
     only_new: bool = False,
+    search: str | None = None,
 ):
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -967,6 +984,7 @@ def list_content_by_group(
         if only_new:
             baseline = _get_visit_baseline(request.user)
             queryset = _apply_new_filter(queryset, baseline, only_new)
+        queryset = _apply_search_filter(queryset, search)
 
         bookmark_subquery = Bookmark.objects.filter(
             user=request.user,
@@ -993,6 +1011,7 @@ def list_content_by_group(
                 execution__topic__is_active=True,
             )
         )
+        queryset = _apply_search_filter(queryset, search)
         contents = (
             queryset
             .select_related("execution", "execution__topic")

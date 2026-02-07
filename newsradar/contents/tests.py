@@ -310,6 +310,88 @@ class ContentFeedVersioningTests(TestCase):
         self.assertIn(latest_revision.id, returned_ids)
         self.assertNotIn(old_revision.id, returned_ids)
 
+    def test_list_content_search_filters_title_snippet_and_url(self):
+        topic = self._create_topic_for_user(self.user, query="markets")
+        title_match = self._create_content(
+            topic,
+            url="https://example.com/one",
+            title="Merger update",
+        )
+        snippet_match = self._create_content(
+            topic,
+            url="https://example.com/two",
+            title="Industry note",
+        )
+        snippet_match.snippet = "A deep dive into quarterly earnings."
+        snippet_match.save(update_fields=["snippet"])
+        url_match = self._create_content(
+            topic,
+            url="https://example.com/search-target",
+            title="Daily roundup",
+        )
+        self._create_content(
+            topic,
+            url="https://example.com/four",
+            title="Completely unrelated",
+        )
+
+        response = self.client.get("/api/contents/?search=EARNINGS")
+        self.assertEqual(response.status_code, 200)
+        items = response.json()["items"]
+        returned_ids = {item["id"] for item in items}
+        self.assertIn(snippet_match.id, returned_ids)
+        self.assertNotIn(title_match.id, returned_ids)
+        self.assertNotIn(url_match.id, returned_ids)
+
+        response = self.client.get("/api/contents/?search=merge")
+        self.assertEqual(response.status_code, 200)
+        items = response.json()["items"]
+        returned_ids = {item["id"] for item in items}
+        self.assertIn(title_match.id, returned_ids)
+        self.assertNotIn(snippet_match.id, returned_ids)
+        self.assertNotIn(url_match.id, returned_ids)
+
+        response = self.client.get("/api/contents/?search=target")
+        self.assertEqual(response.status_code, 200)
+        items = response.json()["items"]
+        returned_ids = {item["id"] for item in items}
+        self.assertIn(url_match.id, returned_ids)
+        self.assertNotIn(title_match.id, returned_ids)
+        self.assertNotIn(snippet_match.id, returned_ids)
+
+    def test_list_content_by_topic_and_group_accept_search_filter(self):
+        group = TopicGroup.objects.create(
+            user=self.user,
+            name="Rates",
+        )
+        topic = self._create_topic_for_user(
+            self.user,
+            query="interest rates",
+            group=group,
+        )
+        topic_match = self._create_content(
+            topic,
+            url="https://example.com/rates-hit",
+            title="Fed rates update",
+        )
+        topic_non_match = self._create_content(
+            topic,
+            url="https://example.com/rates-miss",
+            title="Labor market update",
+        )
+
+        topic_response = self.client.get(f"/api/contents/topics/{topic.uuid}?search=fed")
+        self.assertEqual(topic_response.status_code, 200)
+        topic_ids = {item["id"] for item in topic_response.json()["items"]}
+        self.assertIn(topic_match.id, topic_ids)
+        self.assertNotIn(topic_non_match.id, topic_ids)
+
+        group_response = self.client.get(f"/api/contents/groups/{group.uuid}?search=fed")
+        self.assertEqual(group_response.status_code, 200)
+        group_ids = {item["id"] for item in group_response.json()["items"]}
+        self.assertIn(topic_match.id, group_ids)
+        self.assertNotIn(topic_non_match.id, group_ids)
+
     def test_bookmark_state_is_derived_from_any_revision_and_delete_is_article_level(self):
         topic = self._create_topic_for_user(self.user, query="semiconductors")
         now = timezone.now()

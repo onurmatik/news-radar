@@ -22,11 +22,11 @@ const ENDPOINTS: EndpointItem[] = [
   { method: 'PATCH', path: '/api/topics/{topic_uuid}', description: 'Update topic settings or queries' },
   { method: 'GET', path: '/api/contents/', description: 'Fetch the news feed' },
   { method: 'GET', path: '/api/contents/items/{content_id}/detail', description: 'Get full content detail' },
+  { method: 'GET', path: '/api/contents/?search=your-query', description: 'Search content by title, snippet, or URL' },
   { method: 'DELETE', path: '/api/contents/items/{content_id}', description: 'Soft-delete a content item and hide its revisions' },
   { method: 'GET', path: '/api/contents/trash', description: 'List soft-deleted content items for restore' },
   { method: 'DELETE', path: '/api/contents/trash', description: 'Permanently remove all items from trash' },
   { method: 'POST', path: '/api/contents/items/{content_id}/restore', description: 'Restore a soft-deleted content item' },
-  { method: 'GET', path: '/api/search/?q=your-query', description: 'Search topics and content' },
   { method: 'POST', path: '/api/executions/web-search/', description: 'Trigger a scan for a topic' },
   { method: 'GET', path: '/api/executions/{execution_id}/', description: 'Check execution status' },
 ];

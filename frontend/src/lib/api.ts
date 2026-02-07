@@ -8,7 +8,6 @@ import type {
   ApiAccessState,
   ApiNotificationsResponse,
   ApiTrashContentResponse,
-  ApiSearchResponse,
   ApiTopicCreateResponse,
   ApiTopicGroupCreateResponse,
   ApiTopicGroupListResponse,
@@ -89,19 +88,6 @@ export async function listTopics(
   }
   const query = params.toString();
   return requestJson<ApiTopicListResponse>(`/api/topics/${query ? `?${query}` : ""}`);
-}
-
-export async function searchAll(params: {
-  query: string;
-  limit?: number;
-  groupUuid?: string | null;
-}): Promise<ApiSearchResponse> {
-  const search = new URLSearchParams();
-  search.set("q", params.query);
-  if (params.limit) search.set("limit", String(params.limit));
-  if (params.groupUuid) search.set("group_uuid", params.groupUuid);
-  const query = search.toString();
-  return requestJson<ApiSearchResponse>(`/api/search/${query ? `?${query}` : ""}`);
 }
 
 export async function createTopic(
@@ -227,11 +213,13 @@ export async function listContentFeed(params?: {
   limit?: number;
   offset?: number;
   onlyNew?: boolean;
+  search?: string;
 }): Promise<ApiContentFeedResponse> {
   const search = new URLSearchParams();
   if (params?.limit) search.set("limit", String(params.limit));
   if (params?.offset) search.set("offset", String(params.offset));
   if (params?.onlyNew) search.set("only_new", "true");
+  if (params?.search?.trim()) search.set("search", params.search.trim());
   const query = search.toString();
   if (params?.topicUuid) {
     return requestJson<ApiContentFeedResponse>(
@@ -247,12 +235,14 @@ export async function listContentByGroup(
     limit?: number;
     offset?: number;
     onlyNew?: boolean;
+    search?: string;
   }
 ): Promise<ApiContentFeedResponse> {
   const search = new URLSearchParams();
   if (params?.limit) search.set("limit", String(params.limit));
   if (params?.offset) search.set("offset", String(params.offset));
   if (params?.onlyNew) search.set("only_new", "true");
+  if (params?.search?.trim()) search.set("search", params.search.trim());
   const query = search.toString();
   return requestJson<ApiContentFeedResponse>(
     `/api/contents/groups/${groupUuid}${query ? `?${query}` : ""}`

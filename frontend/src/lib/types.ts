@@ -124,36 +124,6 @@ export interface ApiAIInteractionResponse {
   total_tokens: number | null;
 }
 
-export interface ApiSearchTopicItem {
-  id: number;
-  uuid: string;
-  queries: string[];
-  last_fetched_at: string | null;
-  content_source_count: number;
-  is_active: boolean;
-  group_uuid: string | null;
-  group_name: string | null;
-}
-
-export interface ApiSearchContentItem {
-  id: number;
-  url: string;
-  title: string;
-  summary: string;
-  source: string;
-  created_at: string;
-  published_at: string | null;
-  topic_uuid: string;
-  topic_queries: string[];
-  group_uuid: string | null;
-  is_bookmarked: boolean;
-}
-
-export interface ApiSearchResponse {
-  topics: ApiSearchTopicItem[];
-  contents: ApiSearchContentItem[];
-}
-
 export type ApiExecutionStatus = "created" | "running" | "completed" | "failed";
 
 export interface ApiExecutionDetail {
