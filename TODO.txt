@@ -1,0 +1,14 @@
+add embedding vectors to content
+=> semantic search
+=> building better AI context
+
+
+share topic / topic groups contents
+- /content/UUID path
+- embed content
+
+
+topic config: additional query term suggestions via AI
+
+
+

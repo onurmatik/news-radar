@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import TestCase, override_settings
 
 from newsradar.accounts.models import Profile
@@ -31,6 +32,26 @@ class AccountsApiTests(TestCase):
         self.assertEqual(payload["email"], "tester@example.com")
         self.assertTrue(payload["is_pro"])
         self.assertEqual(payload["pro_plan"], Profile.PLAN_YEARLY)
+
+    @override_settings(FRONTEND_BASE_URL="http://localhost:5173")
+    def test_magic_link_email_uses_clearer_copy(self):
+        response = self.client.post(
+            "/api/auth/magic-link",
+            data=json.dumps({"email": "tester@example.com"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"sent": True})
+        self.assertEqual(len(mail.outbox), 1)
+
+        sent = mail.outbox[0]
+        self.assertEqual(sent.subject, "Your NewsRadar magic link")
+        self.assertIn("Hi there,", sent.body)
+        self.assertIn("Use the secure link below to sign in to NewsRadar:", sent.body)
+        self.assertIn("/api/auth/sesame/?", sent.body)
+        self.assertIn("sign in instantly without a password", sent.body)
+        self.assertIn("you can safely ignore it", sent.body)
 
     @override_settings(
         STRIPE_SECRET_KEY="sk_test_123",

@@ -91,6 +91,18 @@ def _build_magic_link(request, user, redirect_url: str | None) -> str:
     return f"{login_url}?{urlencode(params)}"
 
 
+def _build_magic_link_email(magic_link: str) -> tuple[str, str]:
+    subject = "Your NewsRadar magic link"
+    message = (
+        "Hi there,\n\n"
+        "Use the secure link below to sign in to NewsRadar:\n"
+        f"{magic_link}\n\n"
+        "This link lets you sign in instantly without a password.\n\n"
+        "If you didn't request this email, you can safely ignore it."
+    )
+    return subject, message
+
+
 def _get_frontend_origin() -> str | None:
     frontend_url = (settings.FRONTEND_BASE_URL or "").strip()
     if not frontend_url:
@@ -196,12 +208,7 @@ def request_magic_link(request, payload: MagicLinkRequest):
     redirect_url = payload.redirect_url or settings.FRONTEND_BASE_URL or None
     magic_link = _build_magic_link(request, user, redirect_url)
 
-    subject = "Your NewsRadar sign-in link"
-    message = (
-        "Use the link below to sign in to NewsRadar:\n\n"
-        f"{magic_link}\n\n"
-        "If you didn't request this email, you can ignore it."
-    )
+    subject, message = _build_magic_link_email(magic_link)
 
     try:
         send_mail(
