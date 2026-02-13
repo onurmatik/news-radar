@@ -4,23 +4,29 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
+from newsradar.contents.models import Content
+from newsradar.executions.models import Execution
 from newsradar.executions.services import execute_web_search
 from newsradar.topics.models import Topic
 
 
 class _FakeSearchResponse:
+    def __init__(self, payload: dict | None = None):
+        self._payload = payload or {"results": []}
+
     def model_dump(self):
-        return {"results": []}
+        return self._payload
 
 
 class _FakePerplexityClient:
-    def __init__(self, payloads: list[dict]):
+    def __init__(self, payloads: list[dict], response_payload: dict | None = None):
         self._payloads = payloads
+        self._response_payload = response_payload or {"results": []}
         self.search = SimpleNamespace(create=self._create)
 
     def _create(self, **kwargs):
         self._payloads.append(kwargs)
-        return _FakeSearchResponse()
+        return _FakeSearchResponse(self._response_payload)
 
 
 @override_settings(
@@ -97,3 +103,72 @@ class ExecuteWebSearchAdditionalQueriesModeTests(TestCase):
                 "battery scrap processors",
             ],
         )
+
+    def test_queues_new_items_email_when_new_content_is_created(self):
+        topic = self._create_topic(
+            queries=["battery recycling"],
+            mode=Topic.ADDITIONAL_QUERIES_MODE_MANUAL,
+        )
+        captured_payloads: list[dict] = []
+        response_payload = {
+            "results": [
+                {
+                    "url": "https://example.com/new-story",
+                    "title": "Battery recycling policy update",
+                    "last_updated": "2026-02-12T10:00:00Z",
+                }
+            ]
+        }
+
+        with patch(
+            "newsradar.executions.services.Perplexity",
+            return_value=_FakePerplexityClient(captured_payloads, response_payload),
+        ):
+            with patch(
+                "newsradar.contents.tasks.send_new_items_email_notification.delay"
+            ) as delay_mock:
+                result = execute_web_search(str(topic.uuid))
+
+        self.assertEqual(len(captured_payloads), 1)
+        self.assertIsNotNone(result["content_item_id"])
+        delay_mock.assert_called_once_with(result["execution_id"])
+
+    def test_does_not_queue_email_when_no_new_content_is_created(self):
+        topic = self._create_topic(
+            queries=["battery recycling"],
+            mode=Topic.ADDITIONAL_QUERIES_MODE_MANUAL,
+        )
+        existing_execution = Execution.objects.create(
+            topic=topic,
+            initiator=Execution.Initiator.USER,
+            status=Execution.Status.COMPLETED,
+        )
+        Content.objects.create(
+            execution=existing_execution,
+            topic=topic,
+            url="https://example.com/existing-story",
+            title="Existing story",
+        )
+
+        captured_payloads: list[dict] = []
+        response_payload = {
+            "results": [
+                {
+                    "url": "https://example.com/existing-story",
+                    "title": "Existing story",
+                }
+            ]
+        }
+
+        with patch(
+            "newsradar.executions.services.Perplexity",
+            return_value=_FakePerplexityClient(captured_payloads, response_payload),
+        ):
+            with patch(
+                "newsradar.contents.tasks.send_new_items_email_notification.delay"
+            ) as delay_mock:
+                result = execute_web_search(str(topic.uuid))
+
+        self.assertEqual(len(captured_payloads), 1)
+        self.assertIsNone(result["content_item_id"])
+        delay_mock.assert_not_called()

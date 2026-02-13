@@ -296,7 +296,7 @@ def execute_web_search(
         )
 
         content_sources = _extract_content_sources(response_payload)
-        content_items: list[Content] = []
+        latest_content_item_id: int | None = None
         if content_sources:
             seen_entries: set[tuple[str, datetime | None, datetime | None]] = set()
             ordered_entries: list[dict] = []
@@ -325,7 +325,7 @@ def execute_web_search(
                 not in existing_entries
             ]
             if new_entries:
-                content_items = Content.objects.bulk_create(
+                Content.objects.bulk_create(
                     [
                         Content(
                             execution=execution,
@@ -340,13 +340,31 @@ def execute_web_search(
                     ],
                     ignore_conflicts=True,
                 )
+                latest_content_item_id = (
+                    Content.objects.filter(execution=execution)
+                    .order_by("-created_at", "-id")
+                    .values_list("id", flat=True)
+                    .first()
+                )
+                if latest_content_item_id is not None:
+                    try:
+                        from newsradar.contents.tasks import (
+                            send_new_items_email_notification,
+                        )
+
+                        send_new_items_email_notification.delay(execution.id)
+                    except Exception:
+                        logger.exception(
+                            "Failed to queue new-items notification email for execution %s",
+                            execution.id,
+                        )
 
         topic.last_fetched_at = timezone.now()
         topic.save(update_fields=["last_fetched_at"])
 
         return {
             "execution_id": execution.id,
-            "content_item_id": content_items[0].id if content_items else None,
+            "content_item_id": latest_content_item_id,
             "response": execution.response_payload,
         }
     except Exception as exc:
