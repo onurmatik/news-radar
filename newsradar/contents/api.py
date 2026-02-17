@@ -1,5 +1,7 @@
 import json
 import logging
+import math
+import re
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone as dt_timezone
 from email.utils import format_datetime
@@ -29,6 +31,76 @@ from newsradar.topics.models import Topic, TopicGroup
 
 api = NinjaAPI(title="Contents API", urls_namespace="contents")
 logger = logging.getLogger(__name__)
+
+_MODEL_MAX_INPUT_TOKENS: dict[str, int] = {
+    "gpt-5": 400_000,
+    "gpt-5-mini": 400_000,
+    "gpt-5-nano": 400_000,
+    "gpt-4.1": 1_047_576,
+    "gpt-4.1-mini": 1_047_576,
+    "gpt-4.1-nano": 1_047_576,
+}
+_TOKEN_ESTIMATE_CHARS_PER_TOKEN = 3
+_TOKEN_ESTIMATE_SAFETY_MARGIN = 512
+_MODEL_DATE_SUFFIX_PATTERN = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+
+
+def _resolve_max_input_tokens(model_name: str) -> int | None:
+    configured = getattr(settings, "OPENAI_RESPONSES_MAX_INPUT_TOKENS", None)
+    if isinstance(configured, int) and configured > 0:
+        return configured
+
+    normalized = (model_name or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized in _MODEL_MAX_INPUT_TOKENS:
+        return _MODEL_MAX_INPUT_TOKENS[normalized]
+
+    without_date_suffix = _MODEL_DATE_SUFFIX_PATTERN.sub("", normalized)
+    if without_date_suffix in _MODEL_MAX_INPUT_TOKENS:
+        return _MODEL_MAX_INPUT_TOKENS[without_date_suffix]
+
+    for known_model, token_limit in _MODEL_MAX_INPUT_TOKENS.items():
+        if normalized.startswith(f"{known_model}-"):
+            return token_limit
+    return None
+
+
+def _estimate_text_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return max(1, math.ceil(len(text) / _TOKEN_ESTIMATE_CHARS_PER_TOKEN))
+
+
+def _build_ai_input(
+    instruction: str,
+    news_context: list[dict[str, Any]],
+) -> str:
+    return json.dumps(
+        {
+            "instruction": instruction,
+            "news_context": news_context,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _trim_news_context_to_input_budget(
+    instruction: str,
+    news_context: list[dict[str, Any]],
+    max_input_tokens: int | None,
+) -> list[dict[str, Any]]:
+    if max_input_tokens is None:
+        return news_context
+
+    trimmed_context = list(news_context)
+    while trimmed_context:
+        candidate_input = _build_ai_input(instruction, trimmed_context)
+        estimated_tokens = _estimate_text_tokens(candidate_input) + _TOKEN_ESTIMATE_SAFETY_MARGIN
+        if estimated_tokens <= max_input_tokens:
+            return trimmed_context
+        trimmed_context.pop()
+    return []
 
 
 def _format_rss_datetime(value: datetime | None) -> str:
@@ -626,19 +698,12 @@ def ai_respond(request, payload: AIInteractionRequest):
 
     if not normalized_content_ids:
         raise HttpError(400, "Provide at least one content ID.")
-    if len(normalized_content_ids) > settings.OPENAI_RESPONSES_MAX_CONTENT_ITEMS:
-        raise HttpError(
-            400,
-            (
-                "Too many content IDs. Maximum is "
-                f"{settings.OPENAI_RESPONSES_MAX_CONTENT_ITEMS}."
-            ),
-        )
 
     model_name = (payload.model or "").strip() or settings.OPENAI_RESPONSES_MODEL.strip()
     if not model_name:
         logger.error("OPENAI_RESPONSES_MODEL is empty.")
         raise HttpError(500, "AI model is not configured.")
+    max_input_tokens = _resolve_max_input_tokens(model_name)
 
     selected_contents = list(
         _active_contents_queryset().filter(
@@ -663,19 +728,38 @@ def ai_respond(request, payload: AIInteractionRequest):
         _serialize_content_for_ai(content)
         for content in ordered_contents
     ]
-    ai_input = json.dumps(
-        {
-            "instruction": instruction,
-            "news_context": news_context,
-        },
-        ensure_ascii=False,
+    trimmed_news_context = _trim_news_context_to_input_budget(
+        instruction=instruction,
+        news_context=news_context,
+        max_input_tokens=max_input_tokens,
     )
+    if not trimmed_news_context:
+        if max_input_tokens is not None:
+            raise HttpError(
+                400,
+                (
+                    "Instruction and content exceed the model input token limit "
+                    f"({max_input_tokens})."
+                ),
+            )
+        raise HttpError(400, "Unable to build AI context from selected items.")
+
+    if len(trimmed_news_context) < len(news_context):
+        logger.info(
+            "Trimmed AI context from %s to %s items due to input token budget.",
+            len(news_context),
+            len(trimmed_news_context),
+        )
+
+    ai_input = _build_ai_input(instruction, trimmed_news_context)
+    trimmed_context_ids = [item["id"] for item in trimmed_news_context]
+
     interaction = AIInteraction.objects.create(
         user=request.user,
         status=AIInteraction.Status.CREATED,
         instruction=instruction,
-        context_content_ids=normalized_content_ids,
-        context_payload=news_context,
+        context_content_ids=trimmed_context_ids,
+        context_payload=trimmed_news_context,
         model_requested=model_name,
     )
 
@@ -696,15 +780,17 @@ def ai_respond(request, payload: AIInteractionRequest):
             api_key=settings.OPENAI_API_KEY,
             timeout=settings.OPENAI_RESPONSES_TIMEOUT_SECONDS,
         )
-        response = client.responses.create(
+        response_request_kwargs: dict[str, Any] = dict(
             model=model_name,
             instructions=(
                 "You are a precise news assistant. Use only the provided news_context. "
                 "If the context is insufficient, explicitly state the uncertainty."
             ),
             input=ai_input,
-            max_output_tokens=settings.OPENAI_RESPONSES_MAX_OUTPUT_TOKENS,
         )
+        if settings.OPENAI_RESPONSES_MAX_OUTPUT_TOKENS is not None:
+            response_request_kwargs["max_output_tokens"] = settings.OPENAI_RESPONSES_MAX_OUTPUT_TOKENS
+        response = client.responses.create(**response_request_kwargs)
         answer = _extract_ai_response_text(response)
         input_tokens, output_tokens, total_tokens = _extract_response_usage_tokens(response)
         usage_payload = _extract_response_usage_payload(response)
@@ -764,7 +850,7 @@ def ai_respond(request, payload: AIInteractionRequest):
             answer=answer,
             model=response_model,
             response_id=response_id or None,
-            content_count=len(ordered_contents),
+            content_count=len(trimmed_news_context),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=total_tokens,

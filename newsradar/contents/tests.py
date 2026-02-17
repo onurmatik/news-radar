@@ -16,7 +16,6 @@ from newsradar.topics.models import Topic, TopicGroup
     OPENAI_API_KEY="test-openai-key",
     OPENAI_RESPONSES_MODEL="gpt-4.1-mini",
     OPENAI_RESPONSES_TIMEOUT_SECONDS=5,
-    OPENAI_RESPONSES_MAX_CONTENT_ITEMS=20,
     OPENAI_RESPONSES_MAX_INSTRUCTION_CHARS=4000,
     OPENAI_RESPONSES_MAX_OUTPUT_TOKENS=512,
 )
@@ -148,6 +147,124 @@ class ContentAIEndpointTests(TestCase):
         self.assertEqual(interaction.output_tokens, 8)
         self.assertEqual(interaction.total_tokens, 20)
         self.assertEqual(str(interaction.credits_used), "20.000000")
+
+    @override_settings(OPENAI_RESPONSES_MAX_INPUT_TOKENS=200_000)
+    def test_accepts_more_than_twenty_content_items(self):
+        self.client.force_login(self.user)
+        many_contents = [
+            self._create_content_for_user(
+                self.user,
+                f"https://example.com/news-{index + 10}",
+                f"Title {index + 10}",
+            )
+            for index in range(21)
+        ]
+        payload_ids = [content.id for content in many_contents]
+
+        with patch("newsradar.contents.api.OpenAI") as openai_cls:
+            openai_cls.return_value.responses.create.return_value = SimpleNamespace(
+                id="resp_many",
+                model="gpt-4.1-mini",
+                output_text="Many-item summary.",
+                usage=SimpleNamespace(
+                    input_tokens=200,
+                    output_tokens=30,
+                    total_tokens=230,
+                ),
+            )
+            response = self._post(
+                {
+                    "content_ids": payload_ids,
+                    "instruction": "Summarize this selection.",
+                }
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["content_count"], 21)
+        request_payload = json.loads(
+            openai_cls.return_value.responses.create.call_args.kwargs["input"]
+        )
+        self.assertEqual(len(request_payload["news_context"]), 21)
+
+        interaction = AIInteraction.objects.get(user=self.user)
+        self.assertEqual(interaction.context_content_ids, payload_ids)
+        self.assertEqual(len(interaction.context_payload), 21)
+
+    @override_settings(OPENAI_RESPONSES_MAX_INPUT_TOKENS=1_200)
+    def test_trims_context_to_input_token_budget(self):
+        self.client.force_login(self.user)
+        contents = [
+            self._create_content_for_user(
+                self.user,
+                f"https://example.com/trim-{index}",
+                f"Trim {index}",
+            )
+            for index in range(5)
+        ]
+        for content in contents:
+            content.snippet = ("important context " * 45).strip()
+            content.save(update_fields=["snippet"])
+
+        with patch("newsradar.contents.api.OpenAI") as openai_cls:
+            openai_cls.return_value.responses.create.return_value = SimpleNamespace(
+                id="resp_trim",
+                model="gpt-4.1-mini",
+                output_text="Trimmed summary.",
+                usage=SimpleNamespace(
+                    input_tokens=100,
+                    output_tokens=20,
+                    total_tokens=120,
+                ),
+            )
+            response = self._post(
+                {
+                    "content_ids": [content.id for content in contents],
+                    "instruction": "Summarize this selection.",
+                }
+            )
+
+        self.assertEqual(response.status_code, 200)
+        request_payload = json.loads(
+            openai_cls.return_value.responses.create.call_args.kwargs["input"]
+        )
+        trimmed_context = request_payload["news_context"]
+        self.assertGreater(len(trimmed_context), 0)
+        self.assertLess(len(trimmed_context), len(contents))
+
+        expected_ids = [item["id"] for item in trimmed_context]
+        body = response.json()
+        self.assertEqual(body["content_count"], len(trimmed_context))
+
+        interaction = AIInteraction.objects.get(user=self.user)
+        self.assertEqual(interaction.context_content_ids, expected_ids)
+        self.assertEqual(len(interaction.context_payload), len(trimmed_context))
+
+    @override_settings(OPENAI_RESPONSES_MAX_OUTPUT_TOKENS=None)
+    def test_omits_max_output_tokens_when_unset(self):
+        self.client.force_login(self.user)
+
+        with patch("newsradar.contents.api.OpenAI") as openai_cls:
+            openai_cls.return_value.responses.create.return_value = SimpleNamespace(
+                id="resp_no_cap",
+                model="gpt-4.1-mini",
+                output_text="No cap summary.",
+                usage=SimpleNamespace(
+                    input_tokens=12,
+                    output_tokens=8,
+                    total_tokens=20,
+                ),
+            )
+            response = self._post(
+                {
+                    "content_ids": [self.content.id],
+                    "instruction": "Summarize this news item.",
+                }
+            )
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = openai_cls.return_value.responses.create.call_args.kwargs
+        self.assertNotIn("max_output_tokens", call_kwargs)
 
     def test_maps_rate_limit_to_429(self):
         self.client.force_login(self.user)
