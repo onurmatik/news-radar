@@ -104,6 +104,27 @@ class ExecuteWebSearchAdditionalQueriesModeTests(TestCase):
             ],
         )
 
+    @override_settings(OPENAI_RESPONSES_REASONING_EFFORT="medium")
+    def test_auto_mode_passes_reasoning_effort_when_configured(self):
+        topic = self._create_topic(
+            queries=["battery recycling"],
+            mode=Topic.ADDITIONAL_QUERIES_MODE_AUTO,
+        )
+        captured_payloads: list[dict] = []
+
+        with patch(
+            "newsradar.executions.services.Perplexity",
+            return_value=_FakePerplexityClient(captured_payloads),
+        ):
+            with patch("newsradar.executions.services.OpenAI") as openai_cls:
+                openai_cls.return_value.responses.create.return_value = SimpleNamespace(
+                    output_text='{"queries":["lithium permitting policy"]}'
+                )
+                execute_web_search(str(topic.uuid))
+
+        call_kwargs = openai_cls.return_value.responses.create.call_args.kwargs
+        self.assertEqual(call_kwargs["reasoning"], {"effort": "medium"})
+
     def test_queues_new_items_email_when_new_content_is_created(self):
         topic = self._create_topic(
             queries=["battery recycling"],

@@ -265,6 +265,33 @@ class ContentAIEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         call_kwargs = openai_cls.return_value.responses.create.call_args.kwargs
         self.assertNotIn("max_output_tokens", call_kwargs)
+        self.assertNotIn("reasoning", call_kwargs)
+
+    @override_settings(OPENAI_RESPONSES_REASONING_EFFORT="low")
+    def test_includes_reasoning_effort_when_configured(self):
+        self.client.force_login(self.user)
+
+        with patch("newsradar.contents.api.OpenAI") as openai_cls:
+            openai_cls.return_value.responses.create.return_value = SimpleNamespace(
+                id="resp_reasoning",
+                model="gpt-4.1-mini",
+                output_text="Reasoned summary.",
+                usage=SimpleNamespace(
+                    input_tokens=12,
+                    output_tokens=8,
+                    total_tokens=20,
+                ),
+            )
+            response = self._post(
+                {
+                    "content_ids": [self.content.id],
+                    "instruction": "Summarize this news item.",
+                }
+            )
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = openai_cls.return_value.responses.create.call_args.kwargs
+        self.assertEqual(call_kwargs["reasoning"], {"effort": "low"})
 
     def test_maps_rate_limit_to_429(self):
         self.client.force_login(self.user)

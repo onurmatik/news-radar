@@ -790,6 +790,10 @@ def ai_respond(request, payload: AIInteractionRequest):
         )
         if settings.OPENAI_RESPONSES_MAX_OUTPUT_TOKENS is not None:
             response_request_kwargs["max_output_tokens"] = settings.OPENAI_RESPONSES_MAX_OUTPUT_TOKENS
+        if settings.OPENAI_RESPONSES_REASONING_EFFORT is not None:
+            response_request_kwargs["reasoning"] = {
+                "effort": settings.OPENAI_RESPONSES_REASONING_EFFORT,
+            }
         response = client.responses.create(**response_request_kwargs)
         answer = _extract_ai_response_text(response)
         input_tokens, output_tokens, total_tokens = _extract_response_usage_tokens(response)

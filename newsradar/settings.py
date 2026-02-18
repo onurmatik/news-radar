@@ -47,6 +47,22 @@ def _optional_int_env(name: str) -> int | None:
     return int(stripped)
 
 
+_OPENAI_REASONING_EFFORT_VALUES = {"minimal", "low", "medium", "high"}
+
+
+def _optional_reasoning_effort_env(name: str) -> str | None:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return None
+    stripped = raw_value.strip().lower()
+    if not stripped:
+        return None
+    if stripped not in _OPENAI_REASONING_EFFORT_VALUES:
+        allowed_values = ", ".join(sorted(_OPENAI_REASONING_EFFORT_VALUES))
+        raise ValueError(f"{name} must be one of: {allowed_values}.")
+    return stripped
+
+
 OPENAI_RESPONSES_MODEL = os.getenv("OPENAI_RESPONSES_MODEL", "gpt-5-nano")
 OPENAI_RESPONSES_TIMEOUT_SECONDS = float(
     os.getenv("OPENAI_RESPONSES_TIMEOUT_SECONDS", "30")
@@ -59,6 +75,9 @@ OPENAI_RESPONSES_MAX_INPUT_TOKENS = _optional_int_env(
 )
 OPENAI_RESPONSES_MAX_OUTPUT_TOKENS = _optional_int_env(
     "OPENAI_RESPONSES_MAX_OUTPUT_TOKENS"
+)
+OPENAI_RESPONSES_REASONING_EFFORT = _optional_reasoning_effort_env(
+    "OPENAI_RESPONSES_REASONING_EFFORT"
 )
 
 

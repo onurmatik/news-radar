@@ -140,11 +140,16 @@ def _generate_auto_additional_queries(topic: Topic, primary_query: str) -> list[
 
     try:
         client = OpenAI(timeout=settings.OPENAI_RESPONSES_TIMEOUT_SECONDS)
-        response = client.responses.create(
+        response_request_kwargs: dict[str, Any] = dict(
             model=settings.OPENAI_RESPONSES_MODEL,
             input=prompt,
             max_output_tokens=200,
         )
+        if settings.OPENAI_RESPONSES_REASONING_EFFORT is not None:
+            response_request_kwargs["reasoning"] = {
+                "effort": settings.OPENAI_RESPONSES_REASONING_EFFORT,
+            }
+        response = client.responses.create(**response_request_kwargs)
         parsed = _parse_json_from_text(getattr(response, "output_text", ""))
         if isinstance(parsed, dict):
             return _normalize_generated_queries(parsed.get("queries"), primary_query)
