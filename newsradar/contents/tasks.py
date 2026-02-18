@@ -19,6 +19,13 @@ def _build_topic_label(queries: list[str]) -> str:
     return ", ".join(cleaned[:2])
 
 
+def _build_topics_url() -> str:
+    frontend_base_url = (getattr(settings, "FRONTEND_BASE_URL", "") or "").strip()
+    if not frontend_base_url:
+        return ""
+    return f"{frontend_base_url.rstrip('/')}/topics"
+
+
 @shared_task(name="contents.send_new_items_email_notification")
 def send_new_items_email_notification(execution_id: int) -> dict:
     execution = (
@@ -72,6 +79,12 @@ def send_new_items_email_notification(execution_id: int) -> dict:
         message_lines.append(f"{index}. {(title or '').strip() or url}")
         message_lines.append(f"   {url}")
         message_lines.append("")
+
+    topics_url = _build_topics_url()
+    if topics_url:
+        message_lines.append(f"Manage your topics: {topics_url}")
+        message_lines.append("")
+
     message_lines.append(
         "You are receiving this email because your latest scan found new content."
     )
