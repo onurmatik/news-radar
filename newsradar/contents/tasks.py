@@ -23,7 +23,7 @@ def _build_topics_url() -> str:
     frontend_base_url = (getattr(settings, "FRONTEND_BASE_URL", "") or "").strip()
     if not frontend_base_url:
         return ""
-    return f"{frontend_base_url.rstrip('/')}/topics"
+    return f"{frontend_base_url.rstrip('/')}"
 
 
 @shared_task(name="contents.send_new_items_email_notification")
