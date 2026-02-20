@@ -6,7 +6,7 @@ from newsradar.executions.tasks import web_search_execution
 
 @admin.register(TopicGroup)
 class TopicGroupAdmin(admin.ModelAdmin):
-    list_display = ("name", "user", "is_public", "created_at", "updated_at")
+    list_display = ("uuid", "name", "user", "is_public", "created_at", "updated_at")
     list_filter = ("user", "is_public", "created_at")
     search_fields = ("name", "description", "user__username", "user__email")
 
