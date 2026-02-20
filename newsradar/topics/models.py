@@ -166,7 +166,7 @@ class Topic(models.Model):
             else:
                 needs_embedding = True
         else:
-            needs_embedding = True
+            needs_embedding = self.embedding is None
 
         if self.queries != normalized_queries:
             self.queries = normalized_queries

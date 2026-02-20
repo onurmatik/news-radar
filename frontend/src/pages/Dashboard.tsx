@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { useAuthDialog } from '@/components/AuthDialogContext';
@@ -10,6 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import {
+  cloneSharedTopic,
+  cloneSharedTopicGroup,
   createBookmark,
   deleteContentItem,
   deleteBookmark,
@@ -25,7 +27,14 @@ import {
   runTopicScan,
   updateTopicGroup,
 } from '@/lib/api';
-import type { ApiAIInteractionResponse, ApiContentFeedItem, ApiTrashContentItem, NewsItem } from '@/lib/types';
+import type {
+  ApiAIInteractionResponse,
+  ApiContentFeedItem,
+  ApiTopicListItem,
+  ApiTrashContentItem,
+  NewsItem,
+  TopicItem,
+} from '@/lib/types';
 import {
   ExternalLink,
   Clock,
@@ -134,6 +143,7 @@ export default function Dashboard() {
     selectedGroupName,
     selectedGroupTopicCount,
     selectedTopicUuid,
+    setSelectedGroupId,
     setSelectedTopicUuid,
     groups,
     setGroups,
@@ -164,6 +174,9 @@ export default function Dashboard() {
   const [shareUrl, setShareUrl] = useState("");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [shareContext, setShareContext] = useState<ShareDialogContext>("content");
+  const [cloneLoading, setCloneLoading] = useState(false);
+  const [cloneStatus, setCloneStatus] = useState<string | null>(null);
+  const [pendingCloneAfterAuth, setPendingCloneAfterAuth] = useState(false);
   const [showRecentDeleteIndicator, setShowRecentDeleteIndicator] = useState(false);
   const [trashDialogOpen, setTrashDialogOpen] = useState(false);
   const [trashItems, setTrashItems] = useState<ApiTrashContentItem[]>([]);
@@ -299,6 +312,27 @@ export default function Dashboard() {
     };
   };
 
+  const toTopicItem = (topic: ApiTopicListItem): TopicItem => ({
+    id: topic.id,
+    uuid: topic.uuid,
+    queries: topic.queries ?? [],
+    term: topic.queries?.[0] || "Untitled",
+    category: "General",
+    isActive: topic.is_active,
+    lastSearch: topic.last_fetched_at ? new Date(topic.last_fetched_at) : null,
+    hasNewItems: topic.content_source_count > 0,
+    groupUuid: topic.group_uuid,
+    groupName: topic.group_name,
+    ownerUsername: topic.owner_username,
+    isOwner: topic.is_owner,
+    domainAllowlist: topic.search_domain_allowlist,
+    domainBlocklist: topic.search_domain_blocklist,
+    languageFilter: topic.search_language_filter,
+    country: topic.country,
+    updateFrequency: topic.update_frequency,
+    additionalQueriesMode: topic.additional_queries_mode ?? "auto",
+  });
+
   const parseCommaList = (value: string) =>
     value
       .split(",")
@@ -339,6 +373,71 @@ export default function Dashboard() {
     throw new Error("Timed out waiting for the fetch to finish.");
   };
 
+  const cloneSharedSelection = useCallback(async () => {
+    if (!isReadOnlySharedView || cloneLoading) return;
+
+    setCloneLoading(true);
+    setCloneStatus(null);
+    try {
+      if (isSharedTopicView && sharedTopicUuid) {
+        const response = await cloneSharedTopic(sharedTopicUuid);
+        if (response.group) {
+          setGroups((prev) => {
+            const next = prev.filter((item) => item.uuid !== response.group?.uuid);
+            return [...next, response.group];
+          });
+          setSelectedGroupId(response.group.uuid);
+        } else {
+          setSelectedGroupId("");
+        }
+        const clonedTopic = toTopicItem(response.topic);
+        setTopics((prev) => {
+          const next = prev.filter((item) => item.uuid !== clonedTopic.uuid);
+          return [...next, clonedTopic];
+        });
+        setSelectedTopicUuid(clonedTopic.uuid);
+        navigate(`/topics?edit=${clonedTopic.uuid}`);
+        return;
+      }
+
+      if (isSharedGroupView && sharedGroupUuid) {
+        const response = await cloneSharedTopicGroup(sharedGroupUuid);
+        setGroups((prev) => {
+          const next = prev.filter((item) => item.uuid !== response.group.uuid);
+          return [...next, response.group];
+        });
+        const clonedTopics = response.topics.map(toTopicItem);
+        setTopics((prev) => {
+          const next = prev.filter(
+            (item) => !clonedTopics.some((cloned) => cloned.uuid === item.uuid)
+          );
+          return [...next, ...clonedTopics];
+        });
+        setSelectedGroupId(response.group.uuid);
+        setSelectedTopicUuid(null);
+        navigate(`/?configure-group=${response.group.uuid}`);
+      }
+    } catch (cloneError) {
+      const message =
+        cloneError instanceof Error ? cloneError.message : "Unable to copy this shared item.";
+      setCloneStatus(message);
+    } finally {
+      setCloneLoading(false);
+    }
+  }, [
+    cloneLoading,
+    isReadOnlySharedView,
+    isSharedGroupView,
+    isSharedTopicView,
+    navigate,
+    setGroups,
+    setSelectedGroupId,
+    setSelectedTopicUuid,
+    setTopics,
+    sharedGroupUuid,
+    sharedTopicUuid,
+  ]);
+
   useEffect(() => {
     const handle = window.setTimeout(() => {
       setDebouncedSearchTerm(searchTerm.trim());
@@ -365,6 +464,20 @@ export default function Dashboard() {
     setNewOnly(false);
   }, [isAuthenticated, newOnly, searchParams, selectedGroupId, selectedTopicUuid, setSearchParams]);
 
+  useEffect(() => {
+    if (!pendingCloneAfterAuth) return;
+    if (isAuthenticated !== true) return;
+    setPendingCloneAfterAuth(false);
+    void cloneSharedSelection();
+  }, [cloneSharedSelection, isAuthenticated, pendingCloneAfterAuth]);
+
+  useEffect(() => {
+    if (isReadOnlySharedView) return;
+    if (!cloneStatus && !pendingCloneAfterAuth) return;
+    setCloneStatus(null);
+    setPendingCloneAfterAuth(false);
+  }, [cloneStatus, isReadOnlySharedView, pendingCloneAfterAuth]);
+
 
   useEffect(() => {
     if (!selectedGroup) {
@@ -383,6 +496,27 @@ export default function Dashboard() {
     setGroupCountry(selectedGroup.default_country ?? "");
     setGroupError(null);
   }, [selectedGroup]);
+
+  useEffect(() => {
+    if (isReadOnlySharedView) return;
+    if (isAuthenticated !== true) return;
+    const configureGroupUuid = searchParams.get("configure-group");
+    if (!configureGroupUuid) return;
+    if (selectedTopicUuid) return;
+    if (selectedGroup?.uuid !== configureGroupUuid) return;
+
+    setConfigDialogOpen(true);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("configure-group");
+    setSearchParams(nextParams, { replace: true });
+  }, [
+    isAuthenticated,
+    isReadOnlySharedView,
+    searchParams,
+    selectedGroup,
+    selectedTopicUuid,
+    setSearchParams,
+  ]);
 
   const loadFeed = async (cacheKey: string) => {
     const requestId = ++latestRequestId.current;
@@ -777,6 +911,17 @@ export default function Dashboard() {
     navigate('/topics');
   };
 
+  const handleReplicateShared = () => {
+    if (!isReadOnlySharedView) return;
+    if (!isAuthenticated) {
+      setPendingCloneAfterAuth(true);
+      setCloneStatus(null);
+      openAuthDialog();
+      return;
+    }
+    void cloneSharedSelection();
+  };
+
   const handleShareSelection = () => {
     if (!isAuthenticated) {
       openAuthDialog();
@@ -1048,9 +1193,27 @@ export default function Dashboard() {
             {error && (
               <p className="text-sm text-destructive mt-3">{error}</p>
             )}
+            {isReadOnlySharedView && cloneStatus && (
+              <p className="mt-3 text-sm text-muted-foreground">{cloneStatus}</p>
+            )}
           </div>
           
           <div className="flex flex-col sm:flex-row items-center gap-3">
+            {isReadOnlySharedView && (
+              <div className="flex flex-wrap items-center justify-center gap-3 sm:justify-end">
+                <p className="text-xs text-muted-foreground sm:text-sm">
+                  Create your own copy to tweak filters, run scans, and get alerts.
+                </p>
+                <Button
+                  size="sm"
+                  className="rounded-full px-5"
+                  onClick={handleReplicateShared}
+                  disabled={cloneLoading}
+                >
+                  {cloneLoading ? "Copying..." : "Copy to customize"}
+                </Button>
+              </div>
+            )}
             <Button
               size="sm"
               variant="outline"

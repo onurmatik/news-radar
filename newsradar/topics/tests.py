@@ -113,6 +113,11 @@ class TopicShareApiTests(TestCase):
             email="share-owner@example.com",
             password="password123",
         )
+        self.target_user = user_model.objects.create_user(
+            username="share-target",
+            email="share-target@example.com",
+            password="password123",
+        )
 
     def _mock_embeddings(self):
         return patch("newsradar.topics.models.OpenAI")
@@ -186,3 +191,66 @@ class TopicShareApiTests(TestCase):
         returned_uuids = {item["uuid"] for item in payload["topics"]}
         self.assertIn(str(first_topic.uuid), returned_uuids)
         self.assertIn(str(second_topic.uuid), returned_uuids)
+
+    def test_clone_shared_topic_creates_owned_copy(self):
+        source_group = TopicGroup.objects.create(
+            user=self.user,
+            name="Clone source group",
+            is_public=False,
+            default_update_frequency="week",
+            default_search_language_filter=["en"],
+            default_country="US",
+        )
+        source_topic = self._create_topic(
+            group=source_group,
+            query="clone me",
+        )
+
+        self.client.force_login(self.target_user)
+        with self._mock_embeddings() as openai_cls:
+            response = self.client.post(f"/api/topics/shared/topics/{source_topic.uuid}/clone")
+
+        self.assertEqual(response.status_code, 200)
+        openai_cls.assert_not_called()
+        body = response.json()
+        cloned_topic_uuid = body["topic"]["uuid"]
+        self.assertIsNotNone(cloned_topic_uuid)
+        self.assertEqual(body["topic"]["queries"], ["clone me"])
+        self.assertTrue(body["topic"]["is_owner"])
+        self.assertIsNotNone(body["group"])
+        self.assertEqual(body["group"]["name"], source_group.name)
+
+        cloned_topic = Topic.objects.get(uuid=cloned_topic_uuid)
+        self.assertEqual(cloned_topic.user_id, self.target_user.id)
+        self.assertIsNotNone(cloned_topic.group)
+        self.assertEqual(cloned_topic.group.user_id, self.target_user.id)
+        self.assertEqual(cloned_topic.group.name, source_group.name)
+
+    def test_clone_shared_group_creates_owned_copy_with_topics(self):
+        source_group = TopicGroup.objects.create(
+            user=self.user,
+            name="Signals",
+            is_public=False,
+        )
+        source_topic_one = self._create_topic(group=source_group, query="signal one")
+        source_topic_two = self._create_topic(group=source_group, query="signal two")
+
+        self.client.force_login(self.target_user)
+        with self._mock_embeddings() as openai_cls:
+            response = self.client.post(f"/api/topics/shared/groups/{source_group.uuid}/clone")
+
+        self.assertEqual(response.status_code, 200)
+        openai_cls.assert_not_called()
+        payload = response.json()
+        self.assertEqual(len(payload["topics"]), 2)
+        cloned_group_uuid = payload["group"]["uuid"]
+        cloned_group = TopicGroup.objects.get(uuid=cloned_group_uuid)
+        self.assertEqual(cloned_group.user_id, self.target_user.id)
+        self.assertEqual(cloned_group.name, "Signals (Copy)")
+
+        cloned_queries = {
+            tuple(topic.queries or [])
+            for topic in Topic.objects.filter(user=self.target_user, group=cloned_group)
+        }
+        self.assertIn(tuple(source_topic_one.queries or []), cloned_queries)
+        self.assertIn(tuple(source_topic_two.queries or []), cloned_queries)

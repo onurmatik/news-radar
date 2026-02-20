@@ -9,6 +9,8 @@ import type {
   ApiNotificationsResponse,
   ApiTrashContentResponse,
   ApiTopicCreateResponse,
+  ApiSharedGroupCloneResponse,
+  ApiSharedTopicCloneResponse,
   ApiTopicGroupCreateResponse,
   ApiTopicGroupItem,
   ApiTopicGroupListResponse,
@@ -170,6 +172,18 @@ export async function getSharedTopicGroup(uuid: string): Promise<ApiTopicGroupIt
 
 export async function listSharedTopicsByGroup(groupUuid: string): Promise<ApiTopicListResponse> {
   return requestJson<ApiTopicListResponse>(`/api/topics/shared/groups/${groupUuid}/topics`);
+}
+
+export async function cloneSharedTopic(topicUuid: string): Promise<ApiSharedTopicCloneResponse> {
+  return requestJson<ApiSharedTopicCloneResponse>(`/api/topics/shared/topics/${topicUuid}/clone`, {
+    method: "POST",
+  });
+}
+
+export async function cloneSharedTopicGroup(groupUuid: string): Promise<ApiSharedGroupCloneResponse> {
+  return requestJson<ApiSharedGroupCloneResponse>(`/api/topics/shared/groups/${groupUuid}/clone`, {
+    method: "POST",
+  });
 }
 
 export async function createTopicGroup(payload: {

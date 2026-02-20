@@ -48,6 +48,16 @@ export interface ApiTopicGroupCreateResponse {
   group: ApiTopicGroupItem;
 }
 
+export interface ApiSharedTopicCloneResponse {
+  topic: ApiTopicListItem;
+  group: ApiTopicGroupItem | null;
+}
+
+export interface ApiSharedGroupCloneResponse {
+  group: ApiTopicGroupItem;
+  topics: ApiTopicListItem[];
+}
+
 export interface ApiCurrentUser {
   id: number;
   username: string;

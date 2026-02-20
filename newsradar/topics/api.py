@@ -19,6 +19,68 @@ def _owner_label(user) -> str:
     return user.username or getattr(user, "email", "") or "Unknown"
 
 
+def _topic_to_item(
+    *,
+    topic: Topic,
+    request,
+    content_source_count: int | None = None,
+) -> "TopicListItem":
+    resolved_content_source_count = (
+        content_source_count
+        if content_source_count is not None
+        else int(getattr(topic, "content_source_count", 0) or 0)
+    )
+    return TopicListItem(
+        id=topic.id,
+        uuid=topic.uuid,
+        queries=topic.queries or [],
+        last_fetched_at=topic.last_fetched_at,
+        content_source_count=resolved_content_source_count,
+        is_active=topic.is_active,
+        group_uuid=topic.group.uuid if topic.group else None,
+        group_name=topic.group.name if topic.group else None,
+        owner_username=_owner_label(topic.user),
+        is_owner=request.user.is_authenticated and topic.user_id == request.user.id,
+        search_domain_allowlist=topic.search_domain_allowlist,
+        search_domain_blocklist=topic.search_domain_blocklist,
+        search_language_filter=topic.search_language_filter,
+        country=topic.country,
+        update_frequency=topic.update_frequency,
+        additional_queries_mode=topic.additional_queries_mode,
+    )
+
+
+def _group_to_item(
+    *,
+    group: TopicGroup,
+    request,
+) -> "TopicGroupItem":
+    return TopicGroupItem(
+        id=group.id,
+        uuid=group.uuid,
+        name=group.name,
+        description=group.description or "",
+        is_public=group.is_public,
+        owner_username=_owner_label(group.user),
+        is_owner=request.user.is_authenticated and group.user_id == request.user.id,
+        default_update_frequency=group.default_update_frequency,
+        default_search_language_filter=group.default_search_language_filter,
+        default_country=group.default_country,
+        created_at=group.created_at,
+        updated_at=group.updated_at,
+    )
+
+
+def _next_group_copy_name(*, user, source_name: str) -> str:
+    base_name = (source_name or "").strip() or "Imported group"
+    candidate = f"{base_name} (Copy)"
+    suffix = 2
+    while TopicGroup.objects.filter(user=user, name=candidate).exists():
+        candidate = f"{base_name} (Copy {suffix})"
+        suffix += 1
+    return candidate
+
+
 class ContentSourceItem(Schema):
     id: int
     url: str
@@ -122,6 +184,16 @@ class TopicGroupUpdateRequest(Schema):
     default_update_frequency: str | None = None
     default_search_language_filter: list[str] | None = None
     default_country: str | None = None
+
+
+class SharedTopicCloneResponse(Schema):
+    topic: TopicListItem
+    group: TopicGroupItem | None
+
+
+class SharedGroupCloneResponse(Schema):
+    group: TopicGroupItem
+    topics: list[TopicListItem]
 
 
 @api.get("/", response=TopicListResponse)
@@ -446,26 +518,161 @@ def list_shared_topics_by_group(
 
     return TopicListResponse(
         topics=[
-            TopicListItem(
-                id=topic.id,
-                uuid=topic.uuid,
-                queries=topic.queries or [],
-                last_fetched_at=topic.last_fetched_at,
-                content_source_count=topic.content_source_count,
-                is_active=topic.is_active,
-                group_uuid=topic.group.uuid if topic.group else None,
-                group_name=topic.group.name if topic.group else None,
-                owner_username=_owner_label(topic.user),
-                is_owner=request.user.is_authenticated and topic.user_id == request.user.id,
-                search_domain_allowlist=topic.search_domain_allowlist,
-                search_domain_blocklist=topic.search_domain_blocklist,
-                search_language_filter=topic.search_language_filter,
-                country=topic.country,
-                update_frequency=topic.update_frequency,
-                additional_queries_mode=topic.additional_queries_mode,
-            )
+            _topic_to_item(topic=topic, request=request)
             for topic in topics
         ]
+    )
+
+
+@api.post("/shared/topics/{topic_uuid}/clone", response=SharedTopicCloneResponse)
+def clone_shared_topic(request, topic_uuid: uuid.UUID):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+
+    source_topic = (
+        Topic.objects.filter(uuid=topic_uuid)
+        .select_related("group", "group__user", "user")
+        .first()
+    )
+    if not source_topic:
+        raise HttpError(404, "Topic not found for UUID.")
+
+    target_group: TopicGroup | None = None
+    if source_topic.group:
+        target_group = TopicGroup.objects.filter(
+            user=request.user,
+            name=source_topic.group.name,
+        ).first()
+        if not target_group:
+            target_group = TopicGroup.objects.create(
+                user=request.user,
+                name=source_topic.group.name,
+                description=source_topic.group.description or "",
+                is_public=False,
+                default_update_frequency=source_topic.group.default_update_frequency,
+                default_search_language_filter=source_topic.group.default_search_language_filter,
+                default_country=source_topic.group.default_country,
+            )
+
+    cloned_topic = Topic.objects.create(
+        user=request.user,
+        group=target_group,
+        is_active=source_topic.is_active,
+        update_frequency=source_topic.update_frequency,
+        queries=list(source_topic.queries or []),
+        additional_queries_mode=source_topic.additional_queries_mode,
+        search_domain_allowlist=(
+            list(source_topic.search_domain_allowlist)
+            if source_topic.search_domain_allowlist
+            else None
+        ),
+        search_domain_blocklist=(
+            list(source_topic.search_domain_blocklist)
+            if source_topic.search_domain_blocklist
+            else None
+        ),
+        search_language_filter=(
+            list(source_topic.search_language_filter)
+            if source_topic.search_language_filter
+            else None
+        ),
+        country=source_topic.country,
+        search_after_date=source_topic.search_after_date,
+        search_before_date=source_topic.search_before_date,
+        last_updated_after_filter=source_topic.last_updated_after_filter,
+        last_updated_before_filter=source_topic.last_updated_before_filter,
+        embedding=(
+            list(source_topic.embedding)
+            if source_topic.embedding is not None
+            else None
+        ),
+    )
+
+    return SharedTopicCloneResponse(
+        topic=_topic_to_item(
+            topic=cloned_topic,
+            request=request,
+            content_source_count=0,
+        ),
+        group=_group_to_item(group=target_group, request=request) if target_group else None,
+    )
+
+
+@api.post("/shared/groups/{group_uuid}/clone", response=SharedGroupCloneResponse)
+def clone_shared_topic_group(request, group_uuid: uuid.UUID):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+
+    source_group = TopicGroup.objects.filter(uuid=group_uuid).select_related("user").first()
+    if not source_group:
+        raise HttpError(404, "Topic group not found for UUID.")
+
+    cloned_group = TopicGroup.objects.create(
+        user=request.user,
+        name=_next_group_copy_name(
+            user=request.user,
+            source_name=source_group.name,
+        ),
+        description=source_group.description or "",
+        is_public=False,
+        default_update_frequency=source_group.default_update_frequency,
+        default_search_language_filter=source_group.default_search_language_filter,
+        default_country=source_group.default_country,
+    )
+
+    source_topics = (
+        Topic.objects.filter(group=source_group)
+        .select_related("group")
+        .order_by("created_at", "id")
+    )
+    cloned_topics: list[Topic] = []
+    for source_topic in source_topics:
+        cloned_topics.append(
+            Topic.objects.create(
+                user=request.user,
+                group=cloned_group,
+                is_active=source_topic.is_active,
+                update_frequency=source_topic.update_frequency,
+                queries=list(source_topic.queries or []),
+                additional_queries_mode=source_topic.additional_queries_mode,
+                search_domain_allowlist=(
+                    list(source_topic.search_domain_allowlist)
+                    if source_topic.search_domain_allowlist
+                    else None
+                ),
+                search_domain_blocklist=(
+                    list(source_topic.search_domain_blocklist)
+                    if source_topic.search_domain_blocklist
+                    else None
+                ),
+                search_language_filter=(
+                    list(source_topic.search_language_filter)
+                    if source_topic.search_language_filter
+                    else None
+                ),
+                country=source_topic.country,
+                search_after_date=source_topic.search_after_date,
+                search_before_date=source_topic.search_before_date,
+                last_updated_after_filter=source_topic.last_updated_after_filter,
+                last_updated_before_filter=source_topic.last_updated_before_filter,
+                embedding=(
+                    list(source_topic.embedding)
+                    if source_topic.embedding is not None
+                    else None
+                ),
+            )
+        )
+
+    return SharedGroupCloneResponse(
+        group=_group_to_item(group=cloned_group, request=request),
+        topics=[
+            _topic_to_item(
+                topic=topic,
+                request=request,
+                content_source_count=0,
+            )
+            for topic in cloned_topics
+        ],
     )
 
 
