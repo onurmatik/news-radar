@@ -18,6 +18,8 @@ import {
   listTrashContent,
   listContentByGroup,
   listContentFeed,
+  listSharedContentByGroup,
+  listSharedContentByTopic,
   requestContentAIResponse,
   restoreContentItem,
   runTopicScan,
@@ -52,6 +54,8 @@ type DeleteToastState = {
   contentId: number;
   title: string;
 } | null;
+
+type ShareDialogContext = "content" | "topic" | "group";
 
 const AI_PRESET_INSTRUCTIONS = [
   {
@@ -159,6 +163,7 @@ export default function Dashboard() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [shareContext, setShareContext] = useState<ShareDialogContext>("content");
   const [showRecentDeleteIndicator, setShowRecentDeleteIndicator] = useState(false);
   const [trashDialogOpen, setTrashDialogOpen] = useState(false);
   const [trashItems, setTrashItems] = useState<ApiTrashContentItem[]>([]);
@@ -186,6 +191,14 @@ export default function Dashboard() {
   const aiSaveFeedbackTimerRef = useRef<number | null>(null);
   const deleteToastTimerRef = useRef<number | null>(null);
 
+  const sharedTopicMatch = location.pathname.match(/^\/shared\/topics\/([0-9a-f-]+)\/?$/i);
+  const sharedGroupMatch = location.pathname.match(/^\/shared\/groups\/([0-9a-f-]+)\/?$/i);
+  const sharedTopicUuid = sharedTopicMatch?.[1] ?? null;
+  const sharedGroupUuid = sharedGroupMatch?.[1] ?? null;
+  const isSharedTopicView = Boolean(sharedTopicUuid);
+  const isSharedGroupView = Boolean(sharedGroupUuid);
+  const isReadOnlySharedView = isSharedTopicView || isSharedGroupView;
+
   const selectedGroup = groups.find((group) => group.uuid === selectedGroupId) ?? null;
   const selectedTopic = selectedTopicUuid
     ? topics.find((topic) => topic.uuid === selectedTopicUuid) ?? null
@@ -196,24 +209,60 @@ export default function Dashboard() {
   const isAllTopicsView = !selectedTopicUuid && !selectedGroupId;
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
   const topicEndpoint = selectedTopicUuid
-    ? `${apiBaseUrl}/api/contents/topics/${selectedTopicUuid}`
+    ? `${apiBaseUrl}${isReadOnlySharedView ? "/api/contents/shared/topics" : "/api/contents/topics"}/${selectedTopicUuid}`
     : null;
   const groupEndpoint = selectedGroupId
-    ? `${apiBaseUrl}/api/contents/groups/${selectedGroupId}`
+    ? `${apiBaseUrl}${isReadOnlySharedView ? "/api/contents/shared/groups" : "/api/contents/groups"}/${selectedGroupId}`
     : null;
-  const topicRssEndpoint = selectedTopicUuid
+  const topicRssEndpoint = selectedTopicUuid && !isReadOnlySharedView
     ? `${apiBaseUrl}/api/contents/topics/${selectedTopicUuid}/rss`
     : null;
-  const groupRssEndpoint = selectedGroupId
+  const groupRssEndpoint = selectedGroupId && !isReadOnlySharedView
     ? `${apiBaseUrl}/api/contents/groups/${selectedGroupId}/rss`
     : null;
 
-  const buildShareUrl = (contentId: number) => {
+  const buildContentShareUrl = (contentId: number) => {
     if (typeof window === "undefined") {
       return `/content/${contentId}/full`;
     }
     return `${window.location.origin}/content/${contentId}/full`;
   };
+
+  const buildTopicShareUrl = (topicUuid: string) => {
+    if (typeof window === "undefined") {
+      return `/shared/topics/${topicUuid}`;
+    }
+    return `${window.location.origin}/shared/topics/${topicUuid}`;
+  };
+
+  const buildGroupShareUrl = (groupUuid: string) => {
+    if (typeof window === "undefined") {
+      return `/shared/groups/${groupUuid}`;
+    }
+    return `${window.location.origin}/shared/groups/${groupUuid}`;
+  };
+
+  const shareDialogCopy = useMemo(() => {
+    if (shareContext === "topic") {
+      return {
+        title: "Share topic",
+        description: "Copy this permanent read-only topic link.",
+        emptyState: "Select a topic to generate a share link.",
+      };
+    }
+    if (shareContext === "group") {
+      return {
+        title: "Share topic group",
+        description: "Copy this permanent read-only group link.",
+        emptyState: "Select a topic group to generate a share link.",
+      };
+    }
+    return {
+      title: "Share content",
+      description: "Copy the link to the full content detail view.",
+      emptyState: "Select a content item to share.",
+    };
+  }, [shareContext]);
 
   const getSourceLabel = (item: ApiContentFeedItem) => {
     try {
@@ -258,13 +307,18 @@ export default function Dashboard() {
 
   const getCacheKey = () => {
     const searchKey = debouncedSearchTerm.toLowerCase();
+    const scopeKey = isSharedTopicView
+      ? `shared-topic:${sharedTopicUuid}`
+      : isSharedGroupView
+        ? `shared-group:${sharedGroupUuid}`
+        : "default";
     if (selectedTopicUuid) {
-      return `topic:${selectedTopicUuid}:${newOnly ? "new" : "all"}:${searchKey}`;
+      return `${scopeKey}:topic:${selectedTopicUuid}:${newOnly ? "new" : "all"}:${searchKey}`;
     }
     if (selectedGroupId) {
-      return `group:${selectedGroupId}:${newOnly ? "new" : "all"}:${searchKey}`;
+      return `${scopeKey}:group:${selectedGroupId}:${newOnly ? "new" : "all"}:${searchKey}`;
     }
-    return `all:${newOnly ? "new" : "all"}:${searchKey}`;
+    return `${scopeKey}:all:${newOnly ? "new" : "all"}:${searchKey}`;
   };
 
   const waitForExecutionCompletion = async (executionId: number) => {
@@ -336,16 +390,24 @@ export default function Dashboard() {
     setError(null);
     try {
       const response = selectedTopicUuid
-        ? await listContentFeed({
-            topicUuid: selectedTopicUuid,
-            onlyNew: newOnly,
-            search: debouncedSearchTerm || undefined,
-          })
-        : selectedGroupId
-          ? await listContentByGroup(selectedGroupId, {
+        ? isReadOnlySharedView
+          ? await listSharedContentByTopic(selectedTopicUuid, {
+              search: debouncedSearchTerm || undefined,
+            })
+          : await listContentFeed({
+              topicUuid: selectedTopicUuid,
               onlyNew: newOnly,
               search: debouncedSearchTerm || undefined,
             })
+        : selectedGroupId
+          ? isReadOnlySharedView
+            ? await listSharedContentByGroup(selectedGroupId, {
+                search: debouncedSearchTerm || undefined,
+              })
+            : await listContentByGroup(selectedGroupId, {
+                onlyNew: newOnly,
+                search: debouncedSearchTerm || undefined,
+              })
           : await listContentFeed({
               onlyNew: newOnly,
               search: debouncedSearchTerm || undefined,
@@ -383,9 +445,10 @@ export default function Dashboard() {
       return;
     }
     void loadFeed(cacheKey);
-  }, [debouncedSearchTerm, isAuthenticated, newOnly, selectedGroupId, selectedTopicUuid]);
+  }, [debouncedSearchTerm, isAuthenticated, isReadOnlySharedView, newOnly, selectedGroupId, selectedTopicUuid]);
 
   useEffect(() => {
+    if (isReadOnlySharedView) return;
     const handleScanCompleted = (
       event: Event
     ) => {
@@ -413,7 +476,7 @@ export default function Dashboard() {
     return () => {
       window.removeEventListener("topic-scan-completed", handleScanCompleted);
     };
-  }, [debouncedSearchTerm, newOnly, selectedGroupId, selectedTopicUuid, topics]);
+  }, [debouncedSearchTerm, isReadOnlySharedView, newOnly, selectedGroupId, selectedTopicUuid, topics]);
 
   useEffect(() => {
     pageTopRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
@@ -703,6 +766,10 @@ export default function Dashboard() {
   };
 
   const handleAddTopic = () => {
+    if (isReadOnlySharedView) {
+      openAuthDialog();
+      return;
+    }
     if (!isAuthenticated) {
       openAuthDialog();
       return;
@@ -710,8 +777,29 @@ export default function Dashboard() {
     navigate('/topics');
   };
 
+  const handleShareSelection = () => {
+    if (!isAuthenticated) {
+      openAuthDialog();
+      return;
+    }
+    if (selectedTopic) {
+      setShareContext("topic");
+      setShareUrl(buildTopicShareUrl(selectedTopic.uuid));
+      setShareStatus(null);
+      setShareDialogOpen(true);
+      return;
+    }
+    if (selectedGroup) {
+      setShareContext("group");
+      setShareUrl(buildGroupShareUrl(selectedGroup.uuid));
+      setShareStatus(null);
+      setShareDialogOpen(true);
+    }
+  };
+
   const handleShare = (item: NewsItem) => {
-    const url = buildShareUrl(item.id);
+    const url = buildContentShareUrl(item.id);
+    setShareContext("content");
     setShareUrl(url);
     setShareStatus(null);
     setShareDialogOpen(true);
@@ -844,6 +932,10 @@ export default function Dashboard() {
   };
 
   const handleFetchNow = async () => {
+    if (isReadOnlySharedView) {
+      openAuthDialog();
+      return;
+    }
     if (!isAuthenticated) {
       openAuthDialog();
       return;
@@ -930,16 +1022,22 @@ export default function Dashboard() {
             <h2 className="text-4xl font-extrabold tracking-tight text-foreground">
               {selectedTopic ? (
                 <span className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    className="text-foreground hover:text-primary transition-colors"
-                    onClick={() => {
-                      setSelectedTopicUuid(null);
-                      navigate('/');
-                    }}
-                  >
-                    {selectedGroupName}
-                  </button>
+                  {isSharedTopicView ? (
+                    <span>{selectedGroupName}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-foreground hover:text-primary transition-colors"
+                      onClick={() => {
+                        setSelectedTopicUuid(null);
+                        if (!isReadOnlySharedView) {
+                          navigate('/');
+                        }
+                      }}
+                    >
+                      {selectedGroupName}
+                    </button>
+                  )}
                   <span className="text-muted-foreground/60">/</span>
                   <span>{selectedTopic.term}</span>
                 </span>
@@ -967,7 +1065,7 @@ export default function Dashboard() {
             >
               Connect
             </Button>
-            {!isAllTopicsView && (
+            {!isAllTopicsView && !isReadOnlySharedView && (
               <Button
                 size="sm"
                 variant="outline"
@@ -988,23 +1086,36 @@ export default function Dashboard() {
                 {selectedTopic ? "Edit" : "Config"}
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="secondary"
-              className="relative rounded-full px-5"
-              onClick={() => {
-                if (!isAuthenticated) {
-                  openAuthDialog();
-                  return;
-                }
-                setTrashDialogOpen(true);
-              }}
-            >
-              Trash
-              {showRecentDeleteIndicator && (
-                <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-destructive" />
-              )}
-            </Button>
+            {!isAllTopicsView && isAuthenticated && !isReadOnlySharedView && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-full px-5"
+                onClick={handleShareSelection}
+                title={selectedTopic ? "Share this topic" : "Share this topic group"}
+              >
+                Share
+              </Button>
+            )}
+            {!isReadOnlySharedView && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="relative rounded-full px-5"
+                onClick={() => {
+                  if (!isAuthenticated) {
+                    openAuthDialog();
+                    return;
+                  }
+                  setTrashDialogOpen(true);
+                }}
+              >
+                Trash
+                {showRecentDeleteIndicator && (
+                  <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-destructive" />
+                )}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1090,14 +1201,12 @@ export default function Dashboard() {
         <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
           <DialogContent className="sm:max-w-[520px] border-border bg-background">
             <DialogHeader className="space-y-2">
-              <DialogTitle className="text-xl font-semibold">Share content</DialogTitle>
-              <DialogDescription>
-                Copy the link to the full content detail view.
-              </DialogDescription>
+              <DialogTitle className="text-xl font-semibold">{shareDialogCopy.title}</DialogTitle>
+              <DialogDescription>{shareDialogCopy.description}</DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div className="rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs font-mono text-foreground break-all">
-                {shareUrl || "Select a content item to share."}
+                {shareUrl || shareDialogCopy.emptyState}
               </div>
               {shareStatus && (
                 <p className="text-xs text-muted-foreground">{shareStatus}</p>
@@ -1407,39 +1516,43 @@ export default function Dashboard() {
                 )}
               </div>
 
-              <Button
-                type="button"
-                variant={newOnly ? "secondary" : "outline"}
-                size="sm"
-                className="flex h-8 items-center gap-2 rounded-full px-3 text-[11px]"
-                onClick={handleToggleNewOnly}
-                aria-pressed={newOnly}
-                title={
-                  isAuthenticated
-                    ? `Show only new content in this ${
-                        selectedTopic ? "topic" : selectedGroupId ? "group" : "all-topics view"
-                      }.`
-                    : "Sign up to use the new filter."
-                }
-              >
-                <Clock className="h-3.5 w-3.5" />
-                New
-              </Button>
+              {!isReadOnlySharedView && (
+                <Button
+                  type="button"
+                  variant={newOnly ? "secondary" : "outline"}
+                  size="sm"
+                  className="flex h-8 items-center gap-2 rounded-full px-3 text-[11px]"
+                  onClick={handleToggleNewOnly}
+                  aria-pressed={newOnly}
+                  title={
+                    isAuthenticated
+                      ? `Show only new content in this ${
+                          selectedTopic ? "topic" : selectedGroupId ? "group" : "all-topics view"
+                        }.`
+                      : "Sign up to use the new filter."
+                  }
+                >
+                  <Clock className="h-3.5 w-3.5" />
+                  New
+                </Button>
+              )}
 
-              <Button
-                type="button"
-                variant={bookmarkedOnly ? "secondary" : "outline"}
-                size="sm"
-                className="flex h-8 items-center gap-2 rounded-full px-3 text-[11px]"
-                onClick={handleToggleBookmarkedOnly}
-                aria-pressed={bookmarkedOnly}
-                title={
-                  isAuthenticated ? "Show only bookmarked content." : "Sign up to filter bookmarks."
-                }
-              >
-                <Star className={`h-3.5 w-3.5 ${bookmarkedOnly ? "fill-current" : ""}`} />
-                Bookmarked
-              </Button>
+              {!isReadOnlySharedView && (
+                <Button
+                  type="button"
+                  variant={bookmarkedOnly ? "secondary" : "outline"}
+                  size="sm"
+                  className="flex h-8 items-center gap-2 rounded-full px-3 text-[11px]"
+                  onClick={handleToggleBookmarkedOnly}
+                  aria-pressed={bookmarkedOnly}
+                  title={
+                    isAuthenticated ? "Show only bookmarked content." : "Sign up to filter bookmarks."
+                  }
+                >
+                  <Star className={`h-3.5 w-3.5 ${bookmarkedOnly ? "fill-current" : ""}`} />
+                  Bookmarked
+                </Button>
+              )}
 
               {activityMessage && (
                 <span
@@ -1491,22 +1604,26 @@ export default function Dashboard() {
                                 </span>
                               </div>
                               <div className="flex items-center gap-1">
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className={`h-8 w-8 rounded-full transition-colors hover:bg-emerald-500/10 ${item.isBookmarked ? 'bg-yellow-500/10 text-yellow-500' : 'text-muted-foreground hover:text-foreground'}`}
-                                  onClick={() => toggleBookmark(item)}
-                                >
-                                  <Star className={`h-3.5 w-3.5 ${item.isBookmarked ? 'fill-current' : ''}`} />
-                                </Button>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-8 w-8 rounded-full text-muted-foreground hover:bg-emerald-500/10 hover:text-foreground"
-                                  onClick={() => handleShare(item)}
-                                >
-                                  <Share2 className="h-3.5 w-3.5" />
-                                </Button>
+                                {!isReadOnlySharedView && (
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className={`h-8 w-8 rounded-full transition-colors hover:bg-emerald-500/10 ${item.isBookmarked ? 'bg-yellow-500/10 text-yellow-500' : 'text-muted-foreground hover:text-foreground'}`}
+                                    onClick={() => toggleBookmark(item)}
+                                  >
+                                    <Star className={`h-3.5 w-3.5 ${item.isBookmarked ? 'fill-current' : ''}`} />
+                                  </Button>
+                                )}
+                                {!isReadOnlySharedView && (
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8 rounded-full text-muted-foreground hover:bg-emerald-500/10 hover:text-foreground"
+                                    onClick={() => handleShare(item)}
+                                  >
+                                    <Share2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1517,7 +1634,7 @@ export default function Dashboard() {
                                     <ExternalLink className="h-3.5 w-3.5" />
                                   </a>
                                 </Button>
-                                {isAuthenticated && (
+                                {isAuthenticated && !isReadOnlySharedView && (
                                   <Button
                                     size="icon"
                                     variant="ghost"
@@ -1536,14 +1653,25 @@ export default function Dashboard() {
                               </div>
                             </div>
 
-                            <Link to={`/content/${item.id}/full`} className="contents">
-                              <h3 className="cursor-pointer text-xl font-bold leading-tight transition-colors group-hover:text-primary">
-                                {item.title}
-                              </h3>
-                              <p className="line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">
-                                {item.summary}
-                              </p>
-                            </Link>
+                            {isReadOnlySharedView ? (
+                              <div className="contents">
+                                <h3 className="text-xl font-bold leading-tight text-foreground">
+                                  {item.title}
+                                </h3>
+                                <p className="line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">
+                                  {item.summary}
+                                </p>
+                              </div>
+                            ) : (
+                              <Link to={`/content/${item.id}/full`} className="contents">
+                                <h3 className="cursor-pointer text-xl font-bold leading-tight transition-colors group-hover:text-primary">
+                                  {item.title}
+                                </h3>
+                                <p className="line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">
+                                  {item.summary}
+                                </p>
+                              </Link>
+                            )}
                           </div>
                         </div>
                       </Card>
@@ -1577,9 +1705,13 @@ export default function Dashboard() {
                     ? selectedTopic
                       ? hasActiveFilters
                         ? "Clear filters to see all content in this topic."
-                        : "Fetch now to populate this topic."
+                        : isReadOnlySharedView
+                          ? "No content is currently available for this shared topic."
+                          : "Fetch now to populate this topic."
                       : "Adjust your filters or check back after the next scan."
-                    : "Create a topic to start monitoring this group."}
+                    : isReadOnlySharedView
+                      ? "No topics are available for this shared view."
+                      : "Create a topic to start monitoring this group."}
                 </p>
                 {hasTopicsInGroup ? (
                   selectedTopic ? (
@@ -1593,15 +1725,17 @@ export default function Dashboard() {
                         Clear all filters
                       </Button>
                     ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void handleFetchNow()}
-                        className="rounded-full"
-                        disabled={loading}
-                      >
-                        Fetch now
-                      </Button>
+                      !isReadOnlySharedView && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleFetchNow()}
+                          className="rounded-full"
+                          disabled={loading}
+                        >
+                          Fetch now
+                        </Button>
+                      )
                     )
                   ) : hasActiveFilters ? (
                     <Button
@@ -1614,14 +1748,16 @@ export default function Dashboard() {
                     </Button>
                   ) : null
                 ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAddTopic}
-                    className="rounded-full"
-                  >
-                    Add a new topic
-                  </Button>
+                  !isReadOnlySharedView && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleAddTopic}
+                      className="rounded-full"
+                    >
+                      Add a new topic
+                    </Button>
+                  )
                 )}
               </div>
             )}

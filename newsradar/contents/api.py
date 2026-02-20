@@ -996,6 +996,53 @@ def list_content_by_topic(
     )
 
 
+@api.get("/shared/topics/{topic_uuid}", response=ContentFeedResponse)
+def list_shared_content_by_topic(
+    request,
+    topic_uuid: UUID,
+    limit: int = 50,
+    offset: int = 0,
+    search: str | None = None,
+):
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    topic = Topic.objects.filter(uuid=topic_uuid).first()
+    if not topic:
+        raise HttpError(404, "Topic not found.")
+
+    queryset = _latest_content_per_topic_url(
+        _active_contents_queryset().filter(
+            execution__topic=topic,
+        )
+    )
+    queryset = _apply_search_filter(queryset, search)
+    contents = (
+        queryset
+        .select_related("execution", "execution__topic")
+        .order_by("-content_published_at", "-id")[offset : offset + limit]
+    )
+
+    return ContentFeedResponse(
+        items=[
+            ContentFeedItem(
+                id=content.id,
+                url=content.url,
+                title=content.title or "",
+                summary=(content.snippet or "").strip(),
+                source=content.normalized_domain(),
+                created_at=content.created_at,
+                published_at=content.last_updated or content.date or content.created_at,
+                topic_uuid=content.execution.topic.uuid,
+                topic_queries=content.execution.topic.queries or [],
+                relevance_score=None,
+                is_bookmarked=False,
+            )
+            for content in contents
+        ]
+    )
+
+
 @api.get("/topics/{topic_uuid}/rss")
 def list_content_by_topic_rss(
     request,
@@ -1122,6 +1169,53 @@ def list_content_by_group(
                 topic_queries=content.execution.topic.queries or [],
                 relevance_score=None,
                 is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
+            )
+            for content in contents
+        ]
+    )
+
+
+@api.get("/shared/groups/{group_uuid}", response=ContentFeedResponse)
+def list_shared_content_by_group(
+    request,
+    group_uuid: UUID,
+    limit: int = 50,
+    offset: int = 0,
+    search: str | None = None,
+):
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    group = TopicGroup.objects.filter(uuid=group_uuid).first()
+    if not group:
+        raise HttpError(404, "Topic group not found.")
+
+    queryset = _latest_content_per_topic_url(
+        _active_contents_queryset().filter(
+            execution__topic__group=group,
+        )
+    )
+    queryset = _apply_search_filter(queryset, search)
+    contents = (
+        queryset
+        .select_related("execution", "execution__topic")
+        .order_by("-content_published_at", "-id")[offset : offset + limit]
+    )
+
+    return ContentFeedResponse(
+        items=[
+            ContentFeedItem(
+                id=content.id,
+                url=content.url,
+                title=content.title or "",
+                summary=(content.snippet or "").strip(),
+                source=content.normalized_domain(),
+                created_at=content.created_at,
+                published_at=content.last_updated or content.date or content.created_at,
+                topic_uuid=content.execution.topic.uuid,
+                topic_queries=content.execution.topic.queries or [],
+                relevance_score=None,
+                is_bookmarked=False,
             )
             for content in contents
         ]

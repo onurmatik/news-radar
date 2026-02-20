@@ -536,6 +536,64 @@ class ContentFeedVersioningTests(TestCase):
         self.assertIn(topic_match.id, group_ids)
         self.assertNotIn(topic_non_match.id, group_ids)
 
+    def test_shared_topic_feed_allows_anonymous_access_for_private_topic(self):
+        group = TopicGroup.objects.create(
+            user=self.user,
+            name="Private Signals",
+            is_public=False,
+        )
+        topic = self._create_topic_for_user(
+            self.user,
+            query="private topic",
+            group=group,
+        )
+        content = self._create_content(
+            topic,
+            url="https://example.com/private-topic-story",
+            title="Private topic story",
+        )
+
+        self.client.logout()
+
+        private_response = self.client.get(f"/api/contents/topics/{topic.uuid}")
+        self.assertEqual(private_response.status_code, 404)
+
+        shared_response = self.client.get(f"/api/contents/shared/topics/{topic.uuid}")
+        self.assertEqual(shared_response.status_code, 200)
+        items = shared_response.json()["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["id"], content.id)
+        self.assertFalse(items[0]["is_bookmarked"])
+
+    def test_shared_group_feed_allows_anonymous_access_for_private_group(self):
+        group = TopicGroup.objects.create(
+            user=self.user,
+            name="Private Group Feed",
+            is_public=False,
+        )
+        topic = self._create_topic_for_user(
+            self.user,
+            query="private group topic",
+            group=group,
+        )
+        content = self._create_content(
+            topic,
+            url="https://example.com/private-group-story",
+            title="Private group story",
+        )
+
+        self.client.logout()
+
+        private_response = self.client.get(f"/api/contents/groups/{group.uuid}")
+        self.assertEqual(private_response.status_code, 404)
+
+        shared_response = self.client.get(f"/api/contents/shared/groups/{group.uuid}")
+        self.assertEqual(shared_response.status_code, 200)
+        items = shared_response.json()["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["id"], content.id)
+        self.assertFalse(items[0]["is_bookmarked"])
+
     def test_bookmark_state_is_derived_from_any_revision_and_delete_is_article_level(self):
         topic = self._create_topic_for_user(self.user, query="semiconductors")
         now = timezone.now()

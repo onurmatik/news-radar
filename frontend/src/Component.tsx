@@ -25,6 +25,8 @@ export function NewsRadar() {
               <Route path="/upgrade" element={<UpgradeToPro />} />
               <Route path="/developer-access" element={<ApiAccess />} />
               <Route path="/content/:contentId/full" element={<ContentFullDetail />} />
+              <Route path="/shared/topics/:topicUuid" element={<Dashboard />} />
+              <Route path="/shared/groups/:groupUuid" element={<Dashboard />} />
             </Routes>
           </BrowserRouter>
         </TopicsProvider>

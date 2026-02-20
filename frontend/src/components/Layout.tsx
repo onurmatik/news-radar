@@ -30,7 +30,10 @@ import {
   deleteTopicGroup,
   getExecution,
   getNotifications,
+  getSharedTopic,
+  getSharedTopicGroup,
   listTopicGroups,
+  listSharedTopicsByGroup,
   listTopics,
   runTopicScan,
   updateTopicGroup,
@@ -58,6 +61,11 @@ export function Layout({ children }: SidebarProps) {
   const ALL_TOPICS_VALUE = "all-topics";
   const navigate = useNavigate();
   const location = useLocation();
+  const sharedTopicMatch = location.pathname.match(/^\/shared\/topics\/([0-9a-f-]+)\/?$/i);
+  const sharedGroupMatch = location.pathname.match(/^\/shared\/groups\/([0-9a-f-]+)\/?$/i);
+  const sharedTopicUuid = sharedTopicMatch?.[1] ?? null;
+  const sharedGroupUuid = sharedGroupMatch?.[1] ?? null;
+  const isSharedView = Boolean(sharedTopicUuid || sharedGroupUuid);
   const {
     isAuthenticated,
     currentUser,
@@ -181,6 +189,61 @@ export function Layout({ children }: SidebarProps) {
     }
   };
 
+  const loadSharedScope = async () => {
+    if (!isSharedView) return;
+    setTopicsError(null);
+    setGroupsError(null);
+    setTopicsLoaded(false);
+    setGroupsLoaded(false);
+
+    try {
+      if (sharedTopicUuid) {
+        const topic = await getSharedTopic(sharedTopicUuid);
+        const mappedTopic = toTopicItem(topic);
+        if (topic.group_uuid) {
+          const group = await getSharedTopicGroup(topic.group_uuid);
+          setGroups([group]);
+          setSelectedGroupId(group.uuid);
+          setSelectedGroupName(group.name);
+        } else {
+          setGroups([]);
+          setSelectedGroupId("");
+          setSelectedGroupName("Shared topic");
+        }
+        setTopics([mappedTopic]);
+        setSelectedTopicUuid(mappedTopic.uuid);
+        setSelectedGroupTopicCount(1);
+      } else if (sharedGroupUuid) {
+        const [group, topicsResponse] = await Promise.all([
+          getSharedTopicGroup(sharedGroupUuid),
+          listSharedTopicsByGroup(sharedGroupUuid),
+        ]);
+        const mappedTopics = topicsResponse.topics.map(toTopicItem);
+        setGroups([group]);
+        setTopics(mappedTopics);
+        setSelectedGroupId(group.uuid);
+        setSelectedGroupName(group.name);
+        setSelectedGroupTopicCount(mappedTopics.length);
+        const nextSelectedTopicUuid =
+          selectedTopicUuid && mappedTopics.some((topic) => topic.uuid === selectedTopicUuid)
+            ? selectedTopicUuid
+            : null;
+        setSelectedTopicUuid(nextSelectedTopicUuid);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load shared view.";
+      setGroupsError(message);
+      setTopicsError(message);
+      setGroups([]);
+      setTopics([]);
+      setSelectedGroupId("");
+      setSelectedTopicUuid(null);
+    } finally {
+      setGroupsLoaded(true);
+      setTopicsLoaded(true);
+    }
+  };
+
   const loadNotifications = async () => {
     if (!isAuthenticated) return;
     setNotificationsLoading(true);
@@ -199,16 +262,23 @@ export function Layout({ children }: SidebarProps) {
   };
 
   useEffect(() => {
-    if (isAuthenticated === null) return;
-    setGroupsLoaded(false);
-  }, [isAuthenticated]);
+    if (!isSharedView) return;
+    void loadSharedScope();
+  }, [isSharedView, sharedGroupUuid, sharedTopicUuid]);
 
   useEffect(() => {
+    if (isSharedView) return;
+    if (isAuthenticated === null) return;
+    setGroupsLoaded(false);
+  }, [isAuthenticated, isSharedView]);
+
+  useEffect(() => {
+    if (isSharedView) return;
     if (isAuthenticated === null) return;
     if (groupsLoaded) return;
     setGroupsLoaded(true);
     void loadGroups();
-  }, [groupsLoaded, isAuthenticated]);
+  }, [groupsLoaded, isAuthenticated, isSharedView]);
 
   useEffect(() => {
     if (isAuthenticated !== true) {
@@ -248,18 +318,21 @@ export function Layout({ children }: SidebarProps) {
   }, [notificationCounts, notifications, setTopics]);
 
   useEffect(() => {
+    if (isSharedView) return;
     if (isAuthenticated === null) return;
     setTopicsLoaded(false);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isSharedView]);
 
   useEffect(() => {
+    if (isSharedView) return;
     if (isAuthenticated === null) return;
     if (!isAuthenticated) return;
     if (topicsLoaded) return;
     void loadTopics();
-  }, [isAuthenticated, topicsLoaded]);
+  }, [isAuthenticated, topicsLoaded, isSharedView]);
 
   const handleGroupChange = (groupId: string) => {
+    if (isSharedView) return;
     const nextGroupId = groupId === ALL_TOPICS_VALUE ? "" : groupId;
     setSelectedGroupId(nextGroupId);
     setSelectedTopicUuid(null);
@@ -267,13 +340,14 @@ export function Layout({ children }: SidebarProps) {
   };
 
   useEffect(() => {
+    if (isSharedView) return;
     if (isAuthenticated !== false) return;
     if (!selectedGroupId) {
       setTopics([]);
       return;
     }
     void loadTopics(selectedGroupId);
-  }, [isAuthenticated, selectedGroupId]);
+  }, [isAuthenticated, selectedGroupId, isSharedView]);
 
   useEffect(() => {
     if (!selectedTopicUuid) return;
@@ -287,13 +361,14 @@ export function Layout({ children }: SidebarProps) {
   }, [selectedGroupId, selectedTopicUuid, setSelectedTopicUuid, topics]);
 
   useEffect(() => {
+    if (isSharedView) return;
     if (!topicsLoaded) return;
     if (isAuthenticated !== true) return;
     if (topicsError) return;
     if (topics.length > 0) return;
     if (location.pathname !== "/") return;
     navigate("/topics");
-  }, [isAuthenticated, location.pathname, navigate, topics.length, topicsError, topicsLoaded]);
+  }, [isAuthenticated, isSharedView, location.pathname, navigate, topics.length, topicsError, topicsLoaded]);
 
   const filteredTopics = useMemo(() => {
     if (isAuthenticated === false) return topics;
@@ -322,6 +397,12 @@ export function Layout({ children }: SidebarProps) {
       isOwner: group.is_owner,
       group,
     }));
+    if (isSharedView) {
+      return {
+        yours: mapped,
+        publicGroups: [],
+      };
+    }
     if (isAuthenticated === false) {
       return {
         yours: [],
@@ -332,9 +413,10 @@ export function Layout({ children }: SidebarProps) {
       yours: mapped.filter((group) => !group.isPublic),
       publicGroups: mapped.filter((group) => group.isPublic),
     };
-  }, [groups, isAuthenticated]);
+  }, [groups, isAuthenticated, isSharedView]);
 
   useEffect(() => {
+    if (isSharedView) return;
     if (isAuthenticated === null) return;
     if (isAuthenticated === false) {
       const publicGroups = groups.filter((group) => group.is_public);
@@ -357,9 +439,10 @@ export function Layout({ children }: SidebarProps) {
     if (selectedGroupId && !groups.some((group) => group.uuid === selectedGroupId)) {
       setSelectedGroupId("");
     }
-  }, [groups, isAuthenticated, selectedGroupId]);
+  }, [groups, isAuthenticated, isSharedView, selectedGroupId]);
 
   useEffect(() => {
+    if (isSharedView) return;
     if (!selectedGroupId) {
       setSelectedGroupName(isAuthenticated === false ? "Featured topics" : "All topics");
       return;
@@ -367,7 +450,7 @@ export function Layout({ children }: SidebarProps) {
     const group = groups.find((entry) => entry.uuid === selectedGroupId);
     const fallback = isAuthenticated === false ? "Featured topics" : "Topics";
     setSelectedGroupName(group?.name ?? fallback);
-  }, [groups, isAuthenticated, selectedGroupId, setSelectedGroupName]);
+  }, [groups, isAuthenticated, isSharedView, selectedGroupId, setSelectedGroupName]);
 
   useEffect(() => {
     if (!profileMenuOpen) return;
@@ -1107,6 +1190,7 @@ export function Layout({ children }: SidebarProps) {
                onValueChange={handleGroupChange}
                open={groupSelectOpen}
                onOpenChange={setGroupSelectOpen}
+               disabled={isSharedView}
              >
                 <SelectTrigger className="w-full bg-muted/30 border-border/50 text-xs h-9 rounded-none font-bold tracking-widest">
                   <SelectValue
@@ -1129,7 +1213,7 @@ export function Layout({ children }: SidebarProps) {
                   )}
                   <SelectGroup>
                     <SelectLabel className="text-[10px] uppercase text-muted-foreground/60 px-2 py-1.5">
-                      Yours
+                      {isSharedView ? "Shared" : "Yours"}
                     </SelectLabel>
                     {groupedOptions.yours.length > 0 ? (
                       groupedOptions.yours.map((group) => (
@@ -1151,7 +1235,7 @@ export function Layout({ children }: SidebarProps) {
                             <span className="text-[10px] font-mono text-muted-foreground/70">
                               {groupTopicCounts[group.id] ?? 0}
                             </span>
-                            {isAuthenticated !== false && group.isOwner && (
+                            {isSharedView !== true && isAuthenticated !== false && group.isOwner && (
                               <button
                                 type="button"
                                 className="rounded-md p-1 text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
@@ -1205,7 +1289,7 @@ export function Layout({ children }: SidebarProps) {
                               <span className="text-[10px] font-mono text-muted-foreground/70">
                                 {groupTopicCounts[group.id] ?? 0}
                               </span>
-                              {isAuthenticated !== false && group.isOwner && (
+                              {isSharedView !== true && isAuthenticated !== false && group.isOwner && (
                                 <button
                                   type="button"
                                   className="rounded-md p-1 text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
@@ -1230,31 +1314,35 @@ export function Layout({ children }: SidebarProps) {
                       </SelectGroup>
                     </>
                   )}
-                  <SelectSeparator className="bg-border/50" />
-                  <button
-                    className="w-full flex items-center gap-2 px-2 py-2 text-[10px] font-bold uppercase tracking-widest text-primary hover:bg-primary/5 transition-colors"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      void handleCreateGroup();
-                    }}
-                    type="button"
-                  >
-                    <Plus className="h-3 w-3" />
-                    Create a topic group
-                  </button>
-                  <button
-                    className="w-full flex items-center gap-2 px-2 py-2 text-[10px] font-bold uppercase tracking-widest text-primary hover:bg-primary/5 transition-colors"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      handleAddTopicClick();
-                    }}
-                    type="button"
-                  >
-                    <PlusCircle className="h-3 w-3" />
-                    Create a topic
-                  </button>
+                  {!isSharedView && (
+                    <>
+                      <SelectSeparator className="bg-border/50" />
+                      <button
+                        className="w-full flex items-center gap-2 px-2 py-2 text-[10px] font-bold uppercase tracking-widest text-primary hover:bg-primary/5 transition-colors"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void handleCreateGroup();
+                        }}
+                        type="button"
+                      >
+                        <Plus className="h-3 w-3" />
+                        Create a topic group
+                      </button>
+                      <button
+                        className="w-full flex items-center gap-2 px-2 py-2 text-[10px] font-bold uppercase tracking-widest text-primary hover:bg-primary/5 transition-colors"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          handleAddTopicClick();
+                        }}
+                        type="button"
+                      >
+                        <PlusCircle className="h-3 w-3" />
+                        Create a topic
+                      </button>
+                    </>
+                  )}
                 </SelectContent>
              </Select>
           </div>
@@ -1271,7 +1359,9 @@ export function Layout({ children }: SidebarProps) {
                    onClick={() => {
                      setTopicMenuOpenId(null);
                      setSelectedTopicUuid(topic.uuid);
-                     navigate('/');
+                     if (!isSharedView) {
+                       navigate('/');
+                     }
                    }}
                 >
                    <div className="flex items-center gap-2">
@@ -1306,131 +1396,133 @@ export function Layout({ children }: SidebarProps) {
                           : "Never scanned"}
                         ; updates {formatRecency(topic.updateFrequency)}
                       </span>
-                      <div
-                        className="relative"
-                        ref={topic.uuid === topicMenuOpenId ? topicMenuRef : null}
-                      >
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            "h-6 w-6 rounded-full text-muted-foreground/70",
-                            "hover:text-foreground hover:bg-muted/50"
-                          )}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setTopicMenuOpenId((prev) =>
-                              prev === topic.uuid ? null : topic.uuid
-                            );
-                          }}
-                          type="button"
-                          aria-haspopup="menu"
-                          aria-expanded={topicMenuOpenId === topic.uuid}
-                          title="Manage topic"
+                      {!isSharedView && (
+                        <div
+                          className="relative"
+                          ref={topic.uuid === topicMenuOpenId ? topicMenuRef : null}
                         >
-                          <MoreVertical className="h-3.5 w-3.5" />
-                        </Button>
-                        {topicMenuOpenId === topic.uuid && (
-                          <div
-                            className="absolute right-0 mt-2 w-48 rounded-xl border border-border bg-background shadow-lg p-2 z-50"
-                            onClick={(event) => event.stopPropagation()}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn(
+                              "h-6 w-6 rounded-full text-muted-foreground/70",
+                              "hover:text-foreground hover:bg-muted/50"
+                            )}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setTopicMenuOpenId((prev) =>
+                                prev === topic.uuid ? null : topic.uuid
+                              );
+                            }}
+                            type="button"
+                            aria-haspopup="menu"
+                            aria-expanded={topicMenuOpenId === topic.uuid}
+                            title="Manage topic"
                           >
-                            <button
-                              className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
-                              onClick={() => void handleTopicScanNow(topic)}
-                              type="button"
+                            <MoreVertical className="h-3.5 w-3.5" />
+                          </Button>
+                          {topicMenuOpenId === topic.uuid && (
+                            <div
+                              className="absolute right-0 mt-2 w-48 rounded-xl border border-border bg-background shadow-lg p-2 z-50"
+                              onClick={(event) => event.stopPropagation()}
                             >
-                              Scan now
-                            </button>
-                            <div className="h-px bg-border/70 my-2" />
-                            <p className="px-3 pt-1 text-[10px] uppercase tracking-widest text-muted-foreground/70">
-                              Scan frequency
-                            </p>
-                            <button
-                              className={cn(
-                                "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
-                                topic.updateFrequency === "day"
-                                  ? "text-foreground"
-                                  : "text-muted-foreground",
-                                "hover:text-foreground hover:bg-muted/60"
-                              )}
-                              onClick={() => void handleTopicFrequency(topic, "day")}
-                              type="button"
-                            >
-                              <span
+                              <button
+                                className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                                onClick={() => void handleTopicScanNow(topic)}
+                                type="button"
+                              >
+                                Scan now
+                              </button>
+                              <div className="h-px bg-border/70 my-2" />
+                              <p className="px-3 pt-1 text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                                Scan frequency
+                              </p>
+                              <button
                                 className={cn(
-                                  "h-1.5 w-1.5 rounded-full",
+                                  "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
                                   topic.updateFrequency === "day"
-                                    ? "bg-primary"
-                                    : "bg-transparent opacity-0"
+                                    ? "text-foreground"
+                                    : "text-muted-foreground",
+                                  "hover:text-foreground hover:bg-muted/60"
                                 )}
-                              />
-                              Daily
-                            </button>
-                            <button
-                              className={cn(
-                                "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
-                                topic.updateFrequency === "week"
-                                  ? "text-foreground"
-                                  : "text-muted-foreground",
-                                "hover:text-foreground hover:bg-muted/60"
-                              )}
-                              onClick={() => void handleTopicFrequency(topic, "week")}
-                              type="button"
-                            >
-                              <span
+                                onClick={() => void handleTopicFrequency(topic, "day")}
+                                type="button"
+                              >
+                                <span
+                                  className={cn(
+                                    "h-1.5 w-1.5 rounded-full",
+                                    topic.updateFrequency === "day"
+                                      ? "bg-primary"
+                                      : "bg-transparent opacity-0"
+                                  )}
+                                />
+                                Daily
+                              </button>
+                              <button
                                 className={cn(
-                                  "h-1.5 w-1.5 rounded-full",
+                                  "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
                                   topic.updateFrequency === "week"
-                                    ? "bg-primary"
-                                    : "bg-transparent opacity-0"
+                                    ? "text-foreground"
+                                    : "text-muted-foreground",
+                                  "hover:text-foreground hover:bg-muted/60"
                                 )}
-                              />
-                              Weekly
-                            </button>
-                            <button
-                              className={cn(
-                                "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
-                                topic.updateFrequency === "manual"
-                                  ? "text-foreground"
-                                  : "text-muted-foreground",
-                                "hover:text-foreground hover:bg-muted/60"
-                              )}
-                              onClick={() => void handleTopicFrequency(topic, "manual")}
-                              type="button"
-                            >
-                              <span
+                                onClick={() => void handleTopicFrequency(topic, "week")}
+                                type="button"
+                              >
+                                <span
+                                  className={cn(
+                                    "h-1.5 w-1.5 rounded-full",
+                                    topic.updateFrequency === "week"
+                                      ? "bg-primary"
+                                      : "bg-transparent opacity-0"
+                                  )}
+                                />
+                                Weekly
+                              </button>
+                              <button
                                 className={cn(
-                                  "h-1.5 w-1.5 rounded-full",
+                                  "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
                                   topic.updateFrequency === "manual"
-                                    ? "bg-primary"
-                                    : "bg-transparent opacity-0"
+                                    ? "text-foreground"
+                                    : "text-muted-foreground",
+                                  "hover:text-foreground hover:bg-muted/60"
                                 )}
-                              />
-                              Manual
-                            </button>
-                            <div className="h-px bg-border/70 my-2" />
-                            <button
-                              className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
-                              onClick={() => handleChangeGroupClick(topic)}
-                              type="button"
-                            >
-                              Change group
-                            </button>
-                            <div className="h-px bg-border/70 my-2" />
-                            <button
-                              className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
-                              onClick={() => {
-                                setTopicMenuOpenId(null);
-                                handleEditTopic(topic);
-                              }}
-                              type="button"
-                            >
-                              Edit
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                                onClick={() => void handleTopicFrequency(topic, "manual")}
+                                type="button"
+                              >
+                                <span
+                                  className={cn(
+                                    "h-1.5 w-1.5 rounded-full",
+                                    topic.updateFrequency === "manual"
+                                      ? "bg-primary"
+                                      : "bg-transparent opacity-0"
+                                  )}
+                                />
+                                Manual
+                              </button>
+                              <div className="h-px bg-border/70 my-2" />
+                              <button
+                                className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                                onClick={() => handleChangeGroupClick(topic)}
+                                type="button"
+                              >
+                                Change group
+                              </button>
+                              <div className="h-px bg-border/70 my-2" />
+                              <button
+                                className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                                onClick={() => {
+                                  setTopicMenuOpenId(null);
+                                  handleEditTopic(topic);
+                                }}
+                                type="button"
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                      </div>
                 </div>
              ))}
@@ -1446,18 +1538,20 @@ export function Layout({ children }: SidebarProps) {
                 </div>
              )}
              
-             <button
-               className={cn(
-                 "w-full flex items-center justify-center gap-2 py-3 mt-4 text-muted-foreground border border-dashed border-border/50 rounded-lg transition-all text-xs font-medium group bg-muted/10",
-                 "hover:text-primary hover:border-primary/30"
-               )}
-               onClick={handleAddTopicClick}
-               type="button"
-               title="Add a topic"
-             >
-               <PlusCircle className="h-4 w-4 group-hover:scale-110 transition-transform" />
-               <span>Add Topic</span>
-             </button>
+             {!isSharedView && (
+               <button
+                 className={cn(
+                   "w-full flex items-center justify-center gap-2 py-3 mt-4 text-muted-foreground border border-dashed border-border/50 rounded-lg transition-all text-xs font-medium group bg-muted/10",
+                   "hover:text-primary hover:border-primary/30"
+                 )}
+                 onClick={handleAddTopicClick}
+                 type="button"
+                 title="Add a topic"
+               >
+                 <PlusCircle className="h-4 w-4 group-hover:scale-110 transition-transform" />
+                 <span>Add Topic</span>
+               </button>
+             )}
           </nav>
 
 

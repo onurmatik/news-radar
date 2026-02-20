@@ -11,4 +11,5 @@ share topic / topic groups contents
 topic config: additional query term suggestions via AI
 
 
+store AI analyzes
 

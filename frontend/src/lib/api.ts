@@ -10,6 +10,7 @@ import type {
   ApiTrashContentResponse,
   ApiTopicCreateResponse,
   ApiTopicGroupCreateResponse,
+  ApiTopicGroupItem,
   ApiTopicGroupListResponse,
   ApiTopicListItem,
   ApiTopicListResponse,
@@ -157,6 +158,20 @@ export async function listTopicGroups(): Promise<ApiTopicGroupListResponse> {
   return requestJson<ApiTopicGroupListResponse>("/api/topics/groups");
 }
 
+export async function getSharedTopic(uuid: string): Promise<ApiTopicListItem> {
+  return requestJson<ApiTopicListItem>(`/api/topics/shared/topics/${uuid}`);
+}
+
+export async function getSharedTopicGroup(uuid: string): Promise<ApiTopicGroupItem> {
+  return requestJson<ApiTopicGroupItem>(
+    `/api/topics/shared/groups/${uuid}`
+  );
+}
+
+export async function listSharedTopicsByGroup(groupUuid: string): Promise<ApiTopicListResponse> {
+  return requestJson<ApiTopicListResponse>(`/api/topics/shared/groups/${groupUuid}/topics`);
+}
+
 export async function createTopicGroup(payload: {
   name: string;
   description?: string;
@@ -246,6 +261,42 @@ export async function listContentByGroup(
   const query = search.toString();
   return requestJson<ApiContentFeedResponse>(
     `/api/contents/groups/${groupUuid}${query ? `?${query}` : ""}`
+  );
+}
+
+export async function listSharedContentByTopic(
+  topicUuid: string,
+  params?: {
+    limit?: number;
+    offset?: number;
+    search?: string;
+  }
+): Promise<ApiContentFeedResponse> {
+  const search = new URLSearchParams();
+  if (params?.limit) search.set("limit", String(params.limit));
+  if (params?.offset) search.set("offset", String(params.offset));
+  if (params?.search?.trim()) search.set("search", params.search.trim());
+  const query = search.toString();
+  return requestJson<ApiContentFeedResponse>(
+    `/api/contents/shared/topics/${topicUuid}${query ? `?${query}` : ""}`
+  );
+}
+
+export async function listSharedContentByGroup(
+  groupUuid: string,
+  params?: {
+    limit?: number;
+    offset?: number;
+    search?: string;
+  }
+): Promise<ApiContentFeedResponse> {
+  const search = new URLSearchParams();
+  if (params?.limit) search.set("limit", String(params.limit));
+  if (params?.offset) search.set("offset", String(params.offset));
+  if (params?.search?.trim()) search.set("search", params.search.trim());
+  const query = search.toString();
+  return requestJson<ApiContentFeedResponse>(
+    `/api/contents/shared/groups/${groupUuid}${query ? `?${query}` : ""}`
   );
 }
 

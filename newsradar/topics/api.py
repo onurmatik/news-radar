@@ -196,6 +196,43 @@ def list_topics(
     )
 
 
+@api.get("/shared/topics/{topic_uuid}", response=TopicListItem)
+def get_shared_topic(request, topic_uuid: uuid.UUID):
+    topic = (
+        Topic.objects.filter(uuid=topic_uuid)
+        .select_related("group", "user")
+        .annotate(
+            content_source_count=Count(
+                "executions__content_items",
+                filter=Q(executions__content_items__deleted_at__isnull=True),
+                distinct=True,
+            )
+        )
+        .first()
+    )
+    if not topic:
+        raise HttpError(404, "Topic not found for UUID.")
+
+    return TopicListItem(
+        id=topic.id,
+        uuid=topic.uuid,
+        queries=topic.queries or [],
+        last_fetched_at=topic.last_fetched_at,
+        content_source_count=topic.content_source_count,
+        is_active=topic.is_active,
+        group_uuid=topic.group.uuid if topic.group else None,
+        group_name=topic.group.name if topic.group else None,
+        owner_username=_owner_label(topic.user),
+        is_owner=request.user.is_authenticated and topic.user_id == request.user.id,
+        search_domain_allowlist=topic.search_domain_allowlist,
+        search_domain_blocklist=topic.search_domain_blocklist,
+        search_language_filter=topic.search_language_filter,
+        country=topic.country,
+        update_frequency=topic.update_frequency,
+        additional_queries_mode=topic.additional_queries_mode,
+    )
+
+
 @api.post("/", response=TopicCreateResponse)
 def create_topic(request, payload: TopicCreateRequest):
     if not request.user.is_authenticated:
@@ -359,6 +396,75 @@ def list_topic_groups(request):
                 updated_at=group.updated_at,
             )
             for group in groups
+        ]
+    )
+
+
+@api.get("/shared/groups/{group_uuid}", response=TopicGroupItem)
+def get_shared_topic_group(request, group_uuid: uuid.UUID):
+    group = TopicGroup.objects.filter(uuid=group_uuid).select_related("user").first()
+    if not group:
+        raise HttpError(404, "Topic group not found for UUID.")
+
+    return TopicGroupItem(
+        id=group.id,
+        uuid=group.uuid,
+        name=group.name,
+        description=group.description or "",
+        is_public=group.is_public,
+        owner_username=_owner_label(group.user),
+        is_owner=request.user.is_authenticated and group.user_id == request.user.id,
+        default_update_frequency=group.default_update_frequency,
+        default_search_language_filter=group.default_search_language_filter,
+        default_country=group.default_country,
+        created_at=group.created_at,
+        updated_at=group.updated_at,
+    )
+
+
+@api.get("/shared/groups/{group_uuid}/topics", response=TopicListResponse)
+def list_shared_topics_by_group(
+    request,
+    group_uuid: uuid.UUID,
+):
+    group = TopicGroup.objects.filter(uuid=group_uuid).first()
+    if not group:
+        raise HttpError(404, "Topic group not found for UUID.")
+
+    topics = (
+        Topic.objects.filter(group=group)
+        .select_related("group", "user")
+        .annotate(
+            content_source_count=Count(
+                "executions__content_items",
+                filter=Q(executions__content_items__deleted_at__isnull=True),
+                distinct=True,
+            )
+        )
+        .order_by("-last_fetched_at", "-created_at", "uuid")
+    )
+
+    return TopicListResponse(
+        topics=[
+            TopicListItem(
+                id=topic.id,
+                uuid=topic.uuid,
+                queries=topic.queries or [],
+                last_fetched_at=topic.last_fetched_at,
+                content_source_count=topic.content_source_count,
+                is_active=topic.is_active,
+                group_uuid=topic.group.uuid if topic.group else None,
+                group_name=topic.group.name if topic.group else None,
+                owner_username=_owner_label(topic.user),
+                is_owner=request.user.is_authenticated and topic.user_id == request.user.id,
+                search_domain_allowlist=topic.search_domain_allowlist,
+                search_domain_blocklist=topic.search_domain_blocklist,
+                search_language_filter=topic.search_language_filter,
+                country=topic.country,
+                update_frequency=topic.update_frequency,
+                additional_queries_mode=topic.additional_queries_mode,
+            )
+            for topic in topics
         ]
     )
 
