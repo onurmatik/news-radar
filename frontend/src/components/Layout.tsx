@@ -344,10 +344,19 @@ export function Layout({ children }: SidebarProps) {
     if (isAuthenticated !== false) return;
     if (!selectedGroupId) {
       setTopics([]);
+      setTopicsError(null);
+      return;
+    }
+    const canLoadSelectedGroup = groups.some(
+      (group) => group.uuid === selectedGroupId && group.is_public
+    );
+    if (!canLoadSelectedGroup) {
+      setTopics([]);
+      setTopicsError(null);
       return;
     }
     void loadTopics(selectedGroupId);
-  }, [isAuthenticated, selectedGroupId, isSharedView]);
+  }, [groups, isAuthenticated, selectedGroupId, isSharedView]);
 
   useEffect(() => {
     if (!selectedTopicUuid) return;
