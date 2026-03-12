@@ -125,7 +125,7 @@ class ExecuteWebSearchAdditionalQueriesModeTests(TestCase):
         call_kwargs = openai_cls.return_value.responses.create.call_args.kwargs
         self.assertEqual(call_kwargs["reasoning"], {"effort": "medium"})
 
-    def test_queues_new_items_email_when_new_content_is_created(self):
+    def test_does_not_queue_realtime_email_when_new_content_is_created(self):
         topic = self._create_topic(
             queries=["battery recycling"],
             mode=Topic.ADDITIONAL_QUERIES_MODE_MANUAL,
@@ -152,9 +152,9 @@ class ExecuteWebSearchAdditionalQueriesModeTests(TestCase):
 
         self.assertEqual(len(captured_payloads), 1)
         self.assertIsNotNone(result["content_item_id"])
-        delay_mock.assert_called_once_with(result["execution_id"])
+        delay_mock.assert_not_called()
 
-    def test_does_not_queue_email_when_no_new_content_is_created(self):
+    def test_does_not_queue_realtime_email_when_no_new_content_is_created(self):
         topic = self._create_topic(
             queries=["battery recycling"],
             mode=Topic.ADDITIONAL_QUERIES_MODE_MANUAL,

@@ -351,18 +351,6 @@ def execute_web_search(
                     .values_list("id", flat=True)
                     .first()
                 )
-                if latest_content_item_id is not None:
-                    try:
-                        from newsradar.contents.tasks import (
-                            send_new_items_email_notification,
-                        )
-
-                        send_new_items_email_notification.delay(execution.id)
-                    except Exception:
-                        logger.exception(
-                            "Failed to queue new-items notification email for execution %s",
-                            execution.id,
-                        )
 
         topic.last_fetched_at = timezone.now()
         topic.save(update_fields=["last_fetched_at"])
