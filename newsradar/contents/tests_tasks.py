@@ -4,23 +4,30 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from newsradar.contents.models import Content
 from newsradar.contents.tasks import send_new_items_email_notification
 from newsradar.executions.models import Execution
-from newsradar.topics.models import Topic
+from newsradar.topics.models import Topic, TopicGroup
 
 
+@override_settings(FRONTEND_BASE_URL="https://newsradar.app/")
 class ContentDigestEmailCommandTests(TestCase):
-    def _create_topic_for_user(self, user, query: str) -> Topic:
+    def _create_topic_for_user(
+        self,
+        user,
+        query: str,
+        group: TopicGroup | None = None,
+    ) -> Topic:
         with patch("newsradar.topics.models.OpenAI") as openai_cls:
             openai_cls.return_value.embeddings.create.return_value = SimpleNamespace(
                 data=[SimpleNamespace(embedding=[0.0] * 1536)]
             )
             return Topic.objects.create(
                 user=user,
+                group=group,
                 queries=[query],
                 update_frequency="manual",
             )
@@ -48,7 +55,7 @@ class ContentDigestEmailCommandTests(TestCase):
             deleted_at=deleted_at,
         )
 
-    def test_command_sends_digest_for_unviewed_content_and_marks_it_viewed(self):
+    def test_command_groups_by_topic_group_limits_each_group_and_marks_only_sent_items_viewed(self):
         user_model = get_user_model()
         user = user_model.objects.create_user(
             username="digest-user",
@@ -56,32 +63,45 @@ class ContentDigestEmailCommandTests(TestCase):
             password="password123",
             first_name="Digest",
         )
-        topic_one = self._create_topic_for_user(user, query="battery recycling")
-        topic_two = self._create_topic_for_user(user, query="lithium supply")
+        energy_group = TopicGroup.objects.create(user=user, name="Energy")
+        mining_group = TopicGroup.objects.create(user=user, name="Mining")
+        energy_topic = self._create_topic_for_user(
+            user,
+            query="battery recycling",
+            group=energy_group,
+        )
+        mining_topic = self._create_topic_for_user(
+            user,
+            query="battery recycling",
+            group=mining_group,
+        )
 
-        unseen_one = self._create_content(
-            topic=topic_one,
-            url="https://example.com/story-1",
-            title="Story one",
+        energy_contents = [
+            self._create_content(
+                topic=energy_topic,
+                url=f"https://example.com/energy-{index}",
+                title=f"Energy story {index}",
+            )
+            for index in range(6)
+        ]
+        mining_one = self._create_content(
+            topic=mining_topic,
+            url="https://example.com/mining-1",
+            title="Mining story one",
         )
-        unseen_two = self._create_content(
-            topic=topic_one,
-            url="https://example.com/story-2",
-            title="Story two",
-        )
-        unseen_three = self._create_content(
-            topic=topic_two,
-            url="https://example.com/story-3",
-            title="Story three",
+        mining_two = self._create_content(
+            topic=mining_topic,
+            url="https://example.com/mining-2",
+            title="Mining story two",
         )
         already_viewed = self._create_content(
-            topic=topic_two,
+            topic=mining_topic,
             url="https://example.com/already-viewed",
             title="Already viewed",
             viewed=True,
         )
         deleted_content = self._create_content(
-            topic=topic_two,
+            topic=mining_topic,
             url="https://example.com/deleted",
             title="Deleted story",
             deleted_at=timezone.now(),
@@ -93,28 +113,54 @@ class ContentDigestEmailCommandTests(TestCase):
 
         send_mail_mock.assert_called_once()
         subject, message, _, recipients = send_mail_mock.call_args.args[:4]
-        self.assertIn("3 new items across 2 topics", subject)
-        self.assertIn("https://example.com/story-1", message)
-        self.assertIn("https://example.com/story-2", message)
-        self.assertIn("https://example.com/story-3", message)
+        self.assertIn("8 new items across 2 topic groups", subject)
+        self.assertIn("Showing the most recent 5 items per topic group below.", message)
+        self.assertIn("Energy (5)", message)
+        self.assertIn("Mining (2)", message)
+        self.assertIn(f"Topic group: https://newsradar.app/?group={energy_group.uuid}", message)
+        self.assertIn(f"Topic group: https://newsradar.app/?group={mining_group.uuid}", message)
+        self.assertIn("https://example.com/energy-1", message)
+        self.assertIn("https://example.com/energy-2", message)
+        self.assertIn("https://example.com/energy-3", message)
+        self.assertIn("https://example.com/energy-4", message)
+        self.assertIn("https://example.com/energy-5", message)
+        self.assertNotIn("https://example.com/energy-0", message)
+        self.assertIn("https://example.com/mining-1", message)
+        self.assertIn("https://example.com/mining-2", message)
+        self.assertIn(
+            f"Topic: https://newsradar.app/?group={energy_group.uuid}&topic={energy_topic.uuid}",
+            message,
+        )
+        self.assertIn(
+            f"Topic: https://newsradar.app/?group={mining_group.uuid}&topic={mining_topic.uuid}",
+            message,
+        )
+        self.assertIn(
+            f"1 more item in this topic group: https://newsradar.app/?group={energy_group.uuid}",
+            message,
+        )
         self.assertNotIn("https://example.com/already-viewed", message)
         self.assertNotIn("https://example.com/deleted", message)
         self.assertEqual(recipients, ["digest-user@example.com"])
 
-        unseen_one.refresh_from_db()
-        unseen_two.refresh_from_db()
-        unseen_three.refresh_from_db()
+        for content in energy_contents[1:]:
+            content.refresh_from_db()
+            self.assertTrue(content.viewed)
+        energy_contents[0].refresh_from_db()
+        mining_one.refresh_from_db()
+        mining_two.refresh_from_db()
         already_viewed.refresh_from_db()
         deleted_content.refresh_from_db()
-        self.assertTrue(unseen_one.viewed)
-        self.assertTrue(unseen_two.viewed)
-        self.assertTrue(unseen_three.viewed)
+        self.assertTrue(energy_contents[0].viewed)
+        self.assertTrue(mining_one.viewed)
+        self.assertTrue(mining_two.viewed)
         self.assertTrue(already_viewed.viewed)
         self.assertFalse(deleted_content.viewed)
 
         self.assertIn("processed_users=1", stdout.getvalue())
         self.assertIn("sent_users=1", stdout.getvalue())
-        self.assertIn("marked_viewed=3", stdout.getvalue())
+        self.assertIn("items_sent=7", stdout.getvalue())
+        self.assertIn("marked_viewed=8", stdout.getvalue())
 
     def test_command_skips_users_without_email_and_leaves_content_unviewed(self):
         user_model = get_user_model()

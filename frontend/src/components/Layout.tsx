@@ -66,6 +66,9 @@ export function Layout({ children }: SidebarProps) {
   const sharedTopicUuid = sharedTopicMatch?.[1] ?? null;
   const sharedGroupUuid = sharedGroupMatch?.[1] ?? null;
   const isSharedView = Boolean(sharedTopicUuid || sharedGroupUuid);
+  const queryParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const linkedGroupUuid = queryParams.get("group");
+  const linkedTopicUuid = queryParams.get("topic");
   const {
     isAuthenticated,
     currentUser,
@@ -449,6 +452,48 @@ export function Layout({ children }: SidebarProps) {
       setSelectedGroupId("");
     }
   }, [groups, isAuthenticated, isSharedView, selectedGroupId]);
+
+  useEffect(() => {
+    if (isSharedView) return;
+    if (isAuthenticated !== true) return;
+    if (!linkedGroupUuid && !linkedTopicUuid) return;
+    if (!groupsLoaded || !topicsLoaded) return;
+
+    if (linkedTopicUuid) {
+      const linkedTopic = topics.find((topic) => topic.uuid === linkedTopicUuid);
+      if (!linkedTopic) return;
+      const nextGroupId = linkedTopic.groupUuid ?? linkedGroupUuid ?? "";
+      if (selectedGroupId !== nextGroupId) {
+        setSelectedGroupId(nextGroupId);
+      }
+      if (selectedTopicUuid !== linkedTopic.uuid) {
+        setSelectedTopicUuid(linkedTopic.uuid);
+      }
+      return;
+    }
+
+    if (!linkedGroupUuid) return;
+    if (!groups.some((group) => group.uuid === linkedGroupUuid)) return;
+    if (selectedGroupId !== linkedGroupUuid) {
+      setSelectedGroupId(linkedGroupUuid);
+    }
+    if (selectedTopicUuid !== null) {
+      setSelectedTopicUuid(null);
+    }
+  }, [
+    groups,
+    groupsLoaded,
+    isAuthenticated,
+    isSharedView,
+    linkedGroupUuid,
+    linkedTopicUuid,
+    selectedGroupId,
+    selectedTopicUuid,
+    setSelectedGroupId,
+    setSelectedTopicUuid,
+    topics,
+    topicsLoaded,
+  ]);
 
   useEffect(() => {
     if (isSharedView) return;
