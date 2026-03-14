@@ -69,6 +69,15 @@ export function Layout({ children }: SidebarProps) {
   const queryParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const linkedGroupUuid = queryParams.get("group");
   const linkedTopicUuid = queryParams.get("topic");
+  const clearLinkedQueryParams = () => {
+    if (!linkedGroupUuid && !linkedTopicUuid) return;
+    const nextParams = new URLSearchParams(location.search);
+    nextParams.delete("group");
+    nextParams.delete("topic");
+    const nextSearch = nextParams.toString();
+    const nextUrl = `${location.pathname}${nextSearch ? `?${nextSearch}` : ""}`;
+    navigate(nextUrl, { replace: true });
+  };
   const {
     isAuthenticated,
     currentUser,
@@ -469,6 +478,7 @@ export function Layout({ children }: SidebarProps) {
       if (selectedTopicUuid !== linkedTopic.uuid) {
         setSelectedTopicUuid(linkedTopic.uuid);
       }
+      clearLinkedQueryParams();
       return;
     }
 
@@ -480,6 +490,7 @@ export function Layout({ children }: SidebarProps) {
     if (selectedTopicUuid !== null) {
       setSelectedTopicUuid(null);
     }
+    clearLinkedQueryParams();
   }, [
     groups,
     groupsLoaded,
