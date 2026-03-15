@@ -468,22 +468,42 @@ export function Layout({ children }: SidebarProps) {
     if (!linkedGroupUuid && !linkedTopicUuid) return;
     if (!groupsLoaded || !topicsLoaded) return;
 
+    const linkedGroupExists = linkedGroupUuid
+      ? groups.some((group) => group.uuid === linkedGroupUuid)
+      : false;
+
     if (linkedTopicUuid) {
       const linkedTopic = topics.find((topic) => topic.uuid === linkedTopicUuid);
-      if (!linkedTopic) return;
-      const nextGroupId = linkedTopic.groupUuid ?? linkedGroupUuid ?? "";
-      if (selectedGroupId !== nextGroupId) {
-        setSelectedGroupId(nextGroupId);
+      if (linkedTopic) {
+        const nextGroupId = linkedTopic.groupUuid ?? linkedGroupUuid ?? "";
+        if (selectedGroupId !== nextGroupId) {
+          setSelectedGroupId(nextGroupId);
+        }
+        if (selectedTopicUuid !== linkedTopic.uuid) {
+          setSelectedTopicUuid(linkedTopic.uuid);
+        }
+        clearLinkedQueryParams();
+        return;
       }
-      if (selectedTopicUuid !== linkedTopic.uuid) {
-        setSelectedTopicUuid(linkedTopic.uuid);
+
+      if (linkedGroupUuid && linkedGroupExists) {
+        if (selectedGroupId !== linkedGroupUuid) {
+          setSelectedGroupId(linkedGroupUuid);
+        }
+        if (selectedTopicUuid !== null) {
+          setSelectedTopicUuid(null);
+        }
       }
+
       clearLinkedQueryParams();
       return;
     }
 
     if (!linkedGroupUuid) return;
-    if (!groups.some((group) => group.uuid === linkedGroupUuid)) return;
+    if (!linkedGroupExists) {
+      clearLinkedQueryParams();
+      return;
+    }
     if (selectedGroupId !== linkedGroupUuid) {
       setSelectedGroupId(linkedGroupUuid);
     }
