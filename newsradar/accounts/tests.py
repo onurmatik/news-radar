@@ -52,6 +52,13 @@ class AccountsApiTests(TestCase):
         self.assertIn("/api/auth/sesame/?", sent.body)
         self.assertIn("sign in instantly without a password", sent.body)
         self.assertIn("you can safely ignore it", sent.body)
+        self.assertEqual(len(sent.alternatives), 1)
+        html_body, mimetype = sent.alternatives[0]
+        self.assertEqual(mimetype, "text/html")
+        self.assertIn("Your secure magic link is ready", html_body)
+        self.assertIn("Sign in to NewsRadar", html_body)
+        self.assertIn('href="http://testserver/api/auth/sesame/?', html_body)
+        self.assertIn("Copy and paste this URL into your browser", html_body)
 
     @override_settings(
         STRIPE_SECRET_KEY="sk_test_123",

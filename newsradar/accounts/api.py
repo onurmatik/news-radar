@@ -6,9 +6,10 @@ import stripe
 from django.conf import settings
 from django.contrib.auth import get_user_model, logout
 from django.core.exceptions import ValidationError
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
 from django.db import IntegrityError
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.crypto import get_random_string
 from ninja import NinjaAPI, Schema
@@ -91,7 +92,7 @@ def _build_magic_link(request, user, redirect_url: str | None) -> str:
     return f"{login_url}?{urlencode(params)}"
 
 
-def _build_magic_link_email(magic_link: str) -> tuple[str, str]:
+def _build_magic_link_email(magic_link: str) -> tuple[str, str, str]:
     subject = "Your NewsRadar magic link"
     message = (
         "Hi there,\n\n"
@@ -100,7 +101,14 @@ def _build_magic_link_email(magic_link: str) -> tuple[str, str]:
         "This link lets you sign in instantly without a password.\n\n"
         "If you didn't request this email, you can safely ignore it."
     )
-    return subject, message
+    html_message = render_to_string(
+        "accounts/emails/magic_link.html",
+        {
+            "magic_link": magic_link,
+            "subject": subject,
+        },
+    )
+    return subject, message, html_message
 
 
 def _get_frontend_origin() -> str | None:
@@ -208,16 +216,17 @@ def request_magic_link(request, payload: MagicLinkRequest):
     redirect_url = payload.redirect_url or settings.FRONTEND_BASE_URL or None
     magic_link = _build_magic_link(request, user, redirect_url)
 
-    subject, message = _build_magic_link_email(magic_link)
+    subject, message, html_message = _build_magic_link_email(magic_link)
 
     try:
-        send_mail(
+        email_message = EmailMultiAlternatives(
             subject,
             message,
             settings.DEFAULT_FROM_EMAIL,
             [email],
-            fail_silently=False,
         )
+        email_message.attach_alternative(html_message, "text/html")
+        email_message.send(fail_silently=False)
     except Exception as exc:
         raise HttpError(500, "Unable to send sign-in email right now.") from exc
 
