@@ -31,6 +31,7 @@ export interface ApiTopicGroupItem {
   name: string;
   description: string;
   is_public: boolean;
+  is_paused: boolean;
   owner_username: string;
   is_owner: boolean;
   default_update_frequency: "day" | "week" | "manual" | null;

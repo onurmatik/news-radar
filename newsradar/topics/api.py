@@ -61,6 +61,7 @@ def _group_to_item(
         name=group.name,
         description=group.description or "",
         is_public=group.is_public,
+        is_paused=group.is_paused,
         owner_username=_owner_label(group.user),
         is_owner=request.user.is_authenticated and group.user_id == request.user.id,
         default_update_frequency=group.default_update_frequency,
@@ -151,6 +152,7 @@ class TopicGroupItem(Schema):
     name: str
     description: str
     is_public: bool
+    is_paused: bool
     owner_username: str
     is_owner: bool
     default_update_frequency: str | None
@@ -168,6 +170,7 @@ class TopicGroupCreateRequest(Schema):
     name: str
     description: str | None = None
     is_public: bool | None = None
+    is_paused: bool | None = None
     default_update_frequency: str | None = None
     default_search_language_filter: list[str] | None = None
     default_country: str | None = None
@@ -181,6 +184,7 @@ class TopicGroupUpdateRequest(Schema):
     name: str | None = None
     description: str | None = None
     is_public: bool | None = None
+    is_paused: bool | None = None
     default_update_frequency: str | None = None
     default_search_language_filter: list[str] | None = None
     default_country: str | None = None
@@ -452,23 +456,7 @@ def list_topic_groups(request):
         groups = TopicGroup.objects.filter(is_public=True).select_related("user")
     groups = groups.order_by("name", "created_at")
     return TopicGroupListResponse(
-        groups=[
-            TopicGroupItem(
-                id=group.id,
-                uuid=group.uuid,
-                name=group.name,
-                description=group.description or "",
-                is_public=group.is_public,
-                owner_username=_owner_label(group.user),
-                is_owner=request.user.is_authenticated and group.user_id == request.user.id,
-                default_update_frequency=group.default_update_frequency,
-                default_search_language_filter=group.default_search_language_filter,
-                default_country=group.default_country,
-                created_at=group.created_at,
-                updated_at=group.updated_at,
-            )
-            for group in groups
-        ]
+        groups=[_group_to_item(group=group, request=request) for group in groups]
     )
 
 
@@ -478,20 +466,7 @@ def get_shared_topic_group(request, group_uuid: uuid.UUID):
     if not group:
         raise HttpError(404, "Topic group not found for UUID.")
 
-    return TopicGroupItem(
-        id=group.id,
-        uuid=group.uuid,
-        name=group.name,
-        description=group.description or "",
-        is_public=group.is_public,
-        owner_username=_owner_label(group.user),
-        is_owner=request.user.is_authenticated and group.user_id == request.user.id,
-        default_update_frequency=group.default_update_frequency,
-        default_search_language_filter=group.default_search_language_filter,
-        default_country=group.default_country,
-        created_at=group.created_at,
-        updated_at=group.updated_at,
-    )
+    return _group_to_item(group=group, request=request)
 
 
 @api.get("/shared/groups/{group_uuid}/topics", response=TopicListResponse)
@@ -549,6 +524,7 @@ def clone_shared_topic(request, topic_uuid: uuid.UUID):
                 name=source_topic.group.name,
                 description=source_topic.group.description or "",
                 is_public=False,
+                is_paused=source_topic.group.is_paused,
                 default_update_frequency=source_topic.group.default_update_frequency,
                 default_search_language_filter=source_topic.group.default_search_language_filter,
                 default_country=source_topic.group.default_country,
@@ -615,6 +591,7 @@ def clone_shared_topic_group(request, group_uuid: uuid.UUID):
         ),
         description=source_group.description or "",
         is_public=False,
+        is_paused=source_group.is_paused,
         default_update_frequency=source_group.default_update_frequency,
         default_search_language_filter=source_group.default_search_language_filter,
         default_country=source_group.default_country,
@@ -690,20 +667,7 @@ def get_topic_group(request, group_uuid: uuid.UUID):
         ).first()
     if not group:
         raise HttpError(404, "Topic group not found for UUID.")
-    return TopicGroupItem(
-        id=group.id,
-        uuid=group.uuid,
-        name=group.name,
-        description=group.description or "",
-        is_public=group.is_public,
-        owner_username=_owner_label(group.user),
-        is_owner=request.user.is_authenticated and group.user_id == request.user.id,
-        default_update_frequency=group.default_update_frequency,
-        default_search_language_filter=group.default_search_language_filter,
-        default_country=group.default_country,
-        created_at=group.created_at,
-        updated_at=group.updated_at,
-    )
+    return _group_to_item(group=group, request=request)
 
 
 @api.post("/groups", response=TopicGroupCreateResponse)
@@ -748,6 +712,7 @@ def create_topic_group(request, payload: TopicGroupCreateRequest):
             name=name,
             description=payload.description or "",
             is_public=bool(payload.is_public) if payload.is_public is not None else False,
+            is_paused=bool(payload.is_paused) if payload.is_paused is not None else False,
             default_update_frequency=default_update_frequency,
             default_search_language_filter=default_language_filter,
             default_country=default_country,
@@ -755,22 +720,7 @@ def create_topic_group(request, payload: TopicGroupCreateRequest):
     except IntegrityError as exc:
         raise HttpError(400, "Group name already exists.") from exc
 
-    return TopicGroupCreateResponse(
-        group=TopicGroupItem(
-            id=group.id,
-            uuid=group.uuid,
-            name=group.name,
-            description=group.description or "",
-            is_public=group.is_public,
-            owner_username=_owner_label(group.user),
-            is_owner=True,
-            default_update_frequency=group.default_update_frequency,
-            default_search_language_filter=group.default_search_language_filter,
-            default_country=group.default_country,
-            created_at=group.created_at,
-            updated_at=group.updated_at,
-        )
-    )
+    return TopicGroupCreateResponse(group=_group_to_item(group=group, request=request))
 
 
 @api.patch("/groups/{group_uuid}", response=TopicGroupItem)
@@ -787,7 +737,7 @@ def update_topic_group(
     if group.user_id != request.user.id:
         raise HttpError(403, "Topic group belongs to another user.")
 
-    updates: dict[str, str] = {}
+    updates: dict[str, object] = {}
     if payload.name is not None:
         name = payload.name.strip()
         if not name:
@@ -797,6 +747,8 @@ def update_topic_group(
         updates["description"] = payload.description
     if payload.is_public is not None:
         updates["is_public"] = payload.is_public
+    if payload.is_paused is not None:
+        updates["is_paused"] = payload.is_paused
     def normalize_filter_list(values: list[str] | None, field_name: str) -> list[str] | None:
         if values is None:
             return None
@@ -838,20 +790,7 @@ def update_topic_group(
     except IntegrityError as exc:
         raise HttpError(400, "Group name already exists.") from exc
 
-    return TopicGroupItem(
-        id=group.id,
-        uuid=group.uuid,
-        name=group.name,
-        description=group.description or "",
-        is_public=group.is_public,
-        owner_username=_owner_label(group.user),
-        is_owner=True,
-        default_update_frequency=group.default_update_frequency,
-        default_search_language_filter=group.default_search_language_filter,
-        default_country=group.default_country,
-        created_at=group.created_at,
-        updated_at=group.updated_at,
-    )
+    return _group_to_item(group=group, request=request)
 
 
 @api.delete("/groups/{group_uuid}")

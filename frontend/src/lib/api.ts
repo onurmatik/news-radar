@@ -190,6 +190,7 @@ export async function createTopicGroup(payload: {
   name: string;
   description?: string;
   isPublic?: boolean;
+  isPaused?: boolean;
   defaultUpdateFrequency?: "day" | "week" | "manual" | null;
   defaultLanguageFilter?: string[] | null;
   defaultCountry?: string | null;
@@ -200,6 +201,7 @@ export async function createTopicGroup(payload: {
       name: payload.name,
       description: payload.description ?? "",
       is_public: payload.isPublic ?? false,
+      is_paused: payload.isPaused ?? false,
       default_update_frequency: payload.defaultUpdateFrequency ?? null,
       default_search_language_filter: payload.defaultLanguageFilter ?? null,
       default_country: payload.defaultCountry ?? null,
@@ -213,6 +215,7 @@ export async function updateTopicGroup(
     name?: string;
     description?: string;
     isPublic?: boolean;
+    isPaused?: boolean;
     defaultUpdateFrequency?: "day" | "week" | "manual" | null;
     defaultLanguageFilter?: string[] | null;
     defaultCountry?: string | null;
@@ -224,6 +227,7 @@ export async function updateTopicGroup(
       name: payload.name,
       description: payload.description,
       is_public: payload.isPublic,
+      is_paused: payload.isPaused,
       default_update_frequency: payload.defaultUpdateFrequency ?? null,
       default_search_language_filter: payload.defaultLanguageFilter ?? null,
       default_country: payload.defaultCountry ?? null,

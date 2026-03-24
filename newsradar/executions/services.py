@@ -19,6 +19,18 @@ from newsradar.topics.services import normalize_domain_value
 logger = logging.getLogger(__name__)
 
 
+def _paused_group_error_message(topic: Topic) -> str:
+    if topic.group and topic.group.name:
+        return f'Scanning is paused for topic group "{topic.group.name}".'
+    return "Scanning is paused for this topic group."
+
+
+def _mark_execution_failed(execution: Execution, message: str) -> None:
+    execution.status = Execution.Status.FAILED
+    execution.error_message = message
+    execution.save(update_fields=["status", "error_message"])
+
+
 def _build_search_domain_filter(topic: Topic) -> list[str] | None:
     allowlist = [
         domain
@@ -242,7 +254,7 @@ def execute_web_search(
             topic_uuid = uuid.UUID(topic_uuid)
         except ValueError as exc:
             raise ValueError("Invalid topic UUID.") from exc
-    topic = Topic.objects.filter(uuid=topic_uuid).first()
+    topic = Topic.objects.select_related("group").filter(uuid=topic_uuid).first()
     if not topic:
         raise ValueError("Topic not found for UUID.")
 
@@ -253,6 +265,12 @@ def execute_web_search(
             raise ValueError("Execution not found.")
         if execution.topic_id != topic.id:
             raise ValueError("Execution does not match topic.")
+
+    if topic.group and topic.group.is_paused:
+        message = _paused_group_error_message(topic)
+        if execution is not None:
+            _mark_execution_failed(execution, message)
+        raise ValueError(message)
 
     queries = [query for query in (topic.queries or []) if query][:5]
     if not queries:

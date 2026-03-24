@@ -191,6 +191,7 @@ class TopicGroup(models.Model):
     name = models.CharField(max_length=120)
     description = models.TextField(blank=True)
     is_public = models.BooleanField(default=False)
+    is_paused = models.BooleanField(default=False)
     default_update_frequency = models.CharField(
         max_length=6,
         blank=True,

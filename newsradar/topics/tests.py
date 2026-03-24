@@ -162,6 +162,7 @@ class TopicShareApiTests(TestCase):
             user=self.user,
             name="Private strategy group",
             is_public=False,
+            is_paused=True,
         )
 
         self.client.logout()
@@ -171,6 +172,7 @@ class TopicShareApiTests(TestCase):
         body = response.json()
         self.assertEqual(body["uuid"], str(group.uuid))
         self.assertEqual(body["name"], group.name)
+        self.assertTrue(body["is_paused"])
         self.assertEqual(body["owner_username"], self.user.username)
         self.assertFalse(body["is_owner"])
 
@@ -197,6 +199,7 @@ class TopicShareApiTests(TestCase):
             user=self.user,
             name="Clone source group",
             is_public=False,
+            is_paused=True,
             default_update_frequency="week",
             default_search_language_filter=["en"],
             default_country="US",
@@ -219,18 +222,21 @@ class TopicShareApiTests(TestCase):
         self.assertTrue(body["topic"]["is_owner"])
         self.assertIsNotNone(body["group"])
         self.assertEqual(body["group"]["name"], source_group.name)
+        self.assertTrue(body["group"]["is_paused"])
 
         cloned_topic = Topic.objects.get(uuid=cloned_topic_uuid)
         self.assertEqual(cloned_topic.user_id, self.target_user.id)
         self.assertIsNotNone(cloned_topic.group)
         self.assertEqual(cloned_topic.group.user_id, self.target_user.id)
         self.assertEqual(cloned_topic.group.name, source_group.name)
+        self.assertTrue(cloned_topic.group.is_paused)
 
     def test_clone_shared_group_creates_owned_copy_with_topics(self):
         source_group = TopicGroup.objects.create(
             user=self.user,
             name="Signals",
             is_public=False,
+            is_paused=True,
         )
         source_topic_one = self._create_topic(group=source_group, query="signal one")
         source_topic_two = self._create_topic(group=source_group, query="signal two")
@@ -244,9 +250,11 @@ class TopicShareApiTests(TestCase):
         payload = response.json()
         self.assertEqual(len(payload["topics"]), 2)
         cloned_group_uuid = payload["group"]["uuid"]
+        self.assertTrue(payload["group"]["is_paused"])
         cloned_group = TopicGroup.objects.get(uuid=cloned_group_uuid)
         self.assertEqual(cloned_group.user_id, self.target_user.id)
         self.assertEqual(cloned_group.name, "Signals (Copy)")
+        self.assertTrue(cloned_group.is_paused)
 
         cloned_queries = {
             tuple(topic.queries or [])
@@ -254,3 +262,52 @@ class TopicShareApiTests(TestCase):
         }
         self.assertIn(tuple(source_topic_one.queries or []), cloned_queries)
         self.assertIn(tuple(source_topic_two.queries or []), cloned_queries)
+
+
+class TopicGroupPauseApiTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username="group-owner",
+            email="group-owner@example.com",
+            password="password123",
+        )
+
+    def test_create_group_defaults_to_active_scanning(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            "/api/topics/groups",
+            data=json.dumps({"name": "Signals"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertFalse(body["group"]["is_paused"])
+        group = TopicGroup.objects.get(uuid=body["group"]["uuid"])
+        self.assertFalse(group.is_paused)
+
+    def test_update_group_can_pause_scanning(self):
+        group = TopicGroup.objects.create(
+            user=self.user,
+            name="Energy",
+            is_paused=False,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            f"/api/topics/groups/{group.uuid}",
+            data=json.dumps({"is_paused": True}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["is_paused"])
+
+        group.refresh_from_db()
+        self.assertTrue(group.is_paused)
+
+        list_response = self.client.get("/api/topics/groups")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertTrue(list_response.json()["groups"][0]["is_paused"])

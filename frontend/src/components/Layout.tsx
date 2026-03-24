@@ -123,6 +123,7 @@ export function Layout({ children }: SidebarProps) {
   const [groupEditOpen, setGroupEditOpen] = useState(false);
   const [groupEditTarget, setGroupEditTarget] = useState<ApiTopicGroupItem | null>(null);
   const [groupEditName, setGroupEditName] = useState("");
+  const [groupEditPaused, setGroupEditPaused] = useState(false);
   const [groupEditSaving, setGroupEditSaving] = useState(false);
   const [groupEditDeleting, setGroupEditDeleting] = useState(false);
   const [groupEditError, setGroupEditError] = useState<string | null>(null);
@@ -749,6 +750,7 @@ export function Layout({ children }: SidebarProps) {
     if (!open) {
       setGroupEditTarget(null);
       setGroupEditName("");
+      setGroupEditPaused(false);
       setGroupEditError(null);
       setGroupEditSaving(false);
       setGroupEditDeleting(false);
@@ -762,6 +764,7 @@ export function Layout({ children }: SidebarProps) {
     setGroupSelectOpen(false);
     setGroupEditTarget(group);
     setGroupEditName(group.name);
+    setGroupEditPaused(group.is_paused);
     setGroupEditError(null);
     setGroupEditOpen(true);
   };
@@ -776,17 +779,25 @@ export function Layout({ children }: SidebarProps) {
       setGroupEditError("Group name is required.");
       return;
     }
-    if (trimmedName === groupEditTarget.name) {
+    if (
+      trimmedName === groupEditTarget.name &&
+      groupEditPaused === groupEditTarget.is_paused
+    ) {
       setGroupEditError("No changes to save.");
       return;
     }
     setGroupEditSaving(true);
     setGroupEditError(null);
     try {
-      await updateTopicGroup(groupEditTarget.uuid, { name: trimmedName });
+      await updateTopicGroup(groupEditTarget.uuid, {
+        name: trimmedName,
+        isPaused: groupEditPaused,
+      });
       setGroups((prev) =>
         prev.map((group) =>
-          group.uuid === groupEditTarget.uuid ? { ...group, name: trimmedName } : group
+          group.uuid === groupEditTarget.uuid
+            ? { ...group, name: trimmedName, is_paused: groupEditPaused }
+            : group
         )
       );
       setTopics((prev) =>
@@ -845,6 +856,13 @@ export function Layout({ children }: SidebarProps) {
     }
   };
 
+  const isTopicGroupPaused = (topic: TopicItem) => {
+    if (!topic.groupUuid) {
+      return false;
+    }
+    return groups.some((group) => group.uuid === topic.groupUuid && group.is_paused);
+  };
+
   const waitForExecutionCompletion = async (executionId: number) => {
     const maxAttempts = 30;
     const delayMs = 2000;
@@ -865,6 +883,11 @@ export function Layout({ children }: SidebarProps) {
 
   const handleTopicScanNow = async (topic: TopicItem) => {
     if (!requireAuth()) {
+      return;
+    }
+    if (isTopicGroupPaused(topic)) {
+      setTopicsError("Scanning is paused for this topic group.");
+      setTopicMenuOpenId(null);
       return;
     }
     setTopicsError(null);
@@ -1068,6 +1091,22 @@ export function Layout({ children }: SidebarProps) {
                   placeholder="Topic group name"
                   disabled={groupEditSaving || groupEditDeleting}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="group-edit-status">Scanning status</Label>
+                <select
+                  id="group-edit-status"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  value={groupEditPaused ? "paused" : "active"}
+                  onChange={(event) => setGroupEditPaused(event.target.value === "paused")}
+                  disabled={groupEditSaving || groupEditDeleting}
+                >
+                  <option value="active">Active</option>
+                  <option value="paused">Paused</option>
+                </select>
+                <p className="text-[11px] text-muted-foreground">
+                  Paused groups skip both manual and scheduled scans until resumed.
+                </p>
               </div>
               {groupEditError && (
                 <p className="text-sm text-destructive">{groupEditError}</p>
@@ -1320,6 +1359,11 @@ export function Layout({ children }: SidebarProps) {
                             <span className="text-[10px] font-mono text-muted-foreground/70">
                               {groupTopicCounts[group.id] ?? 0}
                             </span>
+                            {group.group.is_paused && (
+                              <span className="rounded-full border border-border/70 bg-muted px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                Paused
+                              </span>
+                            )}
                             {isSharedView !== true && isAuthenticated !== false && group.isOwner && (
                               <button
                                 type="button"
@@ -1374,6 +1418,11 @@ export function Layout({ children }: SidebarProps) {
                               <span className="text-[10px] font-mono text-muted-foreground/70">
                                 {groupTopicCounts[group.id] ?? 0}
                               </span>
+                              {group.group.is_paused && (
+                                <span className="rounded-full border border-border/70 bg-muted px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                  Paused
+                                </span>
+                              )}
                               {isSharedView !== true && isAuthenticated !== false && group.isOwner && (
                                 <button
                                   type="button"
@@ -1433,13 +1482,15 @@ export function Layout({ children }: SidebarProps) {
           </div>
 
           <nav className="flex-1 p-3 space-y-1 overflow-y-auto custom-scrollbar">
-             {filteredTopics.map((topic) => (
-                <div 
-                   key={topic.id} 
+             {filteredTopics.map((topic) => {
+               const topicGroupPaused = isTopicGroupPaused(topic);
+               return (
+                 <div
+                   key={topic.id}
                    className={cn(
-                      "group flex flex-col gap-1.5 px-3 py-3 rounded-lg text-sm transition-all duration-200 cursor-pointer relative border border-transparent",
-                      topic.uuid === selectedTopicUuid ? "bg-muted/50 border-border/60" : "",
-                      topic.isActive ? "hover:bg-muted/50 hover:border-border/50" : "bg-muted/20 border-border/40"
+                     "group flex flex-col gap-1.5 px-3 py-3 rounded-lg text-sm transition-all duration-200 cursor-pointer relative border border-transparent",
+                     topic.uuid === selectedTopicUuid ? "bg-muted/50 border-border/60" : "",
+                     topic.isActive ? "hover:bg-muted/50 hover:border-border/50" : "bg-muted/20 border-border/40"
                    )}
                    onClick={() => {
                      setTopicMenuOpenId(null);
@@ -1448,169 +1499,188 @@ export function Layout({ children }: SidebarProps) {
                        navigate('/');
                      }
                    }}
-                >
+                 >
                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "flex-1 min-w-0 font-semibold text-foreground truncate",
-                          topic.isActive ? "" : "text-muted-foreground/70"
-                        )}
-                      >
-                        {topic.term}
-                      </span>
-                      {topic.hasNewItems && (
-                         <span
-                           className={cn(
-                             "flex h-1.5 w-1.5 rounded-full",
-                             topic.isActive
-                               ? "bg-primary shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse"
-                               : "bg-muted-foreground/40"
-                           )}
-                         ></span>
-                      )}
+                     <span
+                       className={cn(
+                         "flex-1 min-w-0 font-semibold text-foreground truncate",
+                         topic.isActive ? "" : "text-muted-foreground/70"
+                       )}
+                     >
+                       {topic.term}
+                     </span>
+                     {topicGroupPaused && (
+                       <span className="rounded-full border border-border/70 bg-muted px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                         Paused
+                       </span>
+                     )}
+                     {topic.hasNewItems && (
+                       <span
+                         className={cn(
+                           "flex h-1.5 w-1.5 rounded-full",
+                           topic.isActive
+                             ? "bg-primary shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse"
+                             : "bg-muted-foreground/40"
+                         )}
+                       ></span>
+                     )}
                    </div>
                    <div className="flex items-center justify-between">
-                      <span
-                        className={cn(
-                          "text-[10px] text-muted-foreground/60 font-mono tabular-nums",
-                          topic.isActive ? "" : "text-muted-foreground/50"
-                        )}
-                      >
-                        {topic.lastSearch
-                          ? `Scanned ${formatDistanceToNowStrict(topic.lastSearch, { addSuffix: true })}`
-                          : "Never scanned"}
-                        ; updates {formatRecency(topic.updateFrequency)}
-                      </span>
-                      {!isSharedView && (
-                        <div
-                          className="relative"
-                          ref={topic.uuid === topicMenuOpenId ? topicMenuRef : null}
-                        >
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className={cn(
-                              "h-6 w-6 rounded-full text-muted-foreground/70",
-                              "hover:text-foreground hover:bg-muted/50"
-                            )}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setTopicMenuOpenId((prev) =>
-                                prev === topic.uuid ? null : topic.uuid
-                              );
-                            }}
-                            type="button"
-                            aria-haspopup="menu"
-                            aria-expanded={topicMenuOpenId === topic.uuid}
-                            title="Manage topic"
-                          >
-                            <MoreVertical className="h-3.5 w-3.5" />
-                          </Button>
-                          {topicMenuOpenId === topic.uuid && (
-                            <div
-                              className="absolute right-0 mt-2 w-48 rounded-xl border border-border bg-background shadow-lg p-2 z-50"
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <button
-                                className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
-                                onClick={() => void handleTopicScanNow(topic)}
-                                type="button"
-                              >
-                                Scan now
-                              </button>
-                              <div className="h-px bg-border/70 my-2" />
-                              <p className="px-3 pt-1 text-[10px] uppercase tracking-widest text-muted-foreground/70">
-                                Scan frequency
-                              </p>
-                              <button
-                                className={cn(
-                                  "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
-                                  topic.updateFrequency === "day"
-                                    ? "text-foreground"
-                                    : "text-muted-foreground",
-                                  "hover:text-foreground hover:bg-muted/60"
-                                )}
-                                onClick={() => void handleTopicFrequency(topic, "day")}
-                                type="button"
-                              >
-                                <span
-                                  className={cn(
-                                    "h-1.5 w-1.5 rounded-full",
-                                    topic.updateFrequency === "day"
-                                      ? "bg-primary"
-                                      : "bg-transparent opacity-0"
-                                  )}
-                                />
-                                Daily
-                              </button>
-                              <button
-                                className={cn(
-                                  "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
-                                  topic.updateFrequency === "week"
-                                    ? "text-foreground"
-                                    : "text-muted-foreground",
-                                  "hover:text-foreground hover:bg-muted/60"
-                                )}
-                                onClick={() => void handleTopicFrequency(topic, "week")}
-                                type="button"
-                              >
-                                <span
-                                  className={cn(
-                                    "h-1.5 w-1.5 rounded-full",
-                                    topic.updateFrequency === "week"
-                                      ? "bg-primary"
-                                      : "bg-transparent opacity-0"
-                                  )}
-                                />
-                                Weekly
-                              </button>
-                              <button
-                                className={cn(
-                                  "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
-                                  topic.updateFrequency === "manual"
-                                    ? "text-foreground"
-                                    : "text-muted-foreground",
-                                  "hover:text-foreground hover:bg-muted/60"
-                                )}
-                                onClick={() => void handleTopicFrequency(topic, "manual")}
-                                type="button"
-                              >
-                                <span
-                                  className={cn(
-                                    "h-1.5 w-1.5 rounded-full",
-                                    topic.updateFrequency === "manual"
-                                      ? "bg-primary"
-                                      : "bg-transparent opacity-0"
-                                  )}
-                                />
-                                Manual
-                              </button>
-                              <div className="h-px bg-border/70 my-2" />
-                              <button
-                                className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
-                                onClick={() => handleChangeGroupClick(topic)}
-                                type="button"
-                              >
-                                Change group
-                              </button>
-                              <div className="h-px bg-border/70 my-2" />
-                              <button
-                                className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
-                                onClick={() => {
-                                  setTopicMenuOpenId(null);
-                                  handleEditTopic(topic);
-                                }}
-                                type="button"
-                              >
-                                Edit
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                     </div>
-                </div>
-             ))}
+                     <span
+                       className={cn(
+                         "text-[10px] text-muted-foreground/60 font-mono tabular-nums",
+                         topic.isActive ? "" : "text-muted-foreground/50"
+                       )}
+                     >
+                       {topic.lastSearch
+                         ? `Scanned ${formatDistanceToNowStrict(topic.lastSearch, { addSuffix: true })}`
+                         : "Never scanned"}
+                       {topicGroupPaused
+                         ? "; group paused"
+                         : `; updates ${formatRecency(topic.updateFrequency)}`}
+                     </span>
+                     {!isSharedView && (
+                       <div
+                         className="relative"
+                         ref={topic.uuid === topicMenuOpenId ? topicMenuRef : null}
+                       >
+                         <Button
+                           variant="ghost"
+                           size="icon"
+                           className={cn(
+                             "h-6 w-6 rounded-full text-muted-foreground/70",
+                             "hover:text-foreground hover:bg-muted/50"
+                           )}
+                           onClick={(event) => {
+                             event.stopPropagation();
+                             setTopicMenuOpenId((prev) =>
+                               prev === topic.uuid ? null : topic.uuid
+                             );
+                           }}
+                           type="button"
+                           aria-haspopup="menu"
+                           aria-expanded={topicMenuOpenId === topic.uuid}
+                           title="Manage topic"
+                         >
+                           <MoreVertical className="h-3.5 w-3.5" />
+                         </Button>
+                         {topicMenuOpenId === topic.uuid && (
+                           <div
+                             className="absolute right-0 mt-2 w-48 rounded-xl border border-border bg-background shadow-lg p-2 z-50"
+                             onClick={(event) => event.stopPropagation()}
+                           >
+                             <button
+                               className={cn(
+                                 "w-full rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors",
+                                 topicGroupPaused
+                                   ? "cursor-not-allowed text-muted-foreground/50"
+                                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                               )}
+                               onClick={() => void handleTopicScanNow(topic)}
+                               type="button"
+                               disabled={topicGroupPaused}
+                             >
+                               Scan now
+                             </button>
+                             {topicGroupPaused && (
+                               <p className="px-3 pb-2 text-[10px] text-muted-foreground/70">
+                                 Resume this topic group to run scans again.
+                               </p>
+                             )}
+                             <div className="h-px bg-border/70 my-2" />
+                             <p className="px-3 pt-1 text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                               Scan frequency
+                             </p>
+                             <button
+                               className={cn(
+                                 "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
+                                 topic.updateFrequency === "day"
+                                   ? "text-foreground"
+                                   : "text-muted-foreground",
+                                 "hover:text-foreground hover:bg-muted/60"
+                               )}
+                               onClick={() => void handleTopicFrequency(topic, "day")}
+                               type="button"
+                             >
+                               <span
+                                 className={cn(
+                                   "h-1.5 w-1.5 rounded-full",
+                                   topic.updateFrequency === "day"
+                                     ? "bg-primary"
+                                     : "bg-transparent opacity-0"
+                                 )}
+                               />
+                               Daily
+                             </button>
+                             <button
+                               className={cn(
+                                 "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
+                                 topic.updateFrequency === "week"
+                                   ? "text-foreground"
+                                   : "text-muted-foreground",
+                                 "hover:text-foreground hover:bg-muted/60"
+                               )}
+                               onClick={() => void handleTopicFrequency(topic, "week")}
+                               type="button"
+                             >
+                               <span
+                                 className={cn(
+                                   "h-1.5 w-1.5 rounded-full",
+                                   topic.updateFrequency === "week"
+                                     ? "bg-primary"
+                                     : "bg-transparent opacity-0"
+                                 )}
+                               />
+                               Weekly
+                             </button>
+                             <button
+                               className={cn(
+                                 "w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors",
+                                 topic.updateFrequency === "manual"
+                                   ? "text-foreground"
+                                   : "text-muted-foreground",
+                                 "hover:text-foreground hover:bg-muted/60"
+                               )}
+                               onClick={() => void handleTopicFrequency(topic, "manual")}
+                               type="button"
+                             >
+                               <span
+                                 className={cn(
+                                   "h-1.5 w-1.5 rounded-full",
+                                   topic.updateFrequency === "manual"
+                                     ? "bg-primary"
+                                     : "bg-transparent opacity-0"
+                                 )}
+                               />
+                               Manual
+                             </button>
+                             <div className="h-px bg-border/70 my-2" />
+                             <button
+                               className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                               onClick={() => handleChangeGroupClick(topic)}
+                               type="button"
+                             >
+                               Change group
+                             </button>
+                             <div className="h-px bg-border/70 my-2" />
+                             <button
+                               className="w-full text-left px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors"
+                               onClick={() => {
+                                 setTopicMenuOpenId(null);
+                                 handleEditTopic(topic);
+                               }}
+                               type="button"
+                             >
+                               Edit
+                             </button>
+                           </div>
+                         )}
+                       </div>
+                     )}
+                   </div>
+                 </div>
+               );
+             })}
 
              {topicsError && (
                 <div className="px-3 py-2 text-[11px] text-destructive">

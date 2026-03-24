@@ -25,6 +25,7 @@ class Command(BaseCommand):
 
         topics = (
             Topic.objects.filter(is_active=True)
+            .exclude(group__is_paused=True)
             .filter(day_due | week_due)
             .only("uuid", "update_frequency", "last_fetched_at")
         )

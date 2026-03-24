@@ -40,6 +40,12 @@ class ExecutionDetailResponse(ExecutionListItem):
     pass
 
 
+def _paused_group_error_message(topic: Topic) -> str:
+    if topic.group and topic.group.name:
+        return f'Scanning is paused for topic group "{topic.group.name}".'
+    return "Scanning is paused for this topic group."
+
+
 @api.get("/", response=ExecutionListResponse)
 def list_executions(
     request,
@@ -94,9 +100,15 @@ def web_search_execution(request, payload: WebSearchExecutionRequest):
             400,
             "Invalid initiator."
         )
-    topic = Topic.objects.filter(uuid=payload.topic_uuid, user=request.user).first()
+    topic = (
+        Topic.objects.select_related("group")
+        .filter(uuid=payload.topic_uuid, user=request.user)
+        .first()
+    )
     if not topic:
         raise HttpError(404, "Topic not found for UUID.")
+    if topic.group and topic.group.is_paused:
+        raise HttpError(409, _paused_group_error_message(topic))
     execution = Execution.objects.create(
         topic=topic,
         initiator=payload.initiator,

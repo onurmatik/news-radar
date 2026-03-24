@@ -162,6 +162,7 @@ export default function Dashboard() {
   const [domainMenuOpen, setDomainMenuOpen] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [groupIsPublic, setGroupIsPublic] = useState(false);
+  const [groupIsPaused, setGroupIsPaused] = useState(false);
   const [groupUpdateFrequency, setGroupUpdateFrequency] = useState<
     "day" | "week" | "manual"
   >("manual");
@@ -216,6 +217,11 @@ export default function Dashboard() {
   const selectedTopic = selectedTopicUuid
     ? topics.find((topic) => topic.uuid === selectedTopicUuid) ?? null
     : null;
+  const selectedTopicGroup = selectedTopic?.groupUuid
+    ? groups.find((group) => group.uuid === selectedTopic.groupUuid) ?? null
+    : null;
+  const activeTopicGroup = selectedTopicGroup ?? selectedGroup;
+  const activeGroupIsPaused = Boolean(activeTopicGroup?.is_paused);
   const contentTitle = selectedTopic
     ? `${selectedGroupName} / ${selectedTopic.term}`
     : selectedGroupName;
@@ -483,6 +489,7 @@ export default function Dashboard() {
     if (!selectedGroup) {
       setGroupName("");
       setGroupIsPublic(false);
+      setGroupIsPaused(false);
       setGroupUpdateFrequency("manual");
       setGroupLanguageInput("");
       setGroupCountry("");
@@ -491,6 +498,7 @@ export default function Dashboard() {
     }
     setGroupName(selectedGroup.name ?? "");
     setGroupIsPublic(selectedGroup.is_public);
+    setGroupIsPaused(selectedGroup.is_paused);
     setGroupUpdateFrequency(selectedGroup.default_update_frequency ?? "manual");
     setGroupLanguageInput(selectedGroup.default_search_language_filter?.join(", ") ?? "");
     setGroupCountry(selectedGroup.default_country ?? "");
@@ -1090,6 +1098,10 @@ export default function Dashboard() {
       void loadFeed(cacheKey);
       return;
     }
+    if (activeGroupIsPaused) {
+      setError("Scanning is paused for this topic group.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -1128,6 +1140,7 @@ export default function Dashboard() {
       await updateTopicGroup(selectedGroup.uuid, {
         name: trimmedName,
         isPublic: groupIsPublic,
+        isPaused: groupIsPaused,
         defaultUpdateFrequency: groupUpdateFrequency,
         defaultLanguageFilter: normalizedLanguages.length ? normalizedLanguages : null,
         defaultCountry: groupCountry || null,
@@ -1139,6 +1152,7 @@ export default function Dashboard() {
                 ...group,
                 name: trimmedName,
                 is_public: groupIsPublic,
+                is_paused: groupIsPaused,
                 default_update_frequency: groupUpdateFrequency,
                 default_search_language_filter: normalizedLanguages.length
                   ? normalizedLanguages
@@ -1190,6 +1204,16 @@ export default function Dashboard() {
                 isAllTopicsView ? "All content" : contentTitle
               )}
             </h2>
+            {!isAllTopicsView && activeGroupIsPaused && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Badge variant="secondary" className="uppercase tracking-wide">
+                  Scans paused
+                </Badge>
+                <p className="text-sm text-muted-foreground">
+                  Manual and scheduled scans are paused for this topic group.
+                </p>
+              </div>
+            )}
             {error && (
               <p className="text-sm text-destructive mt-3">{error}</p>
             )}
@@ -1533,6 +1557,23 @@ export default function Dashboard() {
                     </div>
                   </div>
 
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Scanning status
+                    </label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      value={groupIsPaused ? "paused" : "active"}
+                      onChange={(event) => setGroupIsPaused(event.target.value === "paused")}
+                    >
+                      <option value="active">Active</option>
+                      <option value="paused">Paused</option>
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      Paused groups skip both scheduled runs and manual fetches until resumed.
+                    </p>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1870,7 +1911,9 @@ export default function Dashboard() {
                         ? "Clear filters to see all content in this topic."
                         : isReadOnlySharedView
                           ? "No content is currently available for this shared topic."
-                          : "Fetch now to populate this topic."
+                          : activeGroupIsPaused
+                            ? "This topic group is paused. Resume scans to fetch new content."
+                            : "Fetch now to populate this topic."
                       : "Adjust your filters or check back after the next scan."
                     : isReadOnlySharedView
                       ? "No topics are available for this shared view."
@@ -1894,7 +1937,7 @@ export default function Dashboard() {
                           size="sm"
                           onClick={() => void handleFetchNow()}
                           className="rounded-full"
-                          disabled={loading}
+                          disabled={loading || activeGroupIsPaused}
                         >
                           Fetch now
                         </Button>
