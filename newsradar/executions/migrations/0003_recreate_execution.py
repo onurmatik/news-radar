@@ -6,10 +6,9 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
 
-    initial = True
-
     dependencies = [
-        ("topics", "0001_initial"),
+        ("executions", "0002_purge_legacy_execution_schema"),
+        ("topics", "0002_purge_legacy_topic_schema"),
     ]
 
     operations = [

@@ -1,6 +1,28 @@
+export type TopicUpdateFrequency = "auto" | "hour" | "day" | "week" | "manual";
+
+export interface ApiTopicSourceSuggestion {
+  domain: string;
+  label: string;
+  rationale: string;
+}
+
+export interface ApiTopicOrganizerResponse {
+  display_title: string;
+  primary_query: string;
+  query_variations: string[];
+  source_suggestions: ApiTopicSourceSuggestion[];
+  search_domain_allowlist: string[] | null;
+  country: string | null;
+  search_language_filter: string[] | null;
+  update_frequency: TopicUpdateFrequency;
+  suggested_interval_hours: number;
+}
+
 export interface ApiTopicListItem {
   id: number;
   uuid: string;
+  monitoring_prompt: string;
+  display_title: string;
   queries: string[];
   last_fetched_at: string | null;
   content_source_count: number;
@@ -10,11 +32,11 @@ export interface ApiTopicListItem {
   owner_username: string;
   is_owner: boolean;
   search_domain_allowlist: string[] | null;
-  search_domain_blocklist: string[] | null;
   search_language_filter: string[] | null;
   country: string | null;
-  update_frequency: "day" | "week" | "manual";
-  additional_queries_mode: "auto" | "manual";
+  update_frequency: TopicUpdateFrequency;
+  auto_effective_interval_hours: number | null;
+  auto_interval_updated_at: string | null;
 }
 
 export interface ApiTopicListResponse {
@@ -30,13 +52,8 @@ export interface ApiTopicGroupItem {
   uuid: string;
   name: string;
   description: string;
-  is_public: boolean;
-  is_paused: boolean;
   owner_username: string;
   is_owner: boolean;
-  default_update_frequency: "day" | "week" | "manual" | null;
-  default_search_language_filter: string[] | null;
-  default_country: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -47,16 +64,6 @@ export interface ApiTopicGroupListResponse {
 
 export interface ApiTopicGroupCreateResponse {
   group: ApiTopicGroupItem;
-}
-
-export interface ApiSharedTopicCloneResponse {
-  topic: ApiTopicListItem;
-  group: ApiTopicGroupItem | null;
-}
-
-export interface ApiSharedGroupCloneResponse {
-  group: ApiTopicGroupItem;
-  topics: ApiTopicListItem[];
 }
 
 export interface ApiCurrentUser {
@@ -149,9 +156,10 @@ export interface ApiExecutionDetail {
 export interface TopicItem {
   id: number;
   uuid: string;
+  monitoringPrompt: string;
+  displayTitle: string;
   queries: string[];
   term: string;
-  category: string;
   isActive: boolean;
   lastSearch: Date | null;
   hasNewItems: boolean;
@@ -160,11 +168,24 @@ export interface TopicItem {
   ownerUsername: string;
   isOwner: boolean;
   domainAllowlist: string[] | null;
-  domainBlocklist: string[] | null;
   languageFilter: string[] | null;
   country: string | null;
-  updateFrequency: "day" | "week" | "manual";
-  additionalQueriesMode: "auto" | "manual";
+  updateFrequency: TopicUpdateFrequency;
+  autoEffectiveIntervalHours: number | null;
+  autoIntervalUpdatedAt: Date | null;
+}
+
+export interface TopicDraft {
+  monitoringPrompt: string;
+  displayTitle: string;
+  primaryQuery: string;
+  queryVariations: string[];
+  domainAllowlist: string[];
+  sourceSuggestions: ApiTopicSourceSuggestion[];
+  languageFilter: string[];
+  country: string;
+  updateFrequency: TopicUpdateFrequency;
+  autoEffectiveIntervalHours: number | null;
 }
 
 export interface NewsItem {
@@ -176,7 +197,6 @@ export interface NewsItem {
   fetchedAt: Date;
   relevanceScore: number;
   keywords: string[];
-  category: "technology" | "business" | "science" | "politics" | "general";
   url: string;
   isBookmarked: boolean;
 }

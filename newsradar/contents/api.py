@@ -477,7 +477,6 @@ def get_content_item(request, content_id: int):
         content = (
             _active_contents_queryset().filter(
                 id=content_id,
-                execution__topic__group__is_public=True,
                 execution__topic__is_active=True,
             )
             .select_related("execution", "execution__topic")
@@ -523,7 +522,6 @@ def get_content_detail(request, content_id: int):
         content = (
             _active_contents_queryset().filter(
                 id=content_id,
-                execution__topic__group__is_public=True,
                 execution__topic__is_active=True,
             )
             .select_related("execution", "execution__topic")
@@ -906,7 +904,7 @@ def list_content(
     only_new: bool = False,
     search: str | None = None,
 ):
-    if not request.user.is_authenticated and not topic_uuid:
+    if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -937,26 +935,6 @@ def list_content(
             .annotate(is_bookmarked=Exists(bookmark_subquery))
             .order_by("-content_published_at", "-id")[offset : offset + limit]
         )
-    else:
-        topic = Topic.objects.filter(
-            uuid=topic_uuid,
-            group__is_public=True,
-            is_active=True,
-        ).first()
-        if not topic:
-            raise HttpError(404, "Topic not found.")
-        queryset = _latest_content_per_topic_url(
-            _active_contents_queryset().filter(
-                execution__topic=topic,
-            )
-        )
-        queryset = _apply_search_filter(queryset, search)
-        contents = (
-            queryset
-            .select_related("execution", "execution__topic")
-            .order_by("-content_published_at", "-id")[offset : offset + limit]
-        )
-
     return ContentFeedResponse(
         items=[
             ContentFeedItem(
@@ -1058,11 +1036,7 @@ def list_content_by_topic_rss(
         if topic and topic.user_id != request.user.id:
             topic = None
     else:
-        topic = Topic.objects.filter(
-            uuid=topic_uuid,
-            group__is_public=True,
-            is_active=True,
-        ).first()
+        topic = Topic.objects.filter(uuid=topic_uuid, is_active=True).first()
     if not topic:
         raise HttpError(404, "Topic not found.")
 
@@ -1106,54 +1080,37 @@ def list_content_by_group(
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
 
-    if request.user.is_authenticated:
-        group = TopicGroup.objects.filter(uuid=group_uuid).first()
-        if not group:
-            raise HttpError(404, "Topic group not found.")
-        if group.user_id != request.user.id:
-            raise HttpError(404, "Topic group not found.")
-        queryset = Content.objects.filter(
-            deleted_at__isnull=True,
-            execution__topic__user=request.user,
-            execution__topic__group__uuid=group_uuid,
-        )
-        queryset = _latest_content_per_topic_url(queryset)
-        if only_new:
-            baseline = _get_visit_baseline(request.user)
-            queryset = _apply_new_filter(queryset, baseline, only_new)
-        queryset = _apply_search_filter(queryset, search)
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
 
-        bookmark_subquery = Bookmark.objects.filter(
-            user=request.user,
-            content__topic_id=OuterRef("topic_id"),
-            content__url=OuterRef("url"),
-            content__deleted_at__isnull=True,
-        )
+    group = TopicGroup.objects.filter(uuid=group_uuid).first()
+    if not group:
+        raise HttpError(404, "Topic group not found.")
+    if group.user_id != request.user.id:
+        raise HttpError(404, "Topic group not found.")
+    queryset = Content.objects.filter(
+        deleted_at__isnull=True,
+        execution__topic__user=request.user,
+        execution__topic__group__uuid=group_uuid,
+    )
+    queryset = _latest_content_per_topic_url(queryset)
+    if only_new:
+        baseline = _get_visit_baseline(request.user)
+        queryset = _apply_new_filter(queryset, baseline, only_new)
+    queryset = _apply_search_filter(queryset, search)
 
-        contents = (
-            queryset.select_related("execution", "execution__topic")
-            .annotate(is_bookmarked=Exists(bookmark_subquery))
-            .order_by("-content_published_at", "-id")[offset : offset + limit]
-        )
-    else:
-        group = TopicGroup.objects.filter(
-            uuid=group_uuid,
-            is_public=True,
-        ).first()
-        if not group:
-            raise HttpError(404, "Topic group not found.")
-        queryset = _latest_content_per_topic_url(
-            _active_contents_queryset().filter(
-                execution__topic__group=group,
-                execution__topic__is_active=True,
-            )
-        )
-        queryset = _apply_search_filter(queryset, search)
-        contents = (
-            queryset
-            .select_related("execution", "execution__topic")
-            .order_by("-content_published_at", "-id")[offset : offset + limit]
-        )
+    bookmark_subquery = Bookmark.objects.filter(
+        user=request.user,
+        content__topic_id=OuterRef("topic_id"),
+        content__url=OuterRef("url"),
+        content__deleted_at__isnull=True,
+    )
+
+    contents = (
+        queryset.select_related("execution", "execution__topic")
+        .annotate(is_bookmarked=Exists(bookmark_subquery))
+        .order_by("-content_published_at", "-id")[offset : offset + limit]
+    )
 
     return ContentFeedResponse(
         items=[
@@ -1237,16 +1194,11 @@ def list_content_by_group_rss(
         if group and group.user_id != request.user.id:
             group = None
     else:
-        group = TopicGroup.objects.filter(
-            uuid=group_uuid,
-            is_public=True,
-        ).first()
+        group = TopicGroup.objects.filter(uuid=group_uuid).first()
     if not group:
         raise HttpError(404, "Topic group not found.")
 
     contents_filter = {"execution__topic__group": group}
-    if not request.user.is_authenticated:
-        contents_filter["execution__topic__is_active"] = True
     contents = (
         _active_contents_queryset().filter(**contents_filter)
         .select_related("execution", "execution__topic")

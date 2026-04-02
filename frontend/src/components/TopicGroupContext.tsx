@@ -3,15 +3,15 @@ import type { ApiTopicGroupItem } from '@/lib/types';
 
 type TopicGroupContextValue = {
   selectedGroupName: string;
-  setSelectedGroupName: (name: string) => void;
+  setSelectedGroupName: React.Dispatch<React.SetStateAction<string>>;
   selectedGroupId: string;
-  setSelectedGroupId: (id: string) => void;
+  setSelectedGroupId: React.Dispatch<React.SetStateAction<string>>;
   selectedGroupTopicCount: number;
-  setSelectedGroupTopicCount: (count: number) => void;
+  setSelectedGroupTopicCount: React.Dispatch<React.SetStateAction<number>>;
   selectedTopicUuid: string | null;
-  setSelectedTopicUuid: (uuid: string | null) => void;
+  setSelectedTopicUuid: React.Dispatch<React.SetStateAction<string | null>>;
   contentViewMode: "read" | "edit";
-  setContentViewMode: (mode: "read" | "edit") => void;
+  setContentViewMode: React.Dispatch<React.SetStateAction<"read" | "edit">>;
   groups: ApiTopicGroupItem[];
   setGroups: React.Dispatch<React.SetStateAction<ApiTopicGroupItem[]>>;
 };
@@ -19,7 +19,7 @@ type TopicGroupContextValue = {
 const TopicGroupContext = createContext<TopicGroupContextValue | null>(null);
 
 export function TopicGroupProvider({ children }: { children: React.ReactNode }) {
-  const [selectedGroupName, setSelectedGroupName] = useState("Intelligence Feed");
+  const [selectedGroupName, setSelectedGroupName] = useState("All topics");
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [selectedGroupTopicCount, setSelectedGroupTopicCount] = useState(0);
   const [selectedTopicUuid, setSelectedTopicUuid] = useState<string | null>(null);

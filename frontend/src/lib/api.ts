@@ -1,25 +1,24 @@
 import type {
+  ApiAccessState,
+  ApiAIInteractionResponse,
   ApiContentDetailItem,
   ApiContentFeedItem,
   ApiContentFeedResponse,
   ApiCurrentUser,
   ApiExecutionDetail,
-  ApiAIInteractionResponse,
-  ApiAccessState,
   ApiNotificationsResponse,
-  ApiTrashContentResponse,
   ApiTopicCreateResponse,
-  ApiSharedGroupCloneResponse,
-  ApiSharedTopicCloneResponse,
   ApiTopicGroupCreateResponse,
   ApiTopicGroupItem,
   ApiTopicGroupListResponse,
   ApiTopicListItem,
   ApiTopicListResponse,
+  ApiTopicOrganizerResponse,
+  ApiTrashContentResponse,
+  TopicUpdateFrequency,
 } from "@/lib/types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
-
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS", "TRACE"]);
 
 function getCsrfToken(): string | null {
@@ -83,70 +82,69 @@ export async function listTopics(
   groupUuid?: string | null
 ): Promise<ApiTopicListResponse> {
   const params = new URLSearchParams();
-  if (search) {
-    params.set("search", search);
-  }
-  if (groupUuid) {
-    params.set("group_uuid", groupUuid);
-  }
+  if (search) params.set("search", search);
+  if (groupUuid) params.set("group_uuid", groupUuid);
   const query = params.toString();
   return requestJson<ApiTopicListResponse>(`/api/topics/${query ? `?${query}` : ""}`);
 }
 
-export async function createTopic(
-  queries: string[],
-  options?: {
-    groupUuid?: string | null;
-    domainAllowlist?: string[] | null;
-    domainBlocklist?: string[] | null;
-    languageFilter?: string[] | null;
-    country?: string | null;
-    updateFrequency?: "day" | "week" | "manual" | null;
-    additionalQueriesMode?: "auto" | "manual" | null;
-  }
-): Promise<ApiTopicCreateResponse> {
-  return requestJson<ApiTopicCreateResponse>("/api/topics/", {
+export async function organizeTopic(payload: {
+  monitoringPrompt: string;
+  groupUuid?: string | null;
+}): Promise<ApiTopicOrganizerResponse> {
+  return requestJson<ApiTopicOrganizerResponse>("/api/topics/organize", {
     method: "POST",
     body: JSON.stringify({
-      queries,
-      group_uuid: options?.groupUuid ?? null,
-      search_domain_allowlist: options?.domainAllowlist ?? null,
-      search_domain_blocklist: options?.domainBlocklist ?? null,
-      search_language_filter: options?.languageFilter ?? null,
-      country: options?.country ?? null,
-      update_frequency: options?.updateFrequency ?? null,
-      additional_queries_mode: options?.additionalQueriesMode ?? null,
+      monitoring_prompt: payload.monitoringPrompt,
+      group_uuid: payload.groupUuid ?? null,
     }),
+  });
+}
+
+type TopicWritePayload = {
+  monitoringPrompt: string;
+  displayTitle: string;
+  primaryQuery: string;
+  queryVariations?: string[];
+  groupUuid?: string | null;
+  domainAllowlist?: string[] | null;
+  languageFilter?: string[] | null;
+  country?: string | null;
+  updateFrequency?: TopicUpdateFrequency | null;
+  autoEffectiveIntervalHours?: number | null;
+  isActive?: boolean;
+};
+
+function serializeTopicPayload(payload: TopicWritePayload) {
+  return {
+    monitoring_prompt: payload.monitoringPrompt,
+    display_title: payload.displayTitle,
+    primary_query: payload.primaryQuery,
+    query_variations: payload.queryVariations ?? [],
+    group_uuid: payload.groupUuid ?? null,
+    search_domain_allowlist: payload.domainAllowlist ?? null,
+    search_language_filter: payload.languageFilter ?? null,
+    country: payload.country ?? null,
+    update_frequency: payload.updateFrequency ?? null,
+    auto_effective_interval_hours: payload.autoEffectiveIntervalHours ?? null,
+    is_active: payload.isActive,
+  };
+}
+
+export async function createTopic(payload: TopicWritePayload): Promise<ApiTopicCreateResponse> {
+  return requestJson<ApiTopicCreateResponse>("/api/topics/", {
+    method: "POST",
+    body: JSON.stringify(serializeTopicPayload(payload)),
   });
 }
 
 export async function updateTopic(
   uuid: string,
-  payload: {
-    isActive?: boolean;
-    queries?: string[];
-    groupUuid?: string | null;
-    domainAllowlist?: string[] | null;
-    domainBlocklist?: string[] | null;
-    languageFilter?: string[] | null;
-    country?: string | null;
-    updateFrequency?: "day" | "week" | "manual" | null;
-    additionalQueriesMode?: "auto" | "manual" | null;
-  }
+  payload: TopicWritePayload
 ): Promise<ApiTopicListItem> {
   return requestJson<ApiTopicListItem>(`/api/topics/${uuid}`, {
     method: "PATCH",
-    body: JSON.stringify({
-      is_active: payload.isActive,
-      queries: payload.queries,
-      group_uuid: payload.groupUuid,
-      search_domain_allowlist: payload.domainAllowlist ?? null,
-      search_domain_blocklist: payload.domainBlocklist ?? null,
-      search_language_filter: payload.languageFilter ?? null,
-      country: payload.country ?? null,
-      update_frequency: payload.updateFrequency ?? null,
-      additional_queries_mode: payload.additionalQueriesMode ?? null,
-    }),
+    body: JSON.stringify(serializeTopicPayload(payload)),
   });
 }
 
@@ -160,51 +158,19 @@ export async function listTopicGroups(): Promise<ApiTopicGroupListResponse> {
   return requestJson<ApiTopicGroupListResponse>("/api/topics/groups");
 }
 
-export async function getSharedTopic(uuid: string): Promise<ApiTopicListItem> {
-  return requestJson<ApiTopicListItem>(`/api/topics/shared/topics/${uuid}`);
-}
-
-export async function getSharedTopicGroup(uuid: string): Promise<ApiTopicGroupItem> {
-  return requestJson<ApiTopicGroupItem>(
-    `/api/topics/shared/groups/${uuid}`
-  );
-}
-
-export async function listSharedTopicsByGroup(groupUuid: string): Promise<ApiTopicListResponse> {
-  return requestJson<ApiTopicListResponse>(`/api/topics/shared/groups/${groupUuid}/topics`);
-}
-
-export async function cloneSharedTopic(topicUuid: string): Promise<ApiSharedTopicCloneResponse> {
-  return requestJson<ApiSharedTopicCloneResponse>(`/api/topics/shared/topics/${topicUuid}/clone`, {
-    method: "POST",
-  });
-}
-
-export async function cloneSharedTopicGroup(groupUuid: string): Promise<ApiSharedGroupCloneResponse> {
-  return requestJson<ApiSharedGroupCloneResponse>(`/api/topics/shared/groups/${groupUuid}/clone`, {
-    method: "POST",
-  });
+export async function getTopicGroup(uuid: string): Promise<ApiTopicGroupItem> {
+  return requestJson<ApiTopicGroupItem>(`/api/topics/groups/${uuid}`);
 }
 
 export async function createTopicGroup(payload: {
   name: string;
   description?: string;
-  isPublic?: boolean;
-  isPaused?: boolean;
-  defaultUpdateFrequency?: "day" | "week" | "manual" | null;
-  defaultLanguageFilter?: string[] | null;
-  defaultCountry?: string | null;
 }): Promise<ApiTopicGroupCreateResponse> {
   return requestJson<ApiTopicGroupCreateResponse>("/api/topics/groups", {
     method: "POST",
     body: JSON.stringify({
       name: payload.name,
       description: payload.description ?? "",
-      is_public: payload.isPublic ?? false,
-      is_paused: payload.isPaused ?? false,
-      default_update_frequency: payload.defaultUpdateFrequency ?? null,
-      default_search_language_filter: payload.defaultLanguageFilter ?? null,
-      default_country: payload.defaultCountry ?? null,
     }),
   });
 }
@@ -214,23 +180,13 @@ export async function updateTopicGroup(
   payload: {
     name?: string;
     description?: string;
-    isPublic?: boolean;
-    isPaused?: boolean;
-    defaultUpdateFrequency?: "day" | "week" | "manual" | null;
-    defaultLanguageFilter?: string[] | null;
-    defaultCountry?: string | null;
   }
-): Promise<void> {
-  await requestJson(`/api/topics/groups/${uuid}`, {
+): Promise<ApiTopicGroupItem> {
+  return requestJson<ApiTopicGroupItem>(`/api/topics/groups/${uuid}`, {
     method: "PATCH",
     body: JSON.stringify({
       name: payload.name,
       description: payload.description,
-      is_public: payload.isPublic,
-      is_paused: payload.isPaused,
-      default_update_frequency: payload.defaultUpdateFrequency ?? null,
-      default_search_language_filter: payload.defaultLanguageFilter ?? null,
-      default_country: payload.defaultCountry ?? null,
     }),
   });
 }
@@ -249,16 +205,12 @@ export async function listContentFeed(params?: {
   search?: string;
 }): Promise<ApiContentFeedResponse> {
   const search = new URLSearchParams();
+  if (params?.topicUuid) search.set("topic_uuid", params.topicUuid);
   if (params?.limit) search.set("limit", String(params.limit));
   if (params?.offset) search.set("offset", String(params.offset));
   if (params?.onlyNew) search.set("only_new", "true");
   if (params?.search?.trim()) search.set("search", params.search.trim());
   const query = search.toString();
-  if (params?.topicUuid) {
-    return requestJson<ApiContentFeedResponse>(
-      `/api/contents/topics/${params.topicUuid}${query ? `?${query}` : ""}`
-    );
-  }
   return requestJson<ApiContentFeedResponse>(`/api/contents/${query ? `?${query}` : ""}`);
 }
 
@@ -279,42 +231,6 @@ export async function listContentByGroup(
   const query = search.toString();
   return requestJson<ApiContentFeedResponse>(
     `/api/contents/groups/${groupUuid}${query ? `?${query}` : ""}`
-  );
-}
-
-export async function listSharedContentByTopic(
-  topicUuid: string,
-  params?: {
-    limit?: number;
-    offset?: number;
-    search?: string;
-  }
-): Promise<ApiContentFeedResponse> {
-  const search = new URLSearchParams();
-  if (params?.limit) search.set("limit", String(params.limit));
-  if (params?.offset) search.set("offset", String(params.offset));
-  if (params?.search?.trim()) search.set("search", params.search.trim());
-  const query = search.toString();
-  return requestJson<ApiContentFeedResponse>(
-    `/api/contents/shared/topics/${topicUuid}${query ? `?${query}` : ""}`
-  );
-}
-
-export async function listSharedContentByGroup(
-  groupUuid: string,
-  params?: {
-    limit?: number;
-    offset?: number;
-    search?: string;
-  }
-): Promise<ApiContentFeedResponse> {
-  const search = new URLSearchParams();
-  if (params?.limit) search.set("limit", String(params.limit));
-  if (params?.offset) search.set("offset", String(params.offset));
-  if (params?.search?.trim()) search.set("search", params.search.trim());
-  const query = search.toString();
-  return requestJson<ApiContentFeedResponse>(
-    `/api/contents/shared/groups/${groupUuid}${query ? `?${query}` : ""}`
   );
 }
 

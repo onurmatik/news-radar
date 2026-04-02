@@ -52,6 +52,8 @@ class ContentAIEndpointTests(TestCase):
             )
             return Topic.objects.create(
                 user=user,
+                monitoring_prompt=query,
+                display_title=query.title(),
                 queries=[query],
                 update_frequency="manual",
             )
@@ -240,7 +242,10 @@ class ContentAIEndpointTests(TestCase):
         self.assertEqual(interaction.context_content_ids, expected_ids)
         self.assertEqual(len(interaction.context_payload), len(trimmed_context))
 
-    @override_settings(OPENAI_RESPONSES_MAX_OUTPUT_TOKENS=None)
+    @override_settings(
+        OPENAI_RESPONSES_MAX_OUTPUT_TOKENS=None,
+        OPENAI_RESPONSES_REASONING_EFFORT=None,
+    )
     def test_omits_max_output_tokens_when_unset(self):
         self.client.force_login(self.user)
 
@@ -363,6 +368,8 @@ class ContentFeedVersioningTests(TestCase):
             return Topic.objects.create(
                 user=user,
                 group=group,
+                monitoring_prompt=query,
+                display_title=query.title(),
                 queries=[query],
                 update_frequency="manual",
             )
@@ -540,7 +547,6 @@ class ContentFeedVersioningTests(TestCase):
         group = TopicGroup.objects.create(
             user=self.user,
             name="Private Signals",
-            is_public=False,
         )
         topic = self._create_topic_for_user(
             self.user,
@@ -556,7 +562,7 @@ class ContentFeedVersioningTests(TestCase):
         self.client.logout()
 
         private_response = self.client.get(f"/api/contents/topics/{topic.uuid}")
-        self.assertEqual(private_response.status_code, 404)
+        self.assertEqual(private_response.status_code, 401)
 
         shared_response = self.client.get(f"/api/contents/shared/topics/{topic.uuid}")
         self.assertEqual(shared_response.status_code, 200)
@@ -569,7 +575,6 @@ class ContentFeedVersioningTests(TestCase):
         group = TopicGroup.objects.create(
             user=self.user,
             name="Private Group Feed",
-            is_public=False,
         )
         topic = self._create_topic_for_user(
             self.user,
@@ -585,7 +590,7 @@ class ContentFeedVersioningTests(TestCase):
         self.client.logout()
 
         private_response = self.client.get(f"/api/contents/groups/{group.uuid}")
-        self.assertEqual(private_response.status_code, 404)
+        self.assertEqual(private_response.status_code, 401)
 
         shared_response = self.client.get(f"/api/contents/shared/groups/{group.uuid}")
         self.assertEqual(shared_response.status_code, 200)

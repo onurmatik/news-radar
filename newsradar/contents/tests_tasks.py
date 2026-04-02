@@ -28,6 +28,8 @@ class ContentDigestEmailCommandTests(TestCase):
             return Topic.objects.create(
                 user=user,
                 group=group,
+                monitoring_prompt=query,
+                display_title=query.title(),
                 queries=[query],
                 update_frequency="manual",
             )

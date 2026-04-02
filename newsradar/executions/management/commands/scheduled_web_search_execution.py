@@ -1,9 +1,7 @@
-from datetime import timedelta
-
 from django.core.management.base import BaseCommand
-from django.db.models import Q
 from django.utils import timezone
 
+from newsradar.executions.services import topic_is_due
 from newsradar.executions.tasks import web_search_execution
 from newsradar.topics.models import Topic
 
@@ -13,25 +11,17 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         now = timezone.now()
-        day_cutoff = now - timedelta(days=1)
-        week_cutoff = now - timedelta(weeks=1)
-
-        day_due = Q(update_frequency="day") & (
-            Q(last_fetched_at__isnull=True) | Q(last_fetched_at__lte=day_cutoff)
-        )
-        week_due = Q(update_frequency="week") & (
-            Q(last_fetched_at__isnull=True) | Q(last_fetched_at__lte=week_cutoff)
-        )
-
-        topics = (
-            Topic.objects.filter(is_active=True)
-            .exclude(group__is_paused=True)
-            .filter(day_due | week_due)
-            .only("uuid", "update_frequency", "last_fetched_at")
+        topics = Topic.objects.filter(is_active=True).only(
+            "uuid",
+            "update_frequency",
+            "auto_effective_interval_hours",
+            "last_fetched_at",
         )
 
         queued = 0
         for topic in topics:
+            if not topic_is_due(topic, now=now):
+                continue
             web_search_execution.delay(str(topic.uuid), initiator="periodic")
             queued += 1
 

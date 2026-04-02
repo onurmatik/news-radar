@@ -26,14 +26,9 @@ def list_content_by_topic_rss(
     if request.user.is_authenticated:
         topic = Topic.objects.filter(uuid=topic_uuid).select_related("group").first()
         if topic and topic.user_id != request.user.id:
-            if not topic.group or not topic.group.is_public or not topic.is_active:
-                topic = None
+            topic = None
     else:
-        topic = Topic.objects.filter(
-            uuid=topic_uuid,
-            group__is_public=True,
-            is_active=True,
-        ).first()
+        topic = Topic.objects.filter(uuid=topic_uuid, is_active=True).first()
     if not topic:
         raise HttpError(404, "Topic not found.")
 
@@ -95,13 +90,10 @@ def list_content_by_group_rss(
 
     if request.user.is_authenticated:
         group = TopicGroup.objects.filter(uuid=group_uuid).first()
-        if group and group.user_id != request.user.id and not group.is_public:
+        if group and group.user_id != request.user.id:
             group = None
     else:
-        group = TopicGroup.objects.filter(
-            uuid=group_uuid,
-            is_public=True,
-        ).first()
+        group = TopicGroup.objects.filter(uuid=group_uuid).first()
     if not group:
         raise HttpError(404, "Topic group not found.")
 
@@ -126,7 +118,6 @@ def list_content_by_group_rss(
         contents = (
             Content.objects.filter(
                 execution__topic__group=group,
-                execution__topic__is_active=True,
             )
             .select_related("execution", "execution__topic")
             .order_by(

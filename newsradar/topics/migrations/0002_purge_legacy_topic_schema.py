@@ -6,20 +6,38 @@ import pgvector.django.indexes
 import pgvector.django.vector
 import uuid
 from django.conf import settings
-from django.contrib.postgres.operations import CreateExtension
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
 
-    initial = True
-
     dependencies = [
+        ("executions", "0002_purge_legacy_execution_schema"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+        ("topics", "0001_initial"),
     ]
 
     operations = [
-        CreateExtension("vector"),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql="DROP TABLE IF EXISTS topics_topic CASCADE;",
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+                migrations.RunSQL(
+                    sql="DROP TABLE IF EXISTS topics_topicgroup CASCADE;",
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+            ],
+            state_operations=[
+                migrations.DeleteModel(
+                    name="Topic",
+                ),
+                migrations.DeleteModel(
+                    name="TopicGroup",
+                ),
+            ],
+        ),
         migrations.CreateModel(
             name="TopicGroup",
             fields=[
@@ -44,7 +62,7 @@ class Migration(migrations.Migration):
                     models.UniqueConstraint(
                         fields=("user", "name"),
                         name="unique_topic_group_name",
-                    )
+                    ),
                 ],
             },
         ),
@@ -127,7 +145,7 @@ class Migration(migrations.Migration):
                         ef_construction=64,
                         name="topic_embedding_hnsw",
                         opclasses=["vector_l2_ops"],
-                    )
+                    ),
                 ],
             },
         ),
