@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         migrations.SeparateDatabaseAndState(
             database_operations=[
                 migrations.RunSQL(
-                    sql="DROP TABLE IF EXISTS executions_execution CASCADE;",
+                    sql="DROP TABLE IF EXISTS executions_execution;",
                     reverse_sql=migrations.RunSQL.noop,
                 ),
             ],

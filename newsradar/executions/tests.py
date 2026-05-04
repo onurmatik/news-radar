@@ -8,7 +8,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from newsradar.executions.models import Execution
-from newsradar.executions.services import execute_web_search
+from newsradar.executions.services import execute_web_search, preview_web_search
 from newsradar.topics.models import Topic
 
 
@@ -48,19 +48,15 @@ class ExecutionTests(TestCase):
         auto_interval: int | None = None,
         last_fetched_at=None,
     ) -> Topic:
-        with patch("newsradar.topics.models.OpenAI") as openai_cls:
-            openai_cls.return_value.embeddings.create.return_value = SimpleNamespace(
-                data=[SimpleNamespace(embedding=[0.0] * 1536)]
-            )
-            return Topic.objects.create(
-                user=self.user,
-                monitoring_prompt=(queries or ["battery recycling"])[0],
-                display_title="Topic title",
-                queries=queries or ["battery recycling"],
-                update_frequency=update_frequency,
-                auto_effective_interval_hours=auto_interval,
-                last_fetched_at=last_fetched_at,
-            )
+        return Topic.objects.create(
+            user=self.user,
+            monitoring_prompt=(queries or ["battery recycling"])[0],
+            display_title="Topic title",
+            queries=queries or ["battery recycling"],
+            update_frequency=update_frequency,
+            auto_effective_interval_hours=auto_interval,
+            last_fetched_at=last_fetched_at,
+        )
 
     def test_saved_queries_are_passed_directly_to_search(self):
         topic = self._create_topic(queries=["battery recycling", "lithium supply"])
@@ -72,6 +68,36 @@ class ExecutionTests(TestCase):
             execute_web_search(str(topic.uuid))
 
         self.assertEqual(captured_payloads[0]["query"], ["battery recycling", "lithium supply"])
+
+    def test_preview_search_uses_raw_queries_and_filters(self):
+        captured_payloads: list[dict] = []
+        with patch(
+            "newsradar.executions.services.Perplexity",
+            return_value=_FakePerplexityClient(
+                captured_payloads,
+                {
+                    "results": [
+                        {
+                            "url": "https://www.reuters.com/example",
+                            "title": "Story",
+                            "snippet": "Summary",
+                        }
+                    ]
+                },
+            ),
+        ):
+            result = preview_web_search(
+                queries=["battery recycling", "lithium supply"],
+                search_domain_allowlist=["Reuters.com"],
+                search_language_filter=["EN"],
+                country="us",
+            )
+
+        self.assertEqual(captured_payloads[0]["query"], ["battery recycling", "lithium supply"])
+        self.assertEqual(captured_payloads[0]["search_domain_filter"], ["reuters.com"])
+        self.assertEqual(captured_payloads[0]["search_language_filter"], ["en"])
+        self.assertEqual(captured_payloads[0]["country"], "US")
+        self.assertEqual(result["items"][0]["domain"], "reuters.com")
 
     def test_auto_interval_halves_after_two_high_signal_runs(self):
         topic = self._create_topic(

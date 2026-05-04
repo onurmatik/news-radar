@@ -1,21 +1,28 @@
 export type TopicUpdateFrequency = "auto" | "hour" | "day" | "week" | "manual";
 
-export interface ApiTopicSourceSuggestion {
-  domain: string;
-  label: string;
-  rationale: string;
-}
-
 export interface ApiTopicOrganizerResponse {
   display_title: string;
-  primary_query: string;
   query_variations: string[];
-  source_suggestions: ApiTopicSourceSuggestion[];
-  search_domain_allowlist: string[] | null;
+  suggested_domains: string[];
   country: string | null;
   search_language_filter: string[] | null;
-  update_frequency: TopicUpdateFrequency;
-  suggested_interval_hours: number;
+  topic_warning: string | null;
+}
+
+export interface ApiTopicPreviewResult {
+  url: string;
+  title: string;
+  snippet: string;
+  domain: string;
+  published_at: string | null;
+}
+
+export interface ApiTopicPreviewResponse {
+  items: ApiTopicPreviewResult[];
+}
+
+export interface ApiTopicSuggestDomainsResponse {
+  domains: string[];
 }
 
 export interface ApiTopicListItem {
@@ -178,15 +185,18 @@ export interface TopicItem {
 export interface TopicDraft {
   monitoringPrompt: string;
   displayTitle: string;
-  primaryQuery: string;
-  queryVariations: string[];
+  queries: string[];
+  suggestedDomains: string[];
+  topicWarning: string | null;
+  limitToSelectedDomains: boolean;
   domainAllowlist: string[];
-  sourceSuggestions: ApiTopicSourceSuggestion[];
   languageFilter: string[];
   country: string;
   updateFrequency: TopicUpdateFrequency;
   autoEffectiveIntervalHours: number | null;
 }
+
+export type TopicPreviewReaction = "up" | "down" | null;
 
 export interface NewsItem {
   id: number;

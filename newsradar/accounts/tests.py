@@ -1,5 +1,4 @@
 import json
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -221,16 +220,18 @@ class AccountsApiTests(TestCase):
         profile = Profile.objects.create(user=self.user, is_pro=True, pro_plan=Profile.PLAN_MONTHLY)
         api_key = profile.rotate_api_key()
 
-        with patch("newsradar.topics.models.OpenAI") as openai_cls:
-            openai_cls.return_value.embeddings.create.return_value = SimpleNamespace(
-                data=[SimpleNamespace(embedding=[0.0] * 1536)]
-            )
-            response = self.client.post(
-                "/api/topics/",
-                data=json.dumps({"queries": ["global supply chain"]}),
-                content_type="application/json",
-                HTTP_X_API_KEY=api_key,
-            )
+        response = self.client.post(
+            "/api/topics/",
+            data=json.dumps(
+                {
+                    "monitoring_prompt": "global supply chain",
+                    "display_title": "Global supply chain",
+                    "primary_query": "global supply chain",
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_API_KEY=api_key,
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["topic"]["queries"], ["global supply chain"])

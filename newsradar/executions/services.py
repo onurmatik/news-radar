@@ -13,22 +13,28 @@ from perplexity import Perplexity
 
 from newsradar.contents.models import Content
 from newsradar.executions.models import Execution
-from newsradar.topics.models import Topic
-from newsradar.topics.services import normalize_domain_value
+from newsradar.topics.models import Topic, normalize_topic_query
+from newsradar.topics.services import normalize_domain_value, normalize_string_list
 
 logger = logging.getLogger(__name__)
 
 
-def _build_search_domain_filter(topic: Topic) -> list[str] | None:
+def _normalize_search_domain_filter(values: list[str] | None) -> list[str] | None:
     allowlist = [
         domain
-        for entry in (topic.search_domain_allowlist or [])
+        for entry in (values or [])
         if (domain := normalize_domain_value(entry))
     ]
     return allowlist or None
 
 
-def _build_perplexity_search_payload(topic: Topic, query: str | list[str]) -> dict[str, Any]:
+def _build_perplexity_search_payload(
+    *,
+    query: str | list[str],
+    search_domain_allowlist: list[str] | None = None,
+    search_language_filter: list[str] | None = None,
+    country: str | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "query": query,
         "max_results": settings.WEB_SEARCH_MAX_RESULTS,
@@ -36,13 +42,13 @@ def _build_perplexity_search_payload(topic: Topic, query: str | list[str]) -> di
         "max_tokens_per_page": settings.WEB_SEARCH_MAX_TOKENS_PER_PAGE,
     }
 
-    search_domain_filter = _build_search_domain_filter(topic)
+    search_domain_filter = _normalize_search_domain_filter(search_domain_allowlist)
     if search_domain_filter:
         payload["search_domain_filter"] = search_domain_filter
-    if topic.search_language_filter:
-        payload["search_language_filter"] = topic.search_language_filter
-    if topic.country:
-        payload["country"] = topic.country
+    if search_language_filter:
+        payload["search_language_filter"] = search_language_filter
+    if country:
+        payload["country"] = normalize_topic_query(country).upper()
 
     return payload
 
@@ -111,6 +117,37 @@ def _extract_content_sources(response_payload: dict) -> list[dict]:
     return sources
 
 
+def _extract_preview_items(response_payload: dict) -> list[dict[str, Any]]:
+    preview_items: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    for item in _extract_content_sources(response_payload):
+        url = item["url"]
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        preview_items.append(
+            {
+                "url": url,
+                "title": item.get("title") or url,
+                "snippet": item.get("snippet") or "",
+                "domain": normalize_domain_value(url) or "",
+                "published_at": item.get("date") or item.get("last_updated"),
+            }
+        )
+    return preview_items
+
+
+def _normalize_preview_queries(queries: list[str] | None) -> list[str]:
+    normalized_queries = normalize_string_list(queries, max_length=5)
+    if not normalized_queries:
+        raise ValueError("At least one query is required.")
+    return normalized_queries
+
+
+def _build_search_query(queries: list[str]) -> str | list[str]:
+    return queries[0] if len(queries) == 1 else queries
+
+
 def _count_new_items_for_execution(execution: Execution) -> int:
     return int(execution.content_items.count())
 
@@ -168,6 +205,34 @@ def topic_is_due(topic: Topic, *, now: datetime | None = None) -> bool:
     return topic.last_fetched_at <= reference_now - timedelta(hours=interval_hours)
 
 
+def preview_web_search(
+    *,
+    queries: list[str] | None,
+    search_domain_allowlist: list[str] | None = None,
+    search_language_filter: list[str] | None = None,
+    country: str | None = None,
+) -> dict[str, Any]:
+    normalized_queries = _normalize_preview_queries(queries)
+    payload = _build_perplexity_search_payload(
+        query=_build_search_query(normalized_queries),
+        search_domain_allowlist=search_domain_allowlist,
+        search_language_filter=normalize_string_list(
+            search_language_filter,
+            lower=True,
+            max_length=10,
+        )
+        or None,
+        country=country,
+    )
+    client = Perplexity()
+    response_payload = client.search.create(**payload).model_dump()
+    return {
+        "request_payload": payload,
+        "response": response_payload,
+        "items": _extract_preview_items(response_payload),
+    }
+
+
 def execute_web_search(
     topic_uuid: str | uuid.UUID,
     initiator: str = Execution.Initiator.USER,
@@ -190,11 +255,7 @@ def execute_web_search(
         if execution.topic_id != topic.id:
             raise ValueError("Execution does not match topic.")
 
-    queries = [query for query in (topic.queries or []) if query][:5]
-    if not queries:
-        raise ValueError("Topic queries are required for web search.")
-
-    search_query: str | list[str] = queries[0] if len(queries) == 1 else queries
+    queries = _normalize_preview_queries(topic.queries or [])
 
     if execution is None:
         execution = Execution.objects.create(
@@ -208,7 +269,12 @@ def execute_web_search(
         execution.save(update_fields=["status", "error_message"])
 
     try:
-        payload = _build_perplexity_search_payload(topic, search_query)
+        payload = _build_perplexity_search_payload(
+            query=_build_search_query(queries),
+            search_domain_allowlist=topic.search_domain_allowlist,
+            search_language_filter=topic.search_language_filter,
+            country=topic.country,
+        )
         execution.request_payload = payload
         execution.save(update_fields=["request_payload"])
 

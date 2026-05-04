@@ -46,17 +46,13 @@ class ContentAIEndpointTests(TestCase):
         )
 
     def _create_topic_for_user(self, user, query: str) -> Topic:
-        with patch("newsradar.topics.models.OpenAI") as openai_cls:
-            openai_cls.return_value.embeddings.create.return_value = SimpleNamespace(
-                data=[SimpleNamespace(embedding=[0.0] * 1536)]
-            )
-            return Topic.objects.create(
-                user=user,
-                monitoring_prompt=query,
-                display_title=query.title(),
-                queries=[query],
-                update_frequency="manual",
-            )
+        return Topic.objects.create(
+            user=user,
+            monitoring_prompt=query,
+            display_title=query.title(),
+            queries=[query],
+            update_frequency="manual",
+        )
 
     def _create_content_for_user(self, user, url: str, title: str) -> Content:
         topic = self._create_topic_for_user(user, query=title)
@@ -361,18 +357,14 @@ class ContentFeedVersioningTests(TestCase):
         query: str,
         group: TopicGroup | None = None,
     ) -> Topic:
-        with patch("newsradar.topics.models.OpenAI") as openai_cls:
-            openai_cls.return_value.embeddings.create.return_value = SimpleNamespace(
-                data=[SimpleNamespace(embedding=[0.0] * 1536)]
-            )
-            return Topic.objects.create(
-                user=user,
-                group=group,
-                monitoring_prompt=query,
-                display_title=query.title(),
-                queries=[query],
-                update_frequency="manual",
-            )
+        return Topic.objects.create(
+            user=user,
+            group=group,
+            monitoring_prompt=query,
+            display_title=query.title(),
+            queries=[query],
+            update_frequency="manual",
+        )
 
     def _create_content(
         self,

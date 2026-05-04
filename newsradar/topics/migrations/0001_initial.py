@@ -2,11 +2,8 @@
 
 import django.db.models.deletion
 import newsradar.topics.models
-import pgvector.django.indexes
-import pgvector.django.vector
 import uuid
 from django.conf import settings
-from django.contrib.postgres.operations import CreateExtension
 from django.db import migrations, models
 
 
@@ -19,7 +16,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        CreateExtension("vector"),
         migrations.CreateModel(
             name="TopicGroup",
             fields=[
@@ -96,7 +92,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("country", models.CharField(blank=True, max_length=2, null=True)),
-                ("embedding", pgvector.django.vector.VectorField(blank=True, dimensions=1536, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("last_fetched_at", models.DateTimeField(blank=True, null=True)),
                 (
@@ -120,15 +115,6 @@ class Migration(migrations.Migration):
             ],
             options={
                 "ordering": ["-last_fetched_at", "-created_at"],
-                "indexes": [
-                    pgvector.django.indexes.HnswIndex(
-                        fields=["embedding"],
-                        m=16,
-                        ef_construction=64,
-                        name="topic_embedding_hnsw",
-                        opclasses=["vector_l2_ops"],
-                    )
-                ],
             },
         ),
     ]

@@ -14,6 +14,8 @@ import type {
   ApiTopicListItem,
   ApiTopicListResponse,
   ApiTopicOrganizerResponse,
+  ApiTopicPreviewResponse,
+  ApiTopicSuggestDomainsResponse,
   ApiTrashContentResponse,
   TopicUpdateFrequency,
 } from "@/lib/types";
@@ -90,13 +92,68 @@ export async function listTopics(
 
 export async function organizeTopic(payload: {
   monitoringPrompt: string;
-  groupUuid?: string | null;
 }): Promise<ApiTopicOrganizerResponse> {
   return requestJson<ApiTopicOrganizerResponse>("/api/topics/organize", {
     method: "POST",
     body: JSON.stringify({
       monitoring_prompt: payload.monitoringPrompt,
-      group_uuid: payload.groupUuid ?? null,
+    }),
+  });
+}
+
+export async function previewTopic(payload: {
+  queries: string[];
+  domainAllowlist?: string[] | null;
+  languageFilter?: string[] | null;
+  country?: string | null;
+}): Promise<ApiTopicPreviewResponse> {
+  return requestJson<ApiTopicPreviewResponse>("/api/topics/preview", {
+    method: "POST",
+    body: JSON.stringify({
+      queries: payload.queries,
+      search_domain_allowlist: payload.domainAllowlist ?? null,
+      search_language_filter: payload.languageFilter ?? null,
+      country: payload.country ?? null,
+    }),
+  });
+}
+
+export async function refineTopic(payload: {
+  monitoringPrompt: string;
+  queries: string[];
+  domainAllowlist?: string[] | null;
+  languageFilter?: string[] | null;
+  country?: string | null;
+  feedback: Array<{
+    url: string;
+    title?: string;
+    snippet?: string;
+    domain?: string;
+    reaction: "up" | "down";
+  }>;
+}): Promise<ApiTopicOrganizerResponse> {
+  return requestJson<ApiTopicOrganizerResponse>("/api/topics/refine", {
+    method: "POST",
+    body: JSON.stringify({
+      monitoring_prompt: payload.monitoringPrompt,
+      queries: payload.queries,
+      search_domain_allowlist: payload.domainAllowlist ?? null,
+      search_language_filter: payload.languageFilter ?? null,
+      country: payload.country ?? null,
+      feedback: payload.feedback,
+    }),
+  });
+}
+
+export async function suggestMoreDomains(payload: {
+  monitoringPrompt: string;
+  selectedDomains: string[];
+}): Promise<ApiTopicSuggestDomainsResponse> {
+  return requestJson<ApiTopicSuggestDomainsResponse>("/api/topics/suggest-domains", {
+    method: "POST",
+    body: JSON.stringify({
+      monitoring_prompt: payload.monitoringPrompt,
+      selected_domains: payload.selectedDomains,
     }),
   });
 }

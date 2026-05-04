@@ -13,9 +13,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { createTopic, deleteTopic, organizeTopic, updateTopic } from "@/lib/api";
-import type { ApiTopicListItem, TopicDraft, TopicItem } from "@/lib/types";
-import { Loader2, Sparkles, Trash2 } from "lucide-react";
+import {
+  createTopic,
+  deleteTopic,
+  organizeTopic,
+  previewTopic,
+  refineTopic,
+  suggestMoreDomains,
+  updateTopic,
+} from "@/lib/api";
+import type {
+  ApiTopicListItem,
+  ApiTopicOrganizerResponse,
+  ApiTopicPreviewResult,
+  TopicDraft,
+  TopicItem,
+  TopicPreviewReaction,
+} from "@/lib/types";
+import { AlertTriangle, Loader2, Search, Sparkles, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type TopicFormMode = "create" | "edit";
@@ -49,10 +64,11 @@ const COUNTRY_OPTIONS = [
 const EMPTY_DRAFT: TopicDraft = {
   monitoringPrompt: "",
   displayTitle: "",
-  primaryQuery: "",
-  queryVariations: [""],
+  queries: [""],
+  suggestedDomains: [],
+  topicWarning: null,
+  limitToSelectedDomains: false,
   domainAllowlist: [""],
-  sourceSuggestions: [],
   languageFilter: [""],
   country: "",
   updateFrequency: "auto",
@@ -86,13 +102,15 @@ function mapTopic(topic: ApiTopicListItem): TopicItem {
 }
 
 function toDraftFromTopic(topic: TopicItem): TopicDraft {
+  const existingDomains = topic.domainAllowlist?.length ? topic.domainAllowlist : [""];
   return {
     monitoringPrompt: topic.monitoringPrompt,
     displayTitle: topic.displayTitle,
-    primaryQuery: topic.queries[0] ?? "",
-    queryVariations: topic.queries.slice(1).length ? topic.queries.slice(1) : [""],
-    domainAllowlist: topic.domainAllowlist?.length ? topic.domainAllowlist : [""],
-    sourceSuggestions: [],
+    queries: topic.queries.length ? topic.queries : [""],
+    suggestedDomains: topic.domainAllowlist?.length ? topic.domainAllowlist : [],
+    topicWarning: null,
+    limitToSelectedDomains: Boolean(topic.domainAllowlist?.length),
+    domainAllowlist: existingDomains,
     languageFilter: topic.languageFilter?.length ? topic.languageFilter : [""],
     country: topic.country ?? "",
     updateFrequency: topic.updateFrequency,
@@ -114,6 +132,27 @@ function ensureAtLeastOne(values: string[]) {
   return values.length ? values : [""];
 }
 
+function buildFeedbackItems(
+  previewResults: ApiTopicPreviewResult[],
+  reactions: Record<string, TopicPreviewReaction>
+) {
+  return previewResults.flatMap((item) => {
+    const reaction = reactions[item.url];
+    if (reaction !== "up" && reaction !== "down") {
+      return [];
+    }
+    return [
+      {
+        url: item.url,
+        title: item.title,
+        snippet: item.snippet,
+        domain: item.domain,
+        reaction,
+      },
+    ];
+  });
+}
+
 export function TopicForm({
   mode,
   topicUuid,
@@ -123,26 +162,28 @@ export function TopicForm({
   variant = "full",
 }: TopicFormProps) {
   const { isAuthenticated, openAuthDialog } = useAuthDialog();
-  const { selectedGroupId, groups, setSelectedTopicUuid } = useTopicGroup();
+  const { groups, setSelectedTopicUuid } = useTopicGroup();
   const { topics, setTopics } = useTopics();
   const isEditing = mode === "edit";
   const isDialog = variant === "dialog";
   const activeTopic = isEditing
     ? topics.find((entry) => entry.uuid === topicUuid) ?? null
     : null;
-  const selectedGroup = selectedGroupId
-    ? groups.find((entry) => entry.uuid === selectedGroupId) ?? null
-    : null;
-  const isReadOnlyGroup = selectedGroup ? !selectedGroup.is_owner : false;
   const [stage, setStage] = useState<TopicFormStage>(isEditing ? "review" : "prompt");
   const [draft, setDraft] = useState<TopicDraft>(EMPTY_DRAFT);
-  const [groupUuid, setGroupUuid] = useState<string>(selectedGroupId || "");
+  const [groupUuid, setGroupUuid] = useState("");
   const [loading, setLoading] = useState(false);
   const [organizing, setOrganizing] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [refining, setRefining] = useState(false);
+  const [suggestingDomains, setSuggestingDomains] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [lastOrganizedPrompt, setLastOrganizedPrompt] = useState("");
+  const [previewResults, setPreviewResults] = useState<ApiTopicPreviewResult[]>([]);
+  const [previewReactions, setPreviewReactions] = useState<Record<string, TopicPreviewReaction>>({});
+  const [previewHasRun, setPreviewHasRun] = useState(false);
 
   const requireAuth = () => {
     if (isAuthenticated) return true;
@@ -154,37 +195,60 @@ export function TopicForm({
     if (!isEditing) {
       setStage("prompt");
       setDraft(EMPTY_DRAFT);
-      setGroupUuid(selectedGroupId || "");
+      setGroupUuid("");
       setError(null);
       setLastOrganizedPrompt("");
+      setPreviewResults([]);
+      setPreviewReactions({});
+      setPreviewHasRun(false);
       return;
     }
     if (activeTopic) {
-      const nextDraft = toDraftFromTopic(activeTopic);
-      setDraft(nextDraft);
+      setDraft(toDraftFromTopic(activeTopic));
       setStage("review");
       setGroupUuid(activeTopic.groupUuid || "");
       setError(null);
       setLastOrganizedPrompt(activeTopic.monitoringPrompt);
+      setPreviewResults([]);
+      setPreviewReactions({});
+      setPreviewHasRun(false);
     }
-  }, [activeTopic, isEditing, selectedGroupId]);
+  }, [activeTopic, isEditing]);
 
   const hasPendingPromptChanges = useMemo(() => {
     return draft.monitoringPrompt.trim() !== lastOrganizedPrompt.trim();
   }, [draft.monitoringPrompt, lastOrganizedPrompt]);
 
+  const normalizedQueries = useMemo(() => normalizeList(draft.queries), [draft.queries]);
+  const normalizedDomainAllowlist = useMemo(
+    () => (draft.limitToSelectedDomains ? normalizeList(draft.domainAllowlist) : []),
+    [draft.domainAllowlist, draft.limitToSelectedDomains]
+  );
+  const canSuggestMoreDomains = useMemo(() => {
+    return draft.limitToSelectedDomains
+      && normalizedDomainAllowlist.length > 0
+      && normalizedDomainAllowlist.length < 20;
+  }, [draft.limitToSelectedDomains, normalizedDomainAllowlist.length]);
+  const feedbackItems = useMemo(
+    () => buildFeedbackItems(previewResults, previewReactions),
+    [previewResults, previewReactions]
+  );
+  const hasPreviewFeedback = feedbackItems.length > 0;
+
   const updateListField = (
-    field: "queryVariations" | "domainAllowlist" | "languageFilter",
+    field: "queries" | "domainAllowlist" | "languageFilter",
     index: number,
     value: string
   ) => {
     setDraft((prev) => ({
       ...prev,
-      [field]: (prev[field] as string[]).map((entry, i) => (i === index ? value : entry)),
+      [field]: (prev[field] as string[]).map((entry, currentIndex) =>
+        currentIndex === index ? value : entry
+      ),
     }));
   };
 
-  const addListField = (field: "queryVariations" | "domainAllowlist" | "languageFilter") => {
+  const addListField = (field: "queries" | "domainAllowlist" | "languageFilter") => {
     setDraft((prev) => ({
       ...prev,
       [field]: [...prev[field], ""],
@@ -192,13 +256,111 @@ export function TopicForm({
   };
 
   const removeListField = (
-    field: "queryVariations" | "domainAllowlist" | "languageFilter",
+    field: "queries" | "domainAllowlist" | "languageFilter",
     index: number
   ) => {
     setDraft((prev) => ({
       ...prev,
       [field]: ensureAtLeastOne(prev[field].filter((_, currentIndex) => currentIndex !== index)),
     }));
+  };
+
+  const applyOrganizerResponse = (
+    response: ApiTopicOrganizerResponse,
+    prompt: string,
+    options?: {
+      preserveTitle?: boolean;
+    }
+  ) => {
+    const nextQueries = response.query_variations.length ? response.query_variations : [prompt];
+    const nextDomains = response.suggested_domains.length ? response.suggested_domains : [];
+    setDraft((prev) => ({
+      ...prev,
+      monitoringPrompt: prompt,
+      displayTitle: options?.preserveTitle && prev.displayTitle.trim()
+        ? prev.displayTitle
+        : response.display_title || prompt,
+      queries: nextQueries,
+      suggestedDomains: nextDomains,
+      topicWarning: response.topic_warning ?? null,
+      limitToSelectedDomains: nextDomains.length > 0,
+      domainAllowlist: ensureAtLeastOne(nextDomains),
+      languageFilter: response.search_language_filter?.length
+        ? response.search_language_filter
+        : [""],
+      country: response.country ?? "",
+      updateFrequency: prev.updateFrequency || "auto",
+      autoEffectiveIntervalHours: prev.autoEffectiveIntervalHours ?? 24,
+    }));
+    setLastOrganizedPrompt(prompt);
+    setPreviewResults([]);
+    setPreviewReactions({});
+    setPreviewHasRun(false);
+    setStage("review");
+  };
+
+  const setDomainLimiting = (nextValue: boolean) => {
+    setDraft((prev) => {
+      if (!nextValue) {
+        return {
+          ...prev,
+          limitToSelectedDomains: false,
+        };
+      }
+      const nextDomains = normalizeList(prev.domainAllowlist).length
+        ? normalizeList(prev.domainAllowlist)
+        : normalizeList(prev.suggestedDomains);
+      return {
+        ...prev,
+        limitToSelectedDomains: true,
+        domainAllowlist: ensureAtLeastOne(nextDomains),
+      };
+    });
+  };
+
+  const restoreSuggestedDomains = () => {
+    setDraft((prev) => ({
+      ...prev,
+      limitToSelectedDomains: true,
+      domainAllowlist: ensureAtLeastOne(normalizeList(prev.suggestedDomains)),
+    }));
+  };
+
+  const handleSuggestMoreDomains = async () => {
+    if (!requireAuth()) return;
+    if (!draft.monitoringPrompt.trim()) {
+      setError("Monitoring prompt cannot be empty.");
+      return;
+    }
+    if (!canSuggestMoreDomains) {
+      return;
+    }
+    setSuggestingDomains(true);
+    setError(null);
+    try {
+      const response = await suggestMoreDomains({
+        monitoringPrompt: draft.monitoringPrompt.trim(),
+        selectedDomains: normalizedDomainAllowlist,
+      });
+      setDraft((prev) => {
+        const currentDomains = normalizeList(prev.domainAllowlist);
+        const mergedDomains = normalizeList([...currentDomains, ...response.domains]).slice(0, 20);
+        const mergedSuggestedDomains = normalizeList([
+          ...prev.suggestedDomains,
+          ...response.domains,
+        ]).slice(0, 20);
+        return {
+          ...prev,
+          domainAllowlist: ensureAtLeastOne(mergedDomains),
+          suggestedDomains: mergedSuggestedDomains,
+        };
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to suggest more domains.";
+      setError(message);
+    } finally {
+      setSuggestingDomains(false);
+    }
   };
 
   const runOrganizer = async () => {
@@ -213,31 +375,81 @@ export function TopicForm({
     try {
       const response = await organizeTopic({
         monitoringPrompt: prompt,
-        groupUuid: groupUuid || null,
       });
-      setDraft({
-        monitoringPrompt: prompt,
-        displayTitle: response.display_title,
-        primaryQuery: response.primary_query,
-        queryVariations: response.query_variations.length ? response.query_variations : [""],
-        domainAllowlist: response.search_domain_allowlist?.length
-          ? response.search_domain_allowlist
-          : [""],
-        sourceSuggestions: response.source_suggestions,
-        languageFilter: response.search_language_filter?.length
-          ? response.search_language_filter
-          : [""],
-        country: response.country ?? "",
-        updateFrequency: response.update_frequency,
-        autoEffectiveIntervalHours: response.suggested_interval_hours,
-      });
-      setLastOrganizedPrompt(prompt);
-      setStage("review");
+      applyOrganizerResponse(response, prompt);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to organize this topic.";
+      const message = err instanceof Error ? err.message : "Unable to analyze this topic.";
       setError(message);
     } finally {
       setOrganizing(false);
+    }
+  };
+
+  const runPreview = async () => {
+    if (!requireAuth()) return;
+    if (hasPendingPromptChanges) {
+      setError("Refresh AI suggestions after editing the monitoring prompt before running a test.");
+      return;
+    }
+    if (!normalizedQueries.length) {
+      setError("Add at least one query before running a test.");
+      return;
+    }
+    if (draft.limitToSelectedDomains && !normalizedDomainAllowlist.length) {
+      setError("Add at least one domain or turn off domain limiting.");
+      return;
+    }
+    setPreviewing(true);
+    setError(null);
+    try {
+      const response = await previewTopic({
+        queries: normalizedQueries,
+        domainAllowlist: draft.limitToSelectedDomains ? normalizedDomainAllowlist : null,
+        languageFilter: normalizeList(draft.languageFilter),
+        country: draft.country.trim() || null,
+      });
+      setPreviewResults(response.items);
+      setPreviewReactions({});
+      setPreviewHasRun(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to run a test search.";
+      setError(message);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const updateTopicParameters = async () => {
+    if (!requireAuth()) return;
+    if (hasPendingPromptChanges) {
+      setError("Refresh AI suggestions after editing the monitoring prompt before updating parameters.");
+      return;
+    }
+    if (!normalizedQueries.length) {
+      setError("Add at least one query before updating parameters.");
+      return;
+    }
+    if (!feedbackItems.length) {
+      setError("Rate at least one test result before updating topic parameters.");
+      return;
+    }
+    setRefining(true);
+    setError(null);
+    try {
+      const response = await refineTopic({
+        monitoringPrompt: draft.monitoringPrompt.trim(),
+        queries: normalizedQueries,
+        domainAllowlist: draft.limitToSelectedDomains ? normalizedDomainAllowlist : null,
+        languageFilter: normalizeList(draft.languageFilter),
+        country: draft.country.trim() || null,
+        feedback: feedbackItems,
+      });
+      applyOrganizerResponse(response, draft.monitoringPrompt.trim(), { preserveTitle: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to update topic parameters.";
+      setError(message);
+    } finally {
+      setRefining(false);
     }
   };
 
@@ -251,12 +463,16 @@ export function TopicForm({
       setError("Topic title cannot be empty.");
       return;
     }
-    if (!draft.primaryQuery.trim()) {
-      setError("Primary query cannot be empty.");
+    if (!normalizedQueries.length) {
+      setError("Add at least one query before saving.");
       return;
     }
     if (hasPendingPromptChanges) {
       setError("Refresh AI suggestions after editing the monitoring prompt before saving.");
+      return;
+    }
+    if (draft.limitToSelectedDomains && !normalizedDomainAllowlist.length) {
+      setError("Add at least one domain or turn off domain limiting.");
       return;
     }
     setLoading(true);
@@ -265,10 +481,10 @@ export function TopicForm({
       const payload = {
         monitoringPrompt: draft.monitoringPrompt.trim(),
         displayTitle: draft.displayTitle.trim(),
-        primaryQuery: draft.primaryQuery.trim(),
-        queryVariations: normalizeList(draft.queryVariations),
+        primaryQuery: normalizedQueries[0],
+        queryVariations: normalizedQueries.slice(1),
         groupUuid: groupUuid || null,
-        domainAllowlist: normalizeList(draft.domainAllowlist),
+        domainAllowlist: draft.limitToSelectedDomains ? normalizedDomainAllowlist : null,
         languageFilter: normalizeList(draft.languageFilter),
         country: draft.country.trim() || null,
         updateFrequency: draft.updateFrequency,
@@ -312,25 +528,19 @@ export function TopicForm({
     }
   };
 
+  const togglePreviewReaction = (url: string, reaction: Exclude<TopicPreviewReaction, null>) => {
+    setPreviewReactions((prev) => ({
+      ...prev,
+      [url]: prev[url] === reaction ? null : reaction,
+    }));
+  };
+
   if (isEditing && !activeTopic) {
     return (
       <Card className={cn("border border-border/60 bg-card/40", className)}>
         <CardContent className="p-6 text-sm text-muted-foreground">
           Select a topic to edit.
         </CardContent>
-      </Card>
-    );
-  }
-
-  if (!isEditing && isReadOnlyGroup) {
-    return (
-      <Card className={cn("border border-border/60 bg-card/40", className)}>
-        <CardHeader>
-          <CardTitle>Read-only group</CardTitle>
-          <CardDescription>
-            This group belongs to {selectedGroup?.owner_username || "another user"}.
-          </CardDescription>
-        </CardHeader>
       </Card>
     );
   }
@@ -342,7 +552,7 @@ export function TopicForm({
           {isEditing ? "Edit monitoring topic" : "Create monitoring topic"}
         </CardTitle>
         <CardDescription className="max-w-2xl text-base text-slate-600">
-          Start with one prompt. The AI organizer will turn it into a clean monitoring setup you can still edit before saving.
+          Start with one topic. AI suggests the query set and domain strategy, then you can test the configuration before saving.
         </CardDescription>
       </CardHeader>
       <CardContent className={cn("space-y-8", isDialog ? "p-6" : "px-6 py-8 md:px-10")}>
@@ -350,7 +560,7 @@ export function TopicForm({
           <div className="space-y-6">
             <div className="space-y-2">
               <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                What topics do you want to monitor?
+                What topic do you want to monitor?
               </label>
               <Input
                 value={draft.monitoringPrompt}
@@ -360,24 +570,6 @@ export function TopicForm({
                 placeholder="Enter the topic you want to monitor"
                 className="h-12 rounded-xl border-slate-200 px-4 text-sm"
               />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                Topic group (optional)
-              </label>
-              <select
-                value={groupUuid}
-                onChange={(event) => setGroupUuid(event.target.value)}
-                className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm"
-              >
-                <option value="">No group</option>
-                {groups.map((group) => (
-                  <option key={group.uuid} value={group.uuid}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
             </div>
 
             {error && <p className="text-sm text-destructive">{error}</p>}
@@ -403,7 +595,7 @@ export function TopicForm({
             <div className="grid gap-6 lg:grid-cols-2">
               <div className="space-y-2 lg:col-span-2">
                 <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                  Monitoring prompt
+                  Monitoring topic
                 </label>
                 <Input
                   value={draft.monitoringPrompt}
@@ -414,7 +606,7 @@ export function TopicForm({
                 />
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs text-slate-500">
-                    Change the prompt and rerun the organizer to refresh title, queries, domains, and locality suggestions.
+                    Change the topic and rerun AI analysis before saving or testing again.
                   </p>
                   <Button
                     variant="outline"
@@ -430,6 +622,17 @@ export function TopicForm({
                     Refresh AI suggestions
                   </Button>
                 </div>
+                {draft.topicWarning && (
+                  <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                      <div>
+                        <p className="font-semibold text-amber-900">Topic warning</p>
+                        <p className="mt-1 leading-6">{draft.topicWarning}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -462,46 +665,6 @@ export function TopicForm({
                   ))}
                 </select>
               </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                  Primary query
-                </label>
-                <Input
-                  value={draft.primaryQuery}
-                  onChange={(event) =>
-                    setDraft((prev) => ({ ...prev, primaryQuery: event.target.value }))
-                  }
-                  className="h-11 rounded-xl border-slate-200 px-4 text-sm"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                  Scan frequency
-                </label>
-                <select
-                  value={draft.updateFrequency}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      updateFrequency: event.target.value as TopicDraft["updateFrequency"],
-                    }))
-                  }
-                  className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm"
-                >
-                  <option value="auto">Auto</option>
-                  <option value="hour">Hourly</option>
-                  <option value="day">Daily</option>
-                  <option value="week">Weekly</option>
-                  <option value="manual">Manual</option>
-                </select>
-                {draft.updateFrequency === "auto" && (
-                  <p className="text-xs text-slate-500">
-                    Currently every {draft.autoEffectiveIntervalHours ?? 24} hours.
-                  </p>
-                )}
-              </div>
             </div>
 
             <div className="space-y-3">
@@ -509,24 +672,22 @@ export function TopicForm({
                 <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
                   Query variations
                 </label>
-                <Button variant="ghost" size="sm" onClick={() => addListField("queryVariations")}>
+                <Button variant="ghost" size="sm" onClick={() => addListField("queries")}>
                   Add
                 </Button>
               </div>
-              {draft.queryVariations.map((value, index) => (
-                <div key={`variation-${index}`} className="flex items-center gap-3">
+              {draft.queries.map((value, index) => (
+                <div key={`query-${index}`} className="flex items-center gap-3">
                   <Input
                     value={value}
-                    onChange={(event) =>
-                      updateListField("queryVariations", index, event.target.value)
-                    }
-                    placeholder="Additional query variation"
+                    onChange={(event) => updateListField("queries", index, event.target.value)}
+                    placeholder="English search query"
                     className="h-11 rounded-xl border-slate-200 px-4 text-sm"
                   />
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => removeListField("queryVariations", index)}
+                    onClick={() => removeListField("queries", index)}
                   >
                     Remove
                   </Button>
@@ -534,44 +695,89 @@ export function TopicForm({
               ))}
             </div>
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                  Source domains
-                </label>
-                <Button variant="ghost" size="sm" onClick={() => addListField("domainAllowlist")}>
-                  Add
-                </Button>
-              </div>
-              {draft.domainAllowlist.map((value, index) => (
-                <div key={`domain-${index}`} className="flex items-center gap-3">
-                  <Input
-                    value={value}
-                    onChange={(event) => updateListField("domainAllowlist", index, event.target.value)}
-                    placeholder="example.org"
-                    className="h-11 rounded-xl border-slate-200 px-4 text-sm"
-                  />
+            <div className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50/70 p-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="space-y-1">
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                    Limit to selected domains
+                  </p>
+                  <p className="text-sm text-slate-600">
+                    {draft.suggestedDomains.length
+                      ? `AI suggested ${draft.suggestedDomains.length} trustworthy domains for this topic.`
+                      : "Leave this off to search the broader web, or turn it on to curate a domain list."}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
                   <Button
-                    variant="outline"
+                    variant={draft.limitToSelectedDomains ? "default" : "outline"}
                     size="sm"
-                    onClick={() => removeListField("domainAllowlist", index)}
+                    onClick={() => setDomainLimiting(true)}
                   >
-                    Remove
+                    Yes
+                  </Button>
+                  <Button
+                    variant={!draft.limitToSelectedDomains ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setDomainLimiting(false)}
+                  >
+                    No
                   </Button>
                 </div>
-              ))}
-              {draft.sourceSuggestions.length > 0 && (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                    AI source suggestions
-                  </p>
-                  <div className="mt-3 space-y-2 text-sm text-slate-600">
-                    {draft.sourceSuggestions.map((item) => (
-                      <div key={item.domain}>
-                        <span className="font-semibold text-slate-900">{item.domain}</span>
-                        {item.rationale ? ` - ${item.rationale}` : ""}
-                      </div>
-                    ))}
+              </div>
+
+              {draft.limitToSelectedDomains && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                      Selected domains
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {draft.suggestedDomains.length > 0 && (
+                        <Button variant="ghost" size="sm" onClick={restoreSuggestedDomains}>
+                          Use AI list
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="sm" onClick={() => addListField("domainAllowlist")}>
+                        Add
+                      </Button>
+                    </div>
+                  </div>
+                  {draft.domainAllowlist.map((value, index) => (
+                    <div key={`domain-${index}`} className="flex items-center gap-3">
+                      <Input
+                        value={value}
+                        onChange={(event) =>
+                          updateListField("domainAllowlist", index, event.target.value)
+                        }
+                        placeholder="example.org"
+                        className="h-11 rounded-xl border-slate-200 bg-white px-4 text-sm"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => removeListField("domainAllowlist", index)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                  <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-slate-500">
+                      {normalizedDomainAllowlist.length}/20 selected domains
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleSuggestMoreDomains()}
+                      disabled={!canSuggestMoreDomains || suggestingDomains}
+                    >
+                      {suggestingDomains ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="mr-2 h-4 w-4" />
+                      )}
+                      Suggest more like this
+                    </Button>
                   </div>
                 </div>
               )}
@@ -591,7 +797,9 @@ export function TopicForm({
                   <div key={`language-${index}`} className="flex items-center gap-3">
                     <Input
                       value={value}
-                      onChange={(event) => updateListField("languageFilter", index, event.target.value)}
+                      onChange={(event) =>
+                        updateListField("languageFilter", index, event.target.value)
+                      }
                       placeholder="en"
                       className="h-11 rounded-xl border-slate-200 px-4 text-sm"
                     />
@@ -626,6 +834,87 @@ export function TopicForm({
               </div>
             </div>
 
+            {previewHasRun && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                      Test run results
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Rate strong or weak results, then update the topic parameters if the mix looks off.
+                    </p>
+                  </div>
+                  {hasPreviewFeedback && (
+                    <span className="text-sm font-medium text-slate-700">
+                      {feedbackItems.length} rated result{feedbackItems.length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+
+                {previewResults.length > 0 ? (
+                  <div className="space-y-3">
+                    {previewResults.map((item) => {
+                      const reaction = previewReactions[item.url];
+                      return (
+                        <div
+                          key={item.url}
+                          className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                        >
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                <span>{item.domain || "Unknown domain"}</span>
+                                {item.published_at && (
+                                  <span>
+                                    {new Date(item.published_at).toLocaleDateString()}
+                                  </span>
+                                )}
+                              </div>
+                              <a
+                                href={item.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block text-base font-semibold text-slate-900 hover:text-slate-700"
+                              >
+                                {item.title || item.url}
+                              </a>
+                              {item.snippet && (
+                                <p className="text-sm leading-6 text-slate-600">{item.snippet}</p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant={reaction === "up" ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => togglePreviewReaction(item.url, "up")}
+                              >
+                                <ThumbsUp className="mr-2 h-4 w-4" />
+                                Good
+                              </Button>
+                              <Button
+                                variant={reaction === "down" ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => togglePreviewReaction(item.url, "down")}
+                              >
+                                <ThumbsDown className="mr-2 h-4 w-4" />
+                                Bad
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
+                    No results returned for this test run. Try broader queries or turn off domain limiting.
+                  </div>
+                )}
+              </div>
+            )}
+
             {error && <p className="text-sm text-destructive">{error}</p>}
 
             <div className="flex items-center justify-between gap-3 pt-2">
@@ -641,7 +930,7 @@ export function TopicForm({
                   </Button>
                 )}
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center justify-end gap-3">
                 {!isEditing && (
                   <Button variant="outline" onClick={() => setStage("prompt")}>
                     Back
@@ -652,10 +941,35 @@ export function TopicForm({
                     Cancel
                   </Button>
                 )}
-                <Button onClick={() => void saveTopic()} disabled={loading || organizing}>
-                  {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {isEditing ? "Save topic" : "Create topic"}
+                <Button
+                  variant="outline"
+                  onClick={() => void runPreview()}
+                  disabled={previewing || organizing || refining || loading}
+                >
+                  {previewing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="mr-2 h-4 w-4" />
+                  )}
+                  Test run
                 </Button>
+                {hasPreviewFeedback ? (
+                  <Button
+                    onClick={() => void updateTopicParameters()}
+                    disabled={refining || organizing || previewing || loading}
+                  >
+                    {refining ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Update topic parameters
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => void saveTopic()}
+                    disabled={loading || organizing || previewing || refining}
+                  >
+                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {isEditing ? "Save topic" : "Create topic"}
+                  </Button>
+                )}
               </div>
             </div>
           </div>

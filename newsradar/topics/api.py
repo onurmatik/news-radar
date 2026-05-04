@@ -6,6 +6,7 @@ from django.db.models import Count, Q
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 
+from newsradar.executions.services import preview_web_search
 from newsradar.topics.models import Topic, TopicGroup, normalize_topic_query
 from newsradar.topics.services import (
     build_queries,
@@ -13,6 +14,8 @@ from newsradar.topics.services import (
     normalize_domain_value,
     normalize_string_list,
     organize_topic_configuration,
+    refine_topic_configuration,
+    suggest_more_domains,
 )
 
 api = NinjaAPI(title="Topics API", urls_namespace="topics")
@@ -127,12 +130,6 @@ def _group_to_item(*, group: TopicGroup, request) -> "TopicGroupItem":
     )
 
 
-class SourceSuggestionItem(Schema):
-    domain: str
-    label: str
-    rationale: str
-
-
 class TopicListItem(Schema):
     id: int
     uuid: uuid.UUID
@@ -160,19 +157,60 @@ class TopicListResponse(Schema):
 
 class TopicOrganizeRequest(Schema):
     monitoring_prompt: str
-    group_uuid: uuid.UUID | None = None
 
 
 class TopicOrganizeResponse(Schema):
     display_title: str
-    primary_query: str
     query_variations: list[str]
-    source_suggestions: list[SourceSuggestionItem]
-    search_domain_allowlist: list[str] | None
+    suggested_domains: list[str]
     country: str | None
     search_language_filter: list[str] | None
-    update_frequency: str
-    suggested_interval_hours: int
+    topic_warning: str | None = None
+
+
+class TopicPreviewRequest(Schema):
+    queries: list[str]
+    search_domain_allowlist: list[str] | None = None
+    search_language_filter: list[str] | None = None
+    country: str | None = None
+
+
+class TopicPreviewResultItem(Schema):
+    url: str
+    title: str
+    snippet: str
+    domain: str
+    published_at: datetime | None
+
+
+class TopicPreviewResponse(Schema):
+    items: list[TopicPreviewResultItem]
+
+
+class TopicPreviewFeedbackItem(Schema):
+    url: str
+    title: str | None = None
+    snippet: str | None = None
+    domain: str | None = None
+    reaction: str
+
+
+class TopicRefineRequest(Schema):
+    monitoring_prompt: str
+    queries: list[str] | None = None
+    search_domain_allowlist: list[str] | None = None
+    search_language_filter: list[str] | None = None
+    country: str | None = None
+    feedback: list[TopicPreviewFeedbackItem]
+
+
+class TopicSuggestDomainsRequest(Schema):
+    monitoring_prompt: str
+    selected_domains: list[str]
+
+
+class TopicSuggestDomainsResponse(Schema):
+    domains: list[str]
 
 
 class TopicWriteRequest(Schema):
@@ -291,29 +329,82 @@ def list_topics(
 def organize_topic(request, payload: TopicOrganizeRequest):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
-    group = _resolve_group(request, payload.group_uuid)
     try:
-        organized = organize_topic_configuration(
-            payload.monitoring_prompt,
-            group_name=group.name if group else None,
-            group_description=group.description if group else None,
-        )
+        organized = organize_topic_configuration(payload.monitoring_prompt)
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc
 
     return TopicOrganizeResponse(
         display_title=organized["display_title"],
-        primary_query=organized["primary_query"],
         query_variations=organized["query_variations"],
-        source_suggestions=[
-            SourceSuggestionItem(**item) for item in organized["source_suggestions"]
-        ],
-        search_domain_allowlist=organized["search_domain_allowlist"],
+        suggested_domains=organized["suggested_domains"],
         country=organized["country"],
         search_language_filter=organized["search_language_filter"],
-        update_frequency=organized["update_frequency"],
-        suggested_interval_hours=organized["suggested_interval_hours"],
+        topic_warning=organized["topic_warning"],
     )
+
+
+@api.post("/preview", response=TopicPreviewResponse)
+def preview_topic(request, payload: TopicPreviewRequest):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+    try:
+        preview = preview_web_search(
+            queries=payload.queries,
+            search_domain_allowlist=_normalize_domain_list(payload.search_domain_allowlist),
+            search_language_filter=_normalize_language_list(payload.search_language_filter),
+            country=_normalize_country(payload.country),
+        )
+    except ValueError as exc:
+        raise HttpError(400, str(exc)) from exc
+
+    return TopicPreviewResponse(
+        items=[TopicPreviewResultItem(**item) for item in preview["items"]]
+    )
+
+
+@api.post("/refine", response=TopicOrganizeResponse)
+def refine_topic(request, payload: TopicRefineRequest):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+    try:
+        refined = refine_topic_configuration(
+            payload.monitoring_prompt,
+            queries=payload.queries,
+            domains=_normalize_domain_list(payload.search_domain_allowlist),
+            country=_normalize_country(payload.country),
+            languages=_normalize_language_list(payload.search_language_filter),
+            feedback_items=[
+                item.model_dump() if hasattr(item, "model_dump") else item.dict()
+                for item in payload.feedback
+            ],
+        )
+    except ValueError as exc:
+        raise HttpError(400, str(exc)) from exc
+
+    return TopicOrganizeResponse(
+        display_title=refined["display_title"],
+        query_variations=refined["query_variations"],
+        suggested_domains=refined["suggested_domains"],
+        country=refined["country"],
+        search_language_filter=refined["search_language_filter"],
+        topic_warning=refined["topic_warning"],
+    )
+
+
+@api.post("/suggest-domains", response=TopicSuggestDomainsResponse)
+def suggest_domains(request, payload: TopicSuggestDomainsRequest):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+    try:
+        domains = suggest_more_domains(
+            payload.monitoring_prompt,
+            selected_domains=_normalize_domain_list(payload.selected_domains),
+        )
+    except ValueError as exc:
+        raise HttpError(400, str(exc)) from exc
+
+    return TopicSuggestDomainsResponse(domains=domains)
 
 
 @api.post("/", response=TopicCreateResponse)

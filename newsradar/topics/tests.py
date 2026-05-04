@@ -6,7 +6,11 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from newsradar.topics.models import Topic, TopicGroup
-from newsradar.topics.services import organize_topic_configuration
+from newsradar.topics.services import (
+    organize_topic_configuration,
+    refine_topic_configuration,
+    suggest_more_domains,
+)
 
 
 class TopicTestCase(TestCase):
@@ -18,9 +22,6 @@ class TopicTestCase(TestCase):
             password="password123",
         )
 
-    def _mock_embeddings(self):
-        return patch("newsradar.topics.models.OpenAI")
-
 
 @override_settings(
     OPENAI_API_KEY="test-openai-key",
@@ -28,87 +29,93 @@ class TopicTestCase(TestCase):
     OPENAI_RESPONSES_TIMEOUT_SECONDS=5,
 )
 class TopicOrganizerServiceTests(TopicTestCase):
-    def test_organizer_normalizes_openai_and_search_output(self):
-        discovered_payload = {
-            "results": [
-                {
-                    "url": "https://www.trade.gov/example",
-                    "title": "Trade.gov example",
-                    "snippet": "Official trade coverage.",
-                },
-                {
-                    "url": "https://www.reuters.com/example",
-                    "title": "Reuters example",
-                    "snippet": "Major news coverage.",
-                },
-            ]
-        }
+    def test_organizer_normalizes_openai_output(self):
         openai_response = {
-            "display_title": "Turkey EV policy",
-            "primary_query": "Turkey electric vehicle policy",
             "query_variations": [
+                "Turkey electric vehicle policy",
                 "Turkey EV incentives",
                 "Turkey EV industrial policy",
                 "Turkey electric vehicle policy",
             ],
-            "source_suggestions": [
-                {
-                    "domain": "trade.gov",
-                    "label": "Trade.gov",
-                    "rationale": "Official U.S. trade reporting.",
-                }
+            "domains": [
+                "trade.gov",
+                "https://www.reuters.com/world/turkey/",
             ],
-            "search_domain_allowlist": [],
             "country": "tr",
-            "search_language_filter": ["TR", "en"],
-            "update_frequency": "auto",
-            "suggested_interval_hours": 6,
+            "languages": ["TR", "en"],
+            "topic_warning": "Topic is still broad. Consider narrowing it to EV incentives or industrial policy.",
         }
 
-        with patch("newsradar.topics.services.Perplexity") as perplexity_cls:
-            perplexity_cls.return_value.search.create.return_value = SimpleNamespace(
-                model_dump=lambda: discovered_payload
+        with patch("newsradar.topics.services.OpenAI") as openai_cls:
+            openai_cls.return_value.responses.create.return_value = SimpleNamespace(
+                output_text=json.dumps(openai_response)
             )
-            with patch("newsradar.topics.services.OpenAI") as openai_cls:
-                openai_cls.return_value.responses.create.return_value = SimpleNamespace(
-                    output_text=json.dumps(openai_response)
-                )
-                result = organize_topic_configuration("Türkiye EV policy")
+            result = organize_topic_configuration("Türkiye EV policy")
 
-        self.assertEqual(result["display_title"], "Turkey EV policy")
-        self.assertEqual(result["primary_query"], "Turkey electric vehicle policy")
+        self.assertEqual(result["display_title"], "Türkiye EV policy")
         self.assertEqual(
             result["query_variations"],
-            ["Turkey EV incentives", "Turkey EV industrial policy"],
+            [
+                "Turkey electric vehicle policy",
+                "Turkey EV incentives",
+                "Turkey EV industrial policy",
+            ],
         )
+        self.assertEqual(result["suggested_domains"], ["trade.gov", "reuters.com"])
         self.assertEqual(result["country"], "TR")
         self.assertEqual(result["search_language_filter"], ["tr", "en"])
-        self.assertEqual(result["update_frequency"], Topic.UPDATE_FREQUENCY_AUTO)
-        self.assertEqual(result["suggested_interval_hours"], 6)
-        self.assertEqual(result["search_domain_allowlist"], ["trade.gov", "reuters.com"])
+        self.assertEqual(
+            result["topic_warning"],
+            "Topic is still broad. Consider narrowing it to EV incentives or industrial policy.",
+        )
 
     @override_settings(OPENAI_API_KEY="")
     def test_organizer_falls_back_without_openai_key(self):
-        with patch("newsradar.topics.services.Perplexity") as perplexity_cls:
-            perplexity_cls.return_value.search.create.return_value = SimpleNamespace(
-                model_dump=lambda: {
-                    "results": [
-                        {
-                            "url": "https://www.resmigazete.gov.tr/example",
-                            "title": "Resmi Gazete",
-                            "snippet": "Official announcements.",
-                        }
-                    ]
-                }
-            )
-            result = organize_topic_configuration("Türkiye gündemi")
+        result = organize_topic_configuration("Türkiye gündemi")
 
         self.assertEqual(result["display_title"], "Türkiye gündemi")
-        self.assertEqual(result["primary_query"], "Türkiye gündemi")
+        self.assertEqual(result["query_variations"], ["Türkiye gündemi"])
+        self.assertEqual(result["suggested_domains"], [])
         self.assertEqual(result["country"], "TR")
         self.assertEqual(result["search_language_filter"], ["tr"])
-        self.assertEqual(result["update_frequency"], Topic.UPDATE_FREQUENCY_AUTO)
-        self.assertEqual(result["search_domain_allowlist"], ["resmigazete.gov.tr"])
+        self.assertIsNone(result["topic_warning"])
+
+    def test_refine_uses_current_configuration_when_feedback_is_empty(self):
+        result = refine_topic_configuration(
+            "Grid reliability",
+            queries=["grid reliability", "grid outage risk"],
+            domains=["iea.org"],
+            country="US",
+            languages=["en"],
+            feedback_items=[],
+        )
+
+        self.assertEqual(result["query_variations"], ["grid reliability", "grid outage risk"])
+        self.assertEqual(result["suggested_domains"], ["iea.org"])
+        self.assertEqual(result["country"], "US")
+        self.assertEqual(result["search_language_filter"], ["en"])
+        self.assertIsNone(result["topic_warning"])
+
+    def test_suggest_more_domains_filters_existing_and_caps_to_remaining(self):
+        openai_response = {
+            "domains": [
+                "trade.gov",
+                "bloomberg.com",
+                "ft.com",
+                "wsj.com",
+            ]
+        }
+
+        with patch("newsradar.topics.services.OpenAI") as openai_cls:
+            openai_cls.return_value.responses.create.return_value = SimpleNamespace(
+                output_text=json.dumps(openai_response)
+            )
+            result = suggest_more_domains(
+                "EV policy",
+                selected_domains=["trade.gov", "reuters.com"],
+            )
+
+        self.assertEqual(result, ["bloomberg.com", "ft.com", "wsj.com"])
 
 
 class TopicApiTests(TopicTestCase):
@@ -117,44 +124,36 @@ class TopicApiTests(TopicTestCase):
         self.client.force_login(self.user)
 
     def _create_topic(self) -> Topic:
-        with self._mock_embeddings() as openai_cls:
-            openai_cls.return_value.embeddings.create.return_value = SimpleNamespace(
-                data=[SimpleNamespace(embedding=[0.0] * 1536)]
-            )
-            return Topic.objects.create(
-                user=self.user,
-                monitoring_prompt="battery recycling",
-                display_title="Battery recycling",
-                queries=["battery recycling", "battery recycling policy"],
-                update_frequency=Topic.UPDATE_FREQUENCY_AUTO,
-                auto_effective_interval_hours=6,
-            )
+        return Topic.objects.create(
+            user=self.user,
+            monitoring_prompt="battery recycling",
+            display_title="Battery recycling",
+            queries=["battery recycling", "battery recycling policy"],
+            update_frequency=Topic.UPDATE_FREQUENCY_AUTO,
+            auto_effective_interval_hours=6,
+        )
 
     def test_create_topic_persists_reviewed_payload(self):
-        with self._mock_embeddings() as openai_cls:
-            openai_cls.return_value.embeddings.create.return_value = SimpleNamespace(
-                data=[SimpleNamespace(embedding=[0.0] * 1536)]
-            )
-            response = self.client.post(
-                "/api/topics/",
-                data=json.dumps(
-                    {
-                        "monitoring_prompt": "Türkiye EV policy",
-                        "display_title": "Turkey EV policy",
-                        "primary_query": "Turkey electric vehicle policy",
-                        "query_variations": [
-                            "Turkey EV incentives",
-                            "Turkey EV manufacturing",
-                        ],
-                        "search_domain_allowlist": ["trade.gov", "reuters.com"],
-                        "search_language_filter": ["tr", "en"],
-                        "country": "TR",
-                        "update_frequency": "auto",
-                        "auto_effective_interval_hours": 6,
-                    }
-                ),
-                content_type="application/json",
-            )
+        response = self.client.post(
+            "/api/topics/",
+            data=json.dumps(
+                {
+                    "monitoring_prompt": "Türkiye EV policy",
+                    "display_title": "Turkey EV policy",
+                    "primary_query": "Turkey electric vehicle policy",
+                    "query_variations": [
+                        "Turkey EV incentives",
+                        "Turkey EV manufacturing",
+                    ],
+                    "search_domain_allowlist": ["trade.gov", "reuters.com"],
+                    "search_language_filter": ["tr", "en"],
+                    "country": "TR",
+                    "update_frequency": "auto",
+                    "auto_effective_interval_hours": 6,
+                }
+            ),
+            content_type="application/json",
+        )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["topic"]
@@ -172,27 +171,23 @@ class TopicApiTests(TopicTestCase):
 
     def test_update_topic_replaces_fixed_queries(self):
         topic = self._create_topic()
-        with self._mock_embeddings() as openai_cls:
-            openai_cls.return_value.embeddings.create.return_value = SimpleNamespace(
-                data=[SimpleNamespace(embedding=[0.0] * 1536)]
-            )
-            response = self.client.patch(
-                f"/api/topics/{topic.uuid}",
-                data=json.dumps(
-                    {
-                        "monitoring_prompt": "Grid reliability",
-                        "display_title": "Grid reliability",
-                        "primary_query": "grid reliability",
-                        "query_variations": ["grid outage risk"],
-                        "search_domain_allowlist": ["iea.org"],
-                        "search_language_filter": ["en"],
-                        "country": "US",
-                        "update_frequency": "hour",
-                        "auto_effective_interval_hours": 12,
-                    }
-                ),
-                content_type="application/json",
-            )
+        response = self.client.patch(
+            f"/api/topics/{topic.uuid}",
+            data=json.dumps(
+                {
+                    "monitoring_prompt": "Grid reliability",
+                    "display_title": "Grid reliability",
+                    "primary_query": "grid reliability",
+                    "query_variations": ["grid outage risk"],
+                    "search_domain_allowlist": ["iea.org"],
+                    "search_language_filter": ["en"],
+                    "country": "US",
+                    "update_frequency": "hour",
+                    "auto_effective_interval_hours": 12,
+                }
+            ),
+            content_type="application/json",
+        )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -200,42 +195,137 @@ class TopicApiTests(TopicTestCase):
         self.assertEqual(payload["update_frequency"], "hour")
         self.assertIsNone(payload["auto_effective_interval_hours"])
 
-    def test_organize_endpoint_passes_group_context(self):
-        group = TopicGroup.objects.create(
-            user=self.user,
-            name="Policy",
-            description="Industrial policy tracking",
-        )
+    def test_organize_endpoint_uses_prompt_only(self):
         with patch("newsradar.topics.api.organize_topic_configuration") as organize_mock:
             organize_mock.return_value = {
                 "display_title": "EV policy",
-                "primary_query": "electric vehicle policy",
-                "query_variations": ["EV incentives"],
-                "source_suggestions": [],
-                "search_domain_allowlist": ["trade.gov"],
+                "query_variations": ["electric vehicle policy", "EV incentives"],
+                "suggested_domains": ["trade.gov", "reuters.com"],
                 "country": "US",
                 "search_language_filter": ["en"],
-                "update_frequency": "auto",
-                "suggested_interval_hours": 6,
+                "topic_warning": "Topic is broad. Consider tracking EV incentives only.",
             }
             response = self.client.post(
                 "/api/topics/organize",
                 data=json.dumps(
                     {
                         "monitoring_prompt": "EV policy",
-                        "group_uuid": str(group.uuid),
                     }
                 ),
                 content_type="application/json",
             )
 
         self.assertEqual(response.status_code, 200)
-        organize_mock.assert_called_once_with(
-            "EV policy",
-            group_name="Policy",
-            group_description="Industrial policy tracking",
+        organize_mock.assert_called_once_with("EV policy")
+        self.assertEqual(response.json()["suggested_domains"], ["trade.gov", "reuters.com"])
+        self.assertEqual(
+            response.json()["topic_warning"],
+            "Topic is broad. Consider tracking EV incentives only.",
         )
-        self.assertEqual(response.json()["suggested_interval_hours"], 6)
+
+    def test_preview_endpoint_returns_items(self):
+        with patch("newsradar.topics.api.preview_web_search") as preview_mock:
+            preview_mock.return_value = {
+                "items": [
+                    {
+                        "url": "https://www.reuters.com/example",
+                        "title": "Story",
+                        "snippet": "Summary",
+                        "domain": "reuters.com",
+                        "published_at": None,
+                    }
+                ]
+            }
+            response = self.client.post(
+                "/api/topics/preview",
+                data=json.dumps(
+                    {
+                        "queries": ["battery recycling", "battery recycling policy"],
+                        "search_domain_allowlist": ["Reuters.com"],
+                        "search_language_filter": ["EN"],
+                        "country": "us",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        preview_mock.assert_called_once_with(
+            queries=["battery recycling", "battery recycling policy"],
+            search_domain_allowlist=["reuters.com"],
+            search_language_filter=["en"],
+            country="US",
+        )
+        self.assertEqual(response.json()["items"][0]["domain"], "reuters.com")
+
+    def test_refine_endpoint_passes_feedback(self):
+        with patch("newsradar.topics.api.refine_topic_configuration") as refine_mock:
+            refine_mock.return_value = {
+                "display_title": "Grid reliability",
+                "query_variations": ["grid reliability", "grid resilience"],
+                "suggested_domains": ["iea.org"],
+                "country": "US",
+                "search_language_filter": ["en"],
+                "topic_warning": "Topic may still be wide. Consider focusing on outage risk or grid resilience.",
+            }
+            response = self.client.post(
+                "/api/topics/refine",
+                data=json.dumps(
+                    {
+                        "monitoring_prompt": "Grid reliability",
+                        "queries": ["grid reliability"],
+                        "search_domain_allowlist": ["IEA.org"],
+                        "search_language_filter": ["EN"],
+                        "country": "us",
+                        "feedback": [
+                            {
+                                "url": "https://www.example.com/story",
+                                "title": "Story",
+                                "snippet": "Summary",
+                                "domain": "example.com",
+                                "reaction": "down",
+                            }
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        refine_mock.assert_called_once()
+        self.assertEqual(refine_mock.call_args.kwargs["queries"], ["grid reliability"])
+        self.assertEqual(refine_mock.call_args.kwargs["domains"], ["iea.org"])
+        self.assertEqual(refine_mock.call_args.kwargs["country"], "US")
+        self.assertEqual(refine_mock.call_args.kwargs["languages"], ["en"])
+        self.assertEqual(
+            refine_mock.call_args.kwargs["feedback_items"][0]["reaction"],
+            "down",
+        )
+        self.assertEqual(
+            response.json()["topic_warning"],
+            "Topic may still be wide. Consider focusing on outage risk or grid resilience.",
+        )
+
+    def test_suggest_domains_endpoint_normalizes_input(self):
+        with patch("newsradar.topics.api.suggest_more_domains") as suggest_mock:
+            suggest_mock.return_value = ["bloomberg.com", "ft.com"]
+            response = self.client.post(
+                "/api/topics/suggest-domains",
+                data=json.dumps(
+                    {
+                        "monitoring_prompt": "EV policy",
+                        "selected_domains": ["Reuters.com", "trade.gov"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        suggest_mock.assert_called_once_with(
+            "EV policy",
+            selected_domains=["reuters.com", "trade.gov"],
+        )
+        self.assertEqual(response.json()["domains"], ["bloomberg.com", "ft.com"])
 
     def test_group_create_update_delete_roundtrip(self):
         response = self.client.post(

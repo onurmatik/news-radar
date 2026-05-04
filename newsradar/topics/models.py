@@ -5,8 +5,6 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
-from openai import OpenAI
-from pgvector.django import HnswIndex, VectorField
 
 
 TOPIC_NORMALIZE_RE = re.compile(r"\s+")
@@ -105,20 +103,10 @@ class Topic(models.Model):
         validators=[validate_language_filter],
     )
     country = models.CharField(max_length=2, blank=True, null=True)
-    embedding = VectorField(dimensions=1536, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     last_fetched_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        indexes = [
-            HnswIndex(
-                name="topic_embedding_hnsw",
-                fields=["embedding"],
-                m=16,
-                ef_construction=64,
-                opclasses=["vector_l2_ops"],
-            )
-        ]
         ordering = ["-last_fetched_at", "-created_at"]
 
     def __str__(self) -> str:
@@ -184,39 +172,11 @@ class Topic(models.Model):
             self.auto_effective_interval_hours = None
             self.auto_interval_updated_at = None
 
-        aggregate_query = " | ".join([normalized_title, *normalized_queries])
-        needs_embedding = False
-
-        if self.pk:
-            existing = (
-                Topic.objects.filter(pk=self.pk)
-                .only("queries", "display_title", "monitoring_prompt")
-                .first()
-            )
-            if existing:
-                if (
-                    (existing.queries or []) != normalized_queries
-                    or (existing.display_title or "") != normalized_title
-                    or (existing.monitoring_prompt or "") != normalized_prompt
-                ):
-                    needs_embedding = True
-            else:
-                needs_embedding = True
-        else:
-            needs_embedding = self.embedding is None
-
         self.queries = normalized_queries
         self.monitoring_prompt = normalized_prompt
         self.display_title = normalized_title
         self.search_language_filter = normalized_languages or None
         self.country = normalized_country
-
-        if aggregate_query and (self.embedding is None or needs_embedding):
-            client = OpenAI()
-            self.embedding = client.embeddings.create(
-                model="text-embedding-3-small",
-                input=aggregate_query,
-            ).data[0].embedding
 
         super().save(*args, **kwargs)
 

@@ -13,15 +13,15 @@ class Migration(migrations.Migration):
         migrations.SeparateDatabaseAndState(
             database_operations=[
                 migrations.RunSQL(
-                    sql="DROP TABLE IF EXISTS contents_bookmark CASCADE;",
+                    sql="DROP TABLE IF EXISTS contents_bookmark;",
                     reverse_sql=migrations.RunSQL.noop,
                 ),
                 migrations.RunSQL(
-                    sql="DROP TABLE IF EXISTS contents_content CASCADE;",
+                    sql="DROP TABLE IF EXISTS contents_content;",
                     reverse_sql=migrations.RunSQL.noop,
                 ),
                 migrations.RunSQL(
-                    sql="DROP TABLE IF EXISTS contents_aiinteraction CASCADE;",
+                    sql="DROP TABLE IF EXISTS contents_aiinteraction;",
                     reverse_sql=migrations.RunSQL.noop,
                 ),
             ],

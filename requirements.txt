@@ -1,6 +1,5 @@
 celery
 flower
-dj-database-url
 Django==5.2.9
 django-ninja
 django-ses[events]
@@ -9,9 +8,7 @@ httpx
 numpy
 openai
 perplexityai
-pgvector
 pydantic
-psycopg2-binary
 python-crontab
 python-dateutil
 python-dotenv

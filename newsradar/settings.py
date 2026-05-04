@@ -13,7 +13,6 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 from dotenv import load_dotenv
-import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -31,7 +30,7 @@ DEBUG = os.getenv("DJANGO_DEBUG", "0") == "1"
 
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if os.getenv("DJANGO_ALLOWED_HOSTS") else []
 
-WEB_SEARCH_MAX_RESULTS = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "10"))
+WEB_SEARCH_MAX_RESULTS = 20
 WEB_SEARCH_MAX_TOKENS = int(os.getenv("WEB_SEARCH_MAX_TOKENS", "25000"))
 WEB_SEARCH_MAX_TOKENS_PER_PAGE = int(os.getenv("WEB_SEARCH_MAX_TOKENS_PER_PAGE", "2048"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -170,11 +169,37 @@ WSGI_APPLICATION = 'newsradar.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+def _database_config() -> dict[str, str | int]:
+    engine = os.getenv("DATABASE_ENGINE", "django.db.backends.sqlite3").strip()
+    if not engine:
+        engine = "django.db.backends.sqlite3"
+
+    if engine == "django.db.backends.sqlite3":
+        return {
+            "ENGINE": engine,
+            "NAME": os.getenv("DATABASE_NAME") or str(BASE_DIR / "db.sqlite3"),
+            "CONN_MAX_AGE": 0,
+        }
+
+    name = (os.getenv("DATABASE_NAME") or "").strip()
+    if not name:
+        raise ValueError("DATABASE_NAME is required when DATABASE_ENGINE is not sqlite3.")
+
+    conn_max_age = _optional_int_env("DATABASE_CONN_MAX_AGE")
+
+    return {
+        "ENGINE": engine,
+        "NAME": name,
+        "USER": os.getenv("DATABASE_USER", ""),
+        "PASSWORD": os.getenv("DATABASE_PASSWORD", ""),
+        "HOST": os.getenv("DATABASE_HOST", ""),
+        "PORT": os.getenv("DATABASE_PORT", ""),
+        "CONN_MAX_AGE": 60 if conn_max_age is None else conn_max_age,
+    }
+
+
 DATABASES = {
-    "default": dj_database_url.config(
-        default=os.getenv("DATABASE_URL"),
-        conn_max_age=60,
-    )
+    "default": _database_config(),
 }
 
 
