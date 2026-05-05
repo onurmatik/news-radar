@@ -163,6 +163,15 @@ export const api = {
     });
   },
 
+  createTopics(payload) {
+    return requestJson("/api/topics/bulk", {
+      method: "POST",
+      body: JSON.stringify({
+        topics: (payload.topics || []).map(serializeTopicPayload),
+      }),
+    });
+  },
+
   updateTopic(uuid, payload) {
     return requestJson(`/api/topics/${uuid}`, {
       method: "PATCH",

@@ -1,7 +1,7 @@
 from datetime import datetime
 import uuid
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
@@ -159,6 +159,16 @@ class TopicOrganizeRequest(Schema):
     monitoring_prompt: str
 
 
+class TopicSplitSuggestion(Schema):
+    monitoring_prompt: str
+    display_title: str
+    query_variations: list[str]
+    suggested_domains: list[str]
+    country: str | None
+    search_language_filter: list[str] | None
+    topic_warning: str | None = None
+
+
 class TopicOrganizeResponse(Schema):
     display_title: str
     query_variations: list[str]
@@ -166,6 +176,8 @@ class TopicOrganizeResponse(Schema):
     country: str | None
     search_language_filter: list[str] | None
     topic_warning: str | None = None
+    suggested_group_name: str | None = None
+    split_suggestions: list[TopicSplitSuggestion]
 
 
 class TopicPreviewRequest(Schema):
@@ -231,6 +243,14 @@ class TopicCreateResponse(Schema):
     topic: TopicListItem
 
 
+class TopicBulkCreateRequest(Schema):
+    topics: list[TopicWriteRequest]
+
+
+class TopicBulkCreateResponse(Schema):
+    topics: list[TopicListItem]
+
+
 class TopicGroupItem(Schema):
     id: int
     uuid: uuid.UUID
@@ -289,6 +309,16 @@ def _build_topic_defaults(payload: TopicWriteRequest) -> dict[str, object]:
     }
 
 
+def _create_topic_from_payload(request, payload: TopicWriteRequest) -> Topic:
+    group = _resolve_group(request, payload.group_uuid)
+    topic_data = _build_topic_defaults(payload)
+    return Topic.objects.create(
+        user=request.user,
+        group=group,
+        **topic_data,
+    )
+
+
 @api.get("/", response=TopicListResponse)
 def list_topics(
     request,
@@ -341,6 +371,8 @@ def organize_topic(request, payload: TopicOrganizeRequest):
         country=organized["country"],
         search_language_filter=organized["search_language_filter"],
         topic_warning=organized["topic_warning"],
+        suggested_group_name=organized.get("suggested_group_name"),
+        split_suggestions=organized.get("split_suggestions", []),
     )
 
 
@@ -389,6 +421,8 @@ def refine_topic(request, payload: TopicRefineRequest):
         country=refined["country"],
         search_language_filter=refined["search_language_filter"],
         topic_warning=refined["topic_warning"],
+        suggested_group_name=refined.get("suggested_group_name"),
+        split_suggestions=refined.get("split_suggestions", []),
     )
 
 
@@ -412,14 +446,28 @@ def create_topic(request, payload: TopicWriteRequest):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
 
-    group = _resolve_group(request, payload.group_uuid)
-    topic_data = _build_topic_defaults(payload)
-    topic = Topic.objects.create(
-        user=request.user,
-        group=group,
-        **topic_data,
-    )
+    topic = _create_topic_from_payload(request, payload)
     return TopicCreateResponse(topic=_topic_to_item(topic=topic, request=request, content_source_count=0))
+
+
+@api.post("/bulk", response=TopicBulkCreateResponse)
+def create_topics(request, payload: TopicBulkCreateRequest):
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+    if not payload.topics:
+        raise HttpError(400, "Provide at least one topic.")
+
+    created_topics: list[Topic] = []
+    with transaction.atomic():
+        for topic_payload in payload.topics:
+            created_topics.append(_create_topic_from_payload(request, topic_payload))
+
+    return TopicBulkCreateResponse(
+        topics=[
+            _topic_to_item(topic=topic, request=request, content_source_count=0)
+            for topic in created_topics
+        ]
+    )
 
 
 @api.get("/groups", response=TopicGroupListResponse)

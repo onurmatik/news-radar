@@ -5,6 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}NewsRadar{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'newsradar/icons/favicon.svg' %}">
   <link rel="stylesheet" href="{% static 'newsradar/css/app.css' %}">
 </head>
 <body
@@ -16,12 +17,12 @@
     <header class="nr-topbar">
       <a href="/" class="nr-brand" aria-label="NewsRadar home">
         <span class="nr-brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path d="M8.8 9.25a4.6 4.6 0 0 0 0 5.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-            <path d="M6 6.7a8.2 8.2 0 0 0 0 10.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-            <path d="M15.2 9.25a4.6 4.6 0 0 1 0 5.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-            <path d="M18 6.7a8.2 8.2 0 0 1 0 10.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-            <circle cx="12" cy="12" r="1.45" fill="currentColor"/>
+          <svg viewBox="0 0 24 24" fill="none" class="lucide lucide-radio">
+            <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="12" cy="12" r="2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M19.1 4.9C23 8.8 23 15.1 19.1 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </span>
         <span class="nr-brand-copy">
@@ -86,7 +87,13 @@
       <div class="space-y-6 p-8">
         <div class="space-y-3 text-center">
           <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
-            <span class="text-lg font-bold">NR</span>
+            <svg viewBox="0 0 24 24" fill="none" width="24" height="24" class="lucide lucide-radio" aria-hidden="true">
+              <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="12" cy="12" r="2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M19.1 4.9C23 8.8 23 15.1 19.1 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
           </div>
           <h2 id="auth-modal-title" class="text-2xl font-bold tracking-tight text-slate-900">Welcome to NewsRadar</h2>
           <p id="auth-modal-description" class="text-sm leading-6 text-slate-500">Enter your email to receive a magic sign-in link. No password required.</p>

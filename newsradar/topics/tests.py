@@ -7,6 +7,7 @@ from django.test import TestCase, override_settings
 
 from newsradar.topics.models import Topic, TopicGroup
 from newsradar.topics.services import (
+    normalize_domain_value,
     organize_topic_configuration,
     refine_topic_configuration,
     suggest_more_domains,
@@ -40,10 +41,12 @@ class TopicOrganizerServiceTests(TopicTestCase):
             "domains": [
                 "trade.gov",
                 "https://www.reuters.com/world/turkey/",
+                "international outlets like reuters or bbc in turkish",
             ],
             "country": "tr",
             "languages": ["TR", "en"],
             "topic_warning": "Topic is still broad. Consider narrowing it to EV incentives or industrial policy.",
+            "suggested_group_name": "",
         }
 
         with patch("newsradar.topics.services.OpenAI") as openai_cls:
@@ -52,6 +55,9 @@ class TopicOrganizerServiceTests(TopicTestCase):
             )
             result = organize_topic_configuration("Türkiye EV policy")
 
+        prompt = openai_cls.return_value.responses.create.call_args.kwargs["input"]
+        self.assertIn("one real website domain in hostname format", prompt)
+        self.assertIn("Never return outlet names", prompt)
         self.assertEqual(result["display_title"], "Türkiye EV policy")
         self.assertEqual(
             result["query_variations"],
@@ -68,6 +74,77 @@ class TopicOrganizerServiceTests(TopicTestCase):
             result["topic_warning"],
             "Topic is still broad. Consider narrowing it to EV incentives or industrial policy.",
         )
+        self.assertIsNone(result["suggested_group_name"])
+        self.assertEqual(result["split_suggestions"], [])
+
+    def test_organizer_normalizes_split_suggestions(self):
+        openai_response = {
+            "query_variations": ["Turkey agenda"],
+            "domains": [],
+            "country": "tr",
+            "languages": ["tr"],
+            "topic_warning": "Topic is broad. Consider creating focused topics.",
+            "suggested_group_name": "Turkey agenda",
+            "split_topics": [
+                {
+                    "monitoring_prompt": "Türkiye ekonomi gündemi",
+                    "display_title": "Monitor Turkish political developments and policy announcements",
+                    "query_variations": [
+                        "Turkey economy agenda",
+                        "Turkey inflation markets",
+                        "Turkey economy agenda",
+                    ],
+                    "domains": [
+                        "https://www.reuters.com/world/middle-east/",
+                        "reuters.com",
+                        "bloomberg.com",
+                    ],
+                    "country": "tr",
+                    "languages": ["TR", "en"],
+                    "topic_warning": "",
+                },
+                {
+                    "monitoring_prompt": "Türkiye ekonomi gündemi",
+                    "display_title": "Duplicate should be ignored",
+                    "query_variations": ["duplicate"],
+                    "country": "TR",
+                    "languages": ["tr"],
+                },
+                {
+                    "monitoring_prompt": "   ",
+                    "display_title": "",
+                    "query_variations": [],
+                },
+                {
+                    "topic": "Netherlands economy agenda",
+                    "query_variations": [],
+                    "domains": ["nltimes.nl"],
+                    "country": "NL",
+                    "languages": ["NL"],
+                    "topic_warning": "Unsupported country should be ignored.",
+                },
+            ],
+        }
+
+        with patch("newsradar.topics.services.OpenAI") as openai_cls:
+            openai_cls.return_value.responses.create.return_value = SimpleNamespace(
+                output_text=json.dumps(openai_response)
+            )
+            result = organize_topic_configuration("Türkiye gündemi")
+
+        self.assertEqual(result["topic_warning"], "Topic is broad. Consider creating focused topics.")
+        self.assertEqual(result["suggested_group_name"], "Turkey agenda")
+        self.assertEqual(len(result["split_suggestions"]), 1)
+        first = result["split_suggestions"][0]
+        self.assertEqual(first["monitoring_prompt"], "Türkiye ekonomi gündemi")
+        self.assertEqual(first["display_title"], "politics")
+        self.assertEqual(
+            first["query_variations"],
+            ["Turkey economy agenda", "Turkey inflation markets"],
+        )
+        self.assertEqual(first["suggested_domains"], ["reuters.com", "bloomberg.com"])
+        self.assertEqual(first["country"], "TR")
+        self.assertEqual(first["search_language_filter"], ["tr", "en"])
 
     @override_settings(OPENAI_API_KEY="")
     def test_organizer_falls_back_without_openai_key(self):
@@ -79,6 +156,8 @@ class TopicOrganizerServiceTests(TopicTestCase):
         self.assertEqual(result["country"], "TR")
         self.assertEqual(result["search_language_filter"], ["tr"])
         self.assertIsNone(result["topic_warning"])
+        self.assertIsNone(result["suggested_group_name"])
+        self.assertEqual(result["split_suggestions"], [])
 
     def test_refine_uses_current_configuration_when_feedback_is_empty(self):
         result = refine_topic_configuration(
@@ -116,6 +195,35 @@ class TopicOrganizerServiceTests(TopicTestCase):
             )
 
         self.assertEqual(result, ["bloomberg.com", "ft.com", "wsj.com"])
+
+    def test_suggest_more_domains_filters_non_domain_explanations(self):
+        openai_response = {
+            "domains": [
+                "international outlets like reuters or bbc in turkish",
+                "https://www.bbc.com/turkce",
+                "reuters.com",
+            ]
+        }
+
+        with patch("newsradar.topics.services.OpenAI") as openai_cls:
+            openai_cls.return_value.responses.create.return_value = SimpleNamespace(
+                output_text=json.dumps(openai_response)
+            )
+            result = suggest_more_domains(
+                "Türkiye gündemi",
+                selected_domains=["aa.com.tr"],
+            )
+
+        prompt = openai_cls.return_value.responses.create.call_args.kwargs["input"]
+        self.assertIn("one real website domain in hostname format", prompt)
+        self.assertIn("Never return outlet names", prompt)
+        self.assertEqual(result, ["bbc.com", "reuters.com"])
+
+    def test_normalize_domain_value_rejects_explanatory_text(self):
+        self.assertIsNone(
+            normalize_domain_value("international outlets like reuters or bbc in turkish")
+        )
+        self.assertEqual(normalize_domain_value("https://www.reuters.com/world/"), "reuters.com")
 
 
 class TopicApiTests(TopicTestCase):
@@ -204,6 +312,18 @@ class TopicApiTests(TopicTestCase):
                 "country": "US",
                 "search_language_filter": ["en"],
                 "topic_warning": "Topic is broad. Consider tracking EV incentives only.",
+                "suggested_group_name": "EV policy",
+                "split_suggestions": [
+                    {
+                        "monitoring_prompt": "EV incentives",
+                        "display_title": "EV incentives",
+                        "query_variations": ["electric vehicle incentives"],
+                        "suggested_domains": ["trade.gov"],
+                        "country": "US",
+                        "search_language_filter": ["en"],
+                        "topic_warning": None,
+                    }
+                ],
             }
             response = self.client.post(
                 "/api/topics/organize",
@@ -222,6 +342,103 @@ class TopicApiTests(TopicTestCase):
             response.json()["topic_warning"],
             "Topic is broad. Consider tracking EV incentives only.",
         )
+        self.assertEqual(response.json()["suggested_group_name"], "EV policy")
+        self.assertEqual(response.json()["split_suggestions"][0]["display_title"], "EV incentives")
+
+    def test_bulk_create_topics_persists_multiple_payloads(self):
+        group = TopicGroup.objects.create(
+            user=self.user,
+            name="Agenda",
+            description="Focused topics",
+        )
+        response = self.client.post(
+            "/api/topics/bulk",
+            data=json.dumps(
+                {
+                    "topics": [
+                        {
+                            "monitoring_prompt": "Türkiye ekonomi gündemi",
+                            "display_title": "Turkey economy agenda",
+                            "primary_query": "Turkey economy agenda",
+                            "query_variations": [
+                                "Turkey inflation markets",
+                                "Turkey economy agenda",
+                            ],
+                            "group_uuid": str(group.uuid),
+                            "search_domain_allowlist": [
+                                "Reuters.com",
+                                "https://www.reuters.com/world/",
+                                "Bloomberg.com",
+                            ],
+                            "search_language_filter": ["TR", "en", "TR"],
+                            "country": "tr",
+                            "update_frequency": "auto",
+                            "auto_effective_interval_hours": 8,
+                        },
+                        {
+                            "monitoring_prompt": "Türkiye siyaset gündemi",
+                            "display_title": "Turkey politics agenda",
+                            "primary_query": "Turkey politics agenda",
+                            "query_variations": ["Turkey elections policy"],
+                            "group_uuid": str(group.uuid),
+                            "search_language_filter": ["tr"],
+                            "country": "TR",
+                            "update_frequency": "day",
+                            "auto_effective_interval_hours": 12,
+                        },
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["topics"]
+        self.assertEqual(len(payload), 2)
+        self.assertEqual(Topic.objects.count(), 2)
+
+        economy = Topic.objects.get(display_title="Turkey economy agenda")
+        self.assertEqual(economy.group_id, group.id)
+        self.assertEqual(
+            economy.queries,
+            ["Turkey economy agenda", "Turkey inflation markets"],
+        )
+        self.assertEqual(economy.search_domain_allowlist, ["reuters.com", "bloomberg.com"])
+        self.assertEqual(economy.search_language_filter, ["tr", "en"])
+        self.assertEqual(economy.country, "TR")
+        self.assertEqual(economy.auto_effective_interval_hours, 8)
+
+        politics = Topic.objects.get(display_title="Turkey politics agenda")
+        self.assertEqual(politics.update_frequency, Topic.UPDATE_FREQUENCY_DAY)
+        self.assertIsNone(politics.auto_effective_interval_hours)
+        self.assertEqual(payload[0]["display_title"], "Turkey economy agenda")
+        self.assertEqual(payload[1]["display_title"], "Turkey politics agenda")
+
+    def test_bulk_create_rolls_back_when_later_topic_is_invalid(self):
+        response = self.client.post(
+            "/api/topics/bulk",
+            data=json.dumps(
+                {
+                    "topics": [
+                        {
+                            "monitoring_prompt": "Valid topic",
+                            "display_title": "Valid topic",
+                            "primary_query": "valid topic",
+                        },
+                        {
+                            "monitoring_prompt": "Invalid country",
+                            "display_title": "Invalid country",
+                            "primary_query": "invalid country",
+                            "country": "TUR",
+                        },
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Topic.objects.count(), 0)
 
     def test_preview_endpoint_returns_items(self):
         with patch("newsradar.topics.api.preview_web_search") as preview_mock:
