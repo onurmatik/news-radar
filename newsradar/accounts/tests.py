@@ -32,7 +32,7 @@ class AccountsApiTests(TestCase):
         self.assertTrue(payload["is_pro"])
         self.assertEqual(payload["pro_plan"], Profile.PLAN_YEARLY)
 
-    @override_settings(FRONTEND_BASE_URL="http://localhost:5173")
+    @override_settings(FRONTEND_BASE_URL="http://localhost:8000")
     def test_magic_link_email_uses_clearer_copy(self):
         response = self.client.post(
             "/api/auth/magic-link",
@@ -63,7 +63,7 @@ class AccountsApiTests(TestCase):
         STRIPE_SECRET_KEY="sk_test_123",
         STRIPE_PRICE_ID_MONTHLY="price_monthly_123",
         STRIPE_PRICE_ID_YEARLY="price_yearly_123",
-        FRONTEND_BASE_URL="http://localhost:5173",
+        FRONTEND_BASE_URL="http://localhost:8000",
     )
     @patch("newsradar.accounts.api.stripe.checkout.Session.create")
     def test_create_checkout_session(self, mock_create_session):
@@ -91,11 +91,11 @@ class AccountsApiTests(TestCase):
         self.assertEqual(kwargs["line_items"][0]["price"], "price_monthly_123")
         self.assertEqual(
             kwargs["success_url"],
-            "http://localhost:5173/upgrade?checkout=success",
+            "http://localhost:8000/upgrade?checkout=success",
         )
         self.assertEqual(
             kwargs["cancel_url"],
-            "http://localhost:5173/upgrade?checkout=cancelled",
+            "http://localhost:8000/upgrade?checkout=cancelled",
         )
 
     def test_checkout_requires_authentication(self):
@@ -110,7 +110,7 @@ class AccountsApiTests(TestCase):
         STRIPE_SECRET_KEY="sk_test_123",
         STRIPE_PRICE_ID_MONTHLY="",
         STRIPE_PRICE_ID_YEARLY="",
-        FRONTEND_BASE_URL="http://localhost:5173",
+        FRONTEND_BASE_URL="http://localhost:8000",
     )
     @patch("newsradar.accounts.api.stripe.checkout.Session.create")
     def test_create_checkout_session_falls_back_to_inline_price_data(self, mock_create_session):

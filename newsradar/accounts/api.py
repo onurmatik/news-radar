@@ -138,7 +138,7 @@ def _default_success_url() -> str:
     frontend_origin = _get_frontend_origin()
     if frontend_origin:
         return f"{frontend_origin}/upgrade?checkout=success"
-    return "http://localhost:5173/upgrade?checkout=success"
+    return "http://localhost:8000/upgrade?checkout=success"
 
 
 def _default_cancel_url() -> str:
@@ -148,7 +148,7 @@ def _default_cancel_url() -> str:
     frontend_origin = _get_frontend_origin()
     if frontend_origin:
         return f"{frontend_origin}/upgrade?checkout=cancelled"
-    return "http://localhost:5173/upgrade?checkout=cancelled"
+    return "http://localhost:8000/upgrade?checkout=cancelled"
 
 
 def _resolve_checkout_url(provided: str | None, fallback: str, field_name: str) -> str:

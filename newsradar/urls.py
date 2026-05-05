@@ -22,10 +22,16 @@ from newsradar.accounts.views import SesameLoginView, stripe_webhook
 from newsradar.contents.api import api as contents_api
 from newsradar.contents.rss import api as contents_rss_api
 from newsradar.executions.api import api as executions_api
+from newsradar import page_views
 from newsradar.topics.api import api as topics_api
 
 
 urlpatterns = [
+    path('', page_views.dashboard, name='dashboard'),
+    path('topics', page_views.topics, name='topics'),
+    path('upgrade', page_views.upgrade, name='upgrade'),
+    path('developer-access', page_views.developer_access, name='developer-access'),
+    path('content/<int:content_id>/full', page_views.content_detail, name='content-detail'),
     path('nrAdmin/', admin.site.urls),
     path('api/auth/sesame/', SesameLoginView.as_view(), name='sesame-login'),
     path('api/auth/', accounts_api.urls),

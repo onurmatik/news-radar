@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}NewsRadar | Content{% endblock %}
+
+{% block content %}
+<section class="mx-auto space-y-6 p-4 md:p-6 lg:p-10">
+  <div class="flex items-center gap-3">
+    <a id="content-back-link" href="/" class="btn btn-ghost btn-sm">Back</a>
+    <a href="/" class="text-xs uppercase tracking-widest text-slate-500 transition-colors hover:text-slate-900">Intelligence feed</a>
+  </div>
+  <div id="content-detail-root"></div>
+</section>
+{% endblock %}

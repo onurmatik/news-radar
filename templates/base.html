@@ -1,0 +1,117 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}NewsRadar{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'newsradar/css/app.css' %}">
+</head>
+<body
+  class="min-h-screen bg-slate-50 text-slate-900 antialiased"
+  data-page="{{ page }}"
+  {% if content_id %}data-content-id="{{ content_id }}"{% endif %}
+>
+  <div id="app-shell" class="flex min-h-screen flex-col lg:flex-row">
+    <aside class="w-full shrink-0 border-b border-slate-200 bg-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-[320px] lg:flex-col lg:border-b-0 lg:border-r">
+      <div class="border-b border-slate-200 px-6 py-5">
+        <div class="flex items-start justify-between gap-4">
+          <a href="/" class="min-w-0">
+            <p class="text-xs font-bold uppercase tracking-[0.24em] text-emerald-600">NewsRadar</p>
+            <h1 class="mt-2 text-2xl font-bold text-slate-900">Monitoring</h1>
+            <p id="sidebar-user-label" class="mt-1 truncate text-sm text-slate-500">Checking session...</p>
+          </a>
+          <button id="add-topic-button" type="button" class="btn btn-primary btn-sm">
+            <span aria-hidden="true">+</span>
+            Topic
+          </button>
+        </div>
+        <div id="auth-actions" class="mt-4 flex flex-wrap items-center gap-2">
+          <button id="sign-in-button" type="button" class="btn btn-outline btn-sm">Sign in</button>
+          <button id="sign-out-button" type="button" class="btn btn-ghost btn-sm hidden">Sign out</button>
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-y-auto px-4 py-5 custom-scrollbar">
+        <div class="mb-6 flex items-center justify-between px-2">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-[0.22em] text-slate-500">Topic groups</p>
+            <p id="visible-topic-count" class="mt-1 text-sm text-slate-500">0 topics visible</p>
+          </div>
+          <button id="create-group-button" type="button" class="btn btn-outline btn-sm">Group</button>
+        </div>
+        <div id="group-list" class="space-y-1"></div>
+        <div id="selected-group-panel" class="mt-6 hidden rounded-2xl border border-slate-200 bg-slate-50 p-4"></div>
+        <div class="mt-8">
+          <div class="mb-3 px-2">
+            <p class="text-xs font-bold uppercase tracking-[0.22em] text-slate-500">Topics</p>
+          </div>
+          <div id="topic-list-status" class="px-3 py-4 text-sm text-slate-500">Loading topics...</div>
+          <div id="topic-list" class="space-y-2"></div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="min-w-0 flex-1">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <div id="toast" class="pointer-events-none fixed bottom-4 left-1/2 z-50 hidden max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-lg"></div>
+
+  <div id="auth-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+    <div class="modal-panel max-w-[420px] overflow-hidden p-0">
+      <div class="h-2 bg-emerald-500"></div>
+      <div class="space-y-6 p-8">
+        <div class="space-y-3 text-center">
+          <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+            <span class="text-lg font-bold">NR</span>
+          </div>
+          <h2 id="auth-modal-title" class="text-2xl font-bold tracking-tight text-slate-900">Welcome to NewsRadar</h2>
+          <p id="auth-modal-description" class="text-sm leading-6 text-slate-500">Enter your email to receive a magic sign-in link. No password required.</p>
+        </div>
+        <form id="auth-form" class="space-y-4">
+          <div class="space-y-2">
+            <label for="auth-email" class="text-xs font-bold uppercase tracking-wider text-slate-500">Email address</label>
+            <input id="auth-email" name="email" type="email" required autocomplete="email" class="input h-12" placeholder="name@example.com">
+          </div>
+          <p id="auth-error" class="hidden text-center text-xs text-red-600"></p>
+          <div class="flex gap-2">
+            <button type="button" class="btn btn-outline flex-1" data-modal-close="auth-modal">Cancel</button>
+            <button id="auth-submit" type="submit" class="btn btn-primary flex-1">Send magic link</button>
+          </div>
+        </form>
+        <div id="auth-success" class="hidden space-y-4 text-center">
+          <p class="text-base font-semibold text-slate-900">Check your inbox</p>
+          <p id="auth-success-message" class="text-sm leading-6 text-slate-500"></p>
+          <button id="auth-reset" type="button" class="btn btn-outline">Back to sign in</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="group-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="group-modal-title">
+    <div class="modal-panel max-w-lg">
+      <div class="mb-5">
+        <h2 id="group-modal-title" class="text-xl font-semibold text-slate-900">Create group</h2>
+        <p id="group-modal-description" class="mt-1 text-sm text-slate-500">Groups are optional visual buckets for organizing related topics.</p>
+      </div>
+      <form id="group-form" class="space-y-4">
+        <input type="hidden" id="group-uuid">
+        <input id="group-name" class="input" placeholder="Group name" required>
+        <input id="group-description" class="input" placeholder="Description (optional)">
+        <p id="group-error" class="hidden text-sm text-red-600"></p>
+        <div class="flex items-center justify-between gap-3">
+          <button id="delete-group-button" type="button" class="btn btn-danger hidden">Delete group</button>
+          <div class="ml-auto flex items-center gap-2">
+            <button type="button" class="btn btn-outline" data-modal-close="group-modal">Cancel</button>
+            <button id="save-group-button" type="submit" class="btn btn-primary">Save group</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="{% static 'newsradar/js/app.js' %}"></script>
+</body>
+</html>

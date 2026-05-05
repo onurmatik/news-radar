@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}NewsRadar | Upgrade{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-5xl space-y-8 p-4 md:p-6 lg:p-10">
+  <div class="space-y-3">
+    <span class="badge badge-primary">Pro membership</span>
+    <h1 class="text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Upgrade to Pro</h1>
+    <p class="max-w-2xl text-sm leading-6 text-slate-500 md:text-base">
+      Unlimited access to radar monitoring and AI analysis for your entire workflow.
+      Fair use limits may apply to protect platform stability for all users.
+    </p>
+  </div>
+
+  <div id="checkout-message"></div>
+  <div id="upgrade-error" class="hidden rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"></div>
+  <div id="already-pro-card" class="card hidden border-emerald-200 bg-emerald-50 p-5"></div>
+
+  <div id="plans-grid" class="grid gap-6 md:grid-cols-2">
+    <article class="card p-6">
+      <h2 class="text-xl font-semibold text-slate-900">Pro Monthly</h2>
+      <p class="mt-1 text-sm text-slate-500">$20 / month</p>
+      <div class="mt-5 text-3xl font-bold tracking-tight text-slate-900">$20</div>
+      <ul class="mt-5 space-y-2 text-sm text-slate-500">
+        <li>Unlimited access to topics and feeds</li>
+        <li>Advanced AI responses</li>
+        <li>Priority updates and notifications</li>
+      </ul>
+      <button type="button" class="btn btn-primary mt-6 w-full" data-plan="monthly">Choose monthly</button>
+    </article>
+
+    <article class="card border-emerald-200 p-6 shadow-sm shadow-emerald-100">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-xl font-semibold text-slate-900">Pro Yearly</h2>
+        <span class="badge badge-primary">Best value</span>
+      </div>
+      <p class="mt-1 text-sm text-slate-500">$200 / year</p>
+      <div class="mt-5 text-3xl font-bold tracking-tight text-slate-900">$200</div>
+      <ul class="mt-5 space-y-2 text-sm text-slate-500">
+        <li>Everything in monthly plan</li>
+        <li>Pay less than 12 monthly renewals</li>
+        <li>Unlimited access (fair use limits may apply)</li>
+      </ul>
+      <button type="button" class="btn btn-primary mt-6 w-full" data-plan="yearly">Choose yearly</button>
+    </article>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}NewsRadar | Dashboard{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-[1500px] space-y-6 p-4 md:p-6 lg:p-10">
+  <div class="flex flex-col gap-4 border-b border-slate-200 pb-6 lg:flex-row lg:items-end lg:justify-between">
+    <div>
+      <p class="text-xs font-bold uppercase tracking-[0.22em] text-emerald-600">Intelligence feed</p>
+      <h2 id="dashboard-heading" class="mt-2 text-4xl font-bold text-slate-900">All topics</h2>
+      <p id="dashboard-subtitle" class="mt-2 text-sm text-slate-500">Browse the latest saved search results across your monitoring topics.</p>
+    </div>
+    <div id="selected-topic-actions" class="hidden flex-wrap items-center gap-3">
+      <a id="edit-selected-topic" class="btn btn-outline" href="/topics">Edit topic</a>
+      <button id="scan-selected-topic" type="button" class="btn btn-primary">Scan now</button>
+    </div>
+  </div>
+
+  <div id="dashboard-signed-out" class="card hidden p-8 text-center">
+    <p class="text-base font-semibold text-slate-900">Sign in to view your radar</p>
+    <p class="mt-2 text-sm text-slate-500">Your topics, feed, bookmarks, and AI analysis are tied to your account.</p>
+    <button type="button" class="btn btn-primary mt-5" data-open-auth>Sign in</button>
+  </div>
+
+  <div id="dashboard-content" class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+    <div class="space-y-4">
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="relative min-w-[240px] flex-1">
+          <input id="feed-search" class="input h-10 rounded-full pl-4" placeholder="Search titles, snippets, URLs">
+        </div>
+        <button id="new-only-filter" type="button" class="btn btn-outline">New only</button>
+        <button id="bookmarked-filter" type="button" class="btn btn-outline">Bookmarked</button>
+      </div>
+      <div id="domain-filters" class="flex flex-wrap items-center gap-2"></div>
+      <div id="feed-error" class="hidden rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"></div>
+      <div id="feed-list" class="space-y-4"></div>
+    </div>
+
+    <aside class="space-y-4">
+      <div class="card p-5">
+        <div>
+          <h3 class="flex items-center gap-2 text-lg font-semibold text-slate-900">AI analysis</h3>
+          <p class="mt-1 text-sm text-slate-500">Run an instruction across the current filtered feed.</p>
+        </div>
+        <div id="ai-presets" class="mt-4 flex flex-wrap gap-2"></div>
+        <textarea id="ai-instruction" class="textarea mt-4 min-h-[140px]"></textarea>
+        <button id="run-ai-analysis" type="button" class="btn btn-primary mt-4">Run AI analysis</button>
+      </div>
+
+      <div class="card p-5">
+        <h3 class="text-lg font-semibold text-slate-900">AI output</h3>
+        <p class="mt-1 text-sm text-slate-500">Responses are generated from the current filtered content set.</p>
+        <div id="ai-output" class="prose-lite mt-4 text-sm leading-6 text-slate-700">Run an AI instruction to see the result here.</div>
+      </div>
+    </aside>
+  </div>
+</section>
+{% endblock %}
