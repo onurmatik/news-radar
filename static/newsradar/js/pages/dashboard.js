@@ -1,9 +1,22 @@
 import { renderMarkdown } from "../markdown.js";
 
 const AI_PRESETS = [
-  "Summarize the most important developments in this feed.",
-  "List the most actionable facts as bullet points.",
-  "Highlight risks, opportunities, and open questions.",
+  {
+    label: "Summarize",
+    instruction: "Summarize the key developments in these news items.",
+  },
+  {
+    label: "List facts",
+    instruction: "List the most actionable facts as concise bullet points.",
+  },
+  {
+    label: "List entities",
+    instruction: "List the key people, companies, organizations, and places mentioned.",
+  },
+  {
+    label: "Risks & opportunities",
+    instruction: "Highlight risks, opportunities, and open questions.",
+  },
 ];
 
 function mapNewsItem(item) {
@@ -37,9 +50,11 @@ export function initDashboard(context) {
   const domainFiltersRoot = document.getElementById("domain-filters");
   const feedError = document.getElementById("feed-error");
   const feedList = document.getElementById("feed-list");
+  const feedResultCount = document.getElementById("feed-result-count");
   const aiPresets = document.getElementById("ai-presets");
   const aiInstruction = document.getElementById("ai-instruction");
   const aiOutput = document.getElementById("ai-output");
+  const aiContextCount = document.getElementById("ai-context-count");
   const runAiButton = document.getElementById("run-ai-analysis");
 
   const local = {
@@ -51,7 +66,7 @@ export function initDashboard(context) {
     newOnly: false,
     bookmarkedOnly: false,
     domainFilters: [],
-    aiInstruction: AI_PRESETS[0],
+    aiInstruction: AI_PRESETS[0].instruction,
     scanning: false,
   };
 
@@ -101,40 +116,32 @@ export function initDashboard(context) {
 
   function renderHeading() {
     const topic = selectedTopic();
-    const label = topic ? topic.term : selectedGroupName();
+    const label = topic ? topic.term : context.state.selectedGroupId ? selectedGroupName() : "All content";
     if (heading) heading.textContent = label;
     if (subtitle) {
       subtitle.textContent = topic
         ? `Monitoring prompt: ${topic.monitoringPrompt}`
         : "Browse the latest saved search results across your monitoring topics.";
     }
-    if (selectedTopicActions) {
-      selectedTopicActions.classList.toggle("hidden", !topic);
-      selectedTopicActions.classList.toggle("flex", Boolean(topic));
-    }
+    selectedTopicActions?.classList.add("hidden");
     if (editSelectedTopic && topic) {
       editSelectedTopic.href = `/topics?edit=${encodeURIComponent(topic.uuid)}`;
     }
   }
 
   function renderAuthState() {
-    const isSignedIn = context.state.isAuthenticated === true;
-    signedOut?.classList.toggle("hidden", isSignedIn);
-    dashboardContent?.classList.toggle("hidden", !isSignedIn);
+    signedOut?.classList.add("hidden");
+    dashboardContent?.classList.remove("hidden");
   }
 
   function renderDomainFilters() {
     if (!domainFiltersRoot) return;
     const domains = Array.from(new Set(local.items.map((item) => item.source).filter(Boolean))).sort((a, b) => a.localeCompare(b));
-    if (!domains.length) {
-      domainFiltersRoot.innerHTML = "";
-      return;
-    }
     domainFiltersRoot.innerHTML = [
-      `<button type="button" class="btn btn-sm ${local.domainFilters.length ? "btn-outline" : "btn-secondary"}" data-domain-clear>All domains</button>`,
+      `<button type="button" class="nr-filter-pill ${local.domainFilters.length ? "" : "is-active"}" data-domain-clear>All domains (${local.items.length})</button>`,
       ...domains.map((domain) => {
         const active = local.domainFilters.includes(domain);
-        return `<button type="button" class="btn btn-sm ${active ? "btn-secondary" : "btn-outline"}" data-domain="${context.utils.escapeHtml(domain)}">${context.utils.escapeHtml(domain)}</button>`;
+        return `<button type="button" class="nr-filter-pill ${active ? "is-active" : ""}" data-domain="${context.utils.escapeHtml(domain)}">${context.utils.escapeHtml(domain)}</button>`;
       }),
     ].join("");
   }
@@ -146,27 +153,41 @@ export function initDashboard(context) {
     setError(local.error);
     newOnlyButton?.classList.toggle("btn-secondary", local.newOnly);
     newOnlyButton?.classList.toggle("btn-outline", !local.newOnly);
+    newOnlyButton?.classList.toggle("is-active", local.newOnly);
     bookmarkedButton?.classList.toggle("btn-secondary", local.bookmarkedOnly);
     bookmarkedButton?.classList.toggle("btn-outline", !local.bookmarkedOnly);
+    bookmarkedButton?.classList.toggle("is-active", local.bookmarkedOnly);
     renderDomainFilters();
 
-    if (context.state.isAuthenticated !== true) {
-      feedList.innerHTML = "";
-      return;
-    }
     if (local.loading) {
-      feedList.innerHTML = '<div class="card p-6 text-sm text-slate-500">Loading content feed...</div>';
+      feedList.innerHTML = '<div class="nr-loading-card">Loading content feed...</div>';
       return;
     }
     const items = filteredItems();
+    if (feedResultCount) {
+      feedResultCount.textContent = `${items.length} ${items.length === 1 ? "result" : "results"}`;
+    }
+    if (aiContextCount) {
+      aiContextCount.textContent = `Context: ${items.length} ${items.length === 1 ? "item" : "items"}`;
+    }
     if (!items.length) {
-      feedList.innerHTML = `<div class="card border-dashed p-10 text-center">
-        <p class="text-base font-semibold text-slate-900">No matching content</p>
-        <p class="mt-2 text-sm text-slate-500">Try changing filters or run a new scan for the selected topic.</p>
+      const hasTopics = context.state.topics.length > 0;
+      feedList.innerHTML = `<div class="nr-empty-feed">
+        <div class="nr-empty-state">
+          <div class="nr-empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="8.6" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M12 8.4v7.2M8.4 12h7.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <p>${hasTopics ? "No matching content" : "No topics created"}</p>
+          <span>${hasTopics ? "Try changing filters or run a new scan for the selected topic." : "Create a topic to start monitoring this group."}</span>
+          <button type="button" class="nr-empty-button" data-empty-add-topic>Add a new topic</button>
+        </div>
       </div>`;
       return;
     }
-    feedList.innerHTML = items.map((item) => `<article class="card p-5">
+    feedList.innerHTML = items.map((item) => `<article class="nr-content-card">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0 flex-1 space-y-3">
           <div class="flex flex-wrap items-center gap-2">
@@ -299,7 +320,7 @@ export function initDashboard(context) {
   function renderAiPresets() {
     if (!aiPresets || !aiInstruction) return;
     aiInstruction.value = local.aiInstruction;
-    aiPresets.innerHTML = AI_PRESETS.map((preset) => `<button type="button" class="btn btn-sm ${preset === local.aiInstruction ? "btn-secondary" : "btn-outline"}" data-ai-preset="${context.utils.escapeHtml(preset)}">${context.utils.escapeHtml(preset)}</button>`).join("");
+    aiPresets.innerHTML = AI_PRESETS.map((preset) => `<button type="button" class="nr-ai-preset ${preset.instruction === local.aiInstruction ? "is-active" : ""}" data-ai-preset="${context.utils.escapeHtml(preset.instruction)}">${context.utils.escapeHtml(preset.label)}</button>`).join("");
   }
 
   async function runAiAnalysis() {
@@ -310,7 +331,7 @@ export function initDashboard(context) {
       return;
     }
     runAiButton.disabled = true;
-    runAiButton.textContent = "Running...";
+    runAiButton.classList.add("is-running");
     setError(null);
     try {
       const response = await context.api.requestContentAIResponse({
@@ -324,7 +345,7 @@ export function initDashboard(context) {
       setError(error instanceof Error ? error.message : "Unable to run AI analysis.");
     } finally {
       runAiButton.disabled = false;
-      runAiButton.textContent = "Run AI analysis";
+      runAiButton.classList.remove("is-running");
     }
   }
 
@@ -366,6 +387,12 @@ export function initDashboard(context) {
   });
 
   feedList?.addEventListener("click", (event) => {
+    const addTopic = event.target.closest("[data-empty-add-topic]");
+    if (addTopic) {
+      if (!context.ensureAuth()) return;
+      window.location.assign("/topics");
+      return;
+    }
     const bookmark = event.target.closest("[data-bookmark]");
     if (bookmark) {
       toggleBookmark(Number(bookmark.dataset.bookmark));

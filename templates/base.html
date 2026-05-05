@@ -8,53 +8,74 @@
   <link rel="stylesheet" href="{% static 'newsradar/css/app.css' %}">
 </head>
 <body
-  class="min-h-screen bg-slate-50 text-slate-900 antialiased"
+  class="min-h-screen bg-white text-slate-950 antialiased"
   data-page="{{ page }}"
   {% if content_id %}data-content-id="{{ content_id }}"{% endif %}
 >
-  <div id="app-shell" class="flex min-h-screen flex-col lg:flex-row">
-    <aside class="w-full shrink-0 border-b border-slate-200 bg-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-[320px] lg:flex-col lg:border-b-0 lg:border-r">
-      <div class="border-b border-slate-200 px-6 py-5">
-        <div class="flex items-start justify-between gap-4">
-          <a href="/" class="min-w-0">
-            <p class="text-xs font-bold uppercase tracking-[0.24em] text-emerald-600">NewsRadar</p>
-            <h1 class="mt-2 text-2xl font-bold text-slate-900">Monitoring</h1>
-            <p id="sidebar-user-label" class="mt-1 truncate text-sm text-slate-500">Checking session...</p>
-          </a>
-          <button id="add-topic-button" type="button" class="btn btn-primary btn-sm">
-            <span aria-hidden="true">+</span>
-            Topic
+  <div id="app-shell" class="min-h-screen bg-white">
+    <header class="nr-topbar">
+      <a href="/" class="nr-brand" aria-label="NewsRadar home">
+        <span class="nr-brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M8.8 9.25a4.6 4.6 0 0 0 0 5.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+            <path d="M6 6.7a8.2 8.2 0 0 0 0 10.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+            <path d="M15.2 9.25a4.6 4.6 0 0 1 0 5.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+            <path d="M18 6.7a8.2 8.2 0 0 1 0 10.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+            <circle cx="12" cy="12" r="1.45" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="nr-brand-copy">
+          <span class="nr-brand-title">NewsRadar</span>
+          <span class="nr-brand-subtitle">AGENDA MONITOR</span>
+          <span id="sidebar-user-label" class="sr-only">Checking session...</span>
+        </span>
+      </a>
+
+      <div id="auth-actions" class="nr-top-actions">
+        <a href="/developer-access" class="nr-header-pill nr-api-pill">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M15.4 7.6a3.7 3.7 0 1 1 1 1l-2.3 2.3h-2.3v2.3H9.5v2.3H7.2v2.3H4.9v-3.6l9.5-9.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+            <path d="M17.8 5.9h.01" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+          <span>API</span>
+        </a>
+        <span class="nr-top-divider" aria-hidden="true"></span>
+        <button id="sign-in-button" type="button" class="nr-header-pill nr-sign-button">Sign in</button>
+        <button id="sign-out-button" type="button" class="nr-header-pill nr-sign-button hidden">Sign out</button>
+      </div>
+    </header>
+
+    <div class="nr-workspace">
+      <aside class="nr-sidebar">
+        <div class="nr-sidebar-head">
+          <button id="create-group-button" type="button" class="nr-group-select">
+            <span>Topic groups</span>
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m7 10 5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
           </button>
+          <p id="visible-topic-count" class="sr-only">0 topics visible</p>
         </div>
-        <div id="auth-actions" class="mt-4 flex flex-wrap items-center gap-2">
-          <button id="sign-in-button" type="button" class="btn btn-outline btn-sm">Sign in</button>
-          <button id="sign-out-button" type="button" class="btn btn-ghost btn-sm hidden">Sign out</button>
-        </div>
-      </div>
 
-      <div class="flex-1 overflow-y-auto px-4 py-5 custom-scrollbar">
-        <div class="mb-6 flex items-center justify-between px-2">
-          <div>
-            <p class="text-xs font-bold uppercase tracking-[0.22em] text-slate-500">Topic groups</p>
-            <p id="visible-topic-count" class="mt-1 text-sm text-slate-500">0 topics visible</p>
-          </div>
-          <button id="create-group-button" type="button" class="btn btn-outline btn-sm">Group</button>
+        <div class="nr-sidebar-body custom-scrollbar">
+          <button id="add-topic-button" type="button" class="nr-add-topic">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="8.6" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M12 8.4v7.2M8.4 12h7.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+            <span>Add Topic</span>
+          </button>
+          <div id="group-list" class="nr-group-list"></div>
+          <div id="selected-group-panel" class="nr-selected-group hidden"></div>
+          <div id="topic-list-status" class="nr-topic-status">Loading topics...</div>
+          <div id="topic-list" class="nr-topic-list"></div>
         </div>
-        <div id="group-list" class="space-y-1"></div>
-        <div id="selected-group-panel" class="mt-6 hidden rounded-2xl border border-slate-200 bg-slate-50 p-4"></div>
-        <div class="mt-8">
-          <div class="mb-3 px-2">
-            <p class="text-xs font-bold uppercase tracking-[0.22em] text-slate-500">Topics</p>
-          </div>
-          <div id="topic-list-status" class="px-3 py-4 text-sm text-slate-500">Loading topics...</div>
-          <div id="topic-list" class="space-y-2"></div>
-        </div>
-      </div>
-    </aside>
+      </aside>
 
-    <main class="min-w-0 flex-1">
+      <main class="nr-main">
       {% block content %}{% endblock %}
-    </main>
+      </main>
+    </div>
   </div>
 
   <div id="toast" class="pointer-events-none fixed bottom-4 left-1/2 z-50 hidden max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-lg"></div>

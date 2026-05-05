@@ -255,10 +255,10 @@ function renderSidebar() {
   if (!groupList || !topicList || !topicStatus || !visibleTopicCount || !selectedGroupPanel) return;
 
   if (!state.isAuthenticated) {
-    groupList.innerHTML = '<div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">Sign in to load topic groups.</div>';
+    groupList.innerHTML = "";
     topicList.innerHTML = "";
-    topicStatus.textContent = "No session yet.";
-    topicStatus.classList.remove("hidden");
+    topicStatus.textContent = "";
+    topicStatus.classList.add("hidden");
     visibleTopicCount.textContent = "0 topics visible";
     selectedGroupPanel.classList.add("hidden");
     return;
@@ -272,49 +272,49 @@ function renderSidebar() {
 
   const allActive = !state.selectedGroupId && !state.selectedTopicUuid;
   groupList.innerHTML = [
-    `<a href="/" data-group="" class="block w-full rounded-2xl px-4 py-3 text-left transition-colors ${allActive ? "bg-emerald-50 text-emerald-700" : "text-slate-600 hover:bg-slate-100"}">
-      <p class="text-sm font-semibold">All topics</p>
-      <p class="mt-1 text-xs text-slate-500">${state.topics.length} topics</p>
+    `<a href="/" data-group="" class="nr-group-item ${allActive ? "is-active" : ""}">
+      <p>All topics</p>
+      <span>${state.topics.length} topics</span>
     </a>`,
     ...state.groups.map((group) => {
       const uuid = String(group.uuid);
       const count = state.topics.filter((topic) => topic.groupUuid === uuid).length;
       const active = state.selectedGroupId === uuid && !state.selectedTopicUuid;
-      return `<a href="/?group=${encodeURIComponent(uuid)}" data-group="${escapeHtml(uuid)}" class="block w-full rounded-2xl px-4 py-3 text-left transition-colors ${active ? "bg-emerald-50 text-emerald-700" : "text-slate-600 hover:bg-slate-100"}">
-        <p class="text-sm font-semibold">${escapeHtml(group.name)}</p>
-        <p class="mt-1 text-xs text-slate-500">${count} topics</p>
+      return `<a href="/?group=${encodeURIComponent(uuid)}" data-group="${escapeHtml(uuid)}" class="nr-group-item ${active ? "is-active" : ""}">
+        <p>${escapeHtml(group.name)}</p>
+        <span>${count} topics</span>
       </a>`;
     }),
   ].join("");
 
   if (selectedGroup) {
     selectedGroupPanel.classList.remove("hidden");
-    selectedGroupPanel.innerHTML = `<div class="flex items-center justify-between gap-3">
+    selectedGroupPanel.innerHTML = `<div class="nr-selected-group-inner">
       <div>
-        <p class="text-sm font-semibold text-slate-900">${escapeHtml(selectedGroup.name)}</p>
-        <p class="mt-1 text-xs text-slate-500">Visual organization only. Topics keep their own filters and frequency.</p>
+        <p>${escapeHtml(selectedGroup.name)}</p>
+        <span>Visual organization only. Topics keep their own filters and frequency.</span>
       </div>
-      <button type="button" class="btn btn-outline btn-sm" data-edit-group="${escapeHtml(String(selectedGroup.uuid))}">Edit</button>
+      <button type="button" class="nr-small-pill" data-edit-group="${escapeHtml(String(selectedGroup.uuid))}">Edit</button>
     </div>`;
   } else {
     selectedGroupPanel.classList.add("hidden");
   }
 
   if (!filteredTopics.length) {
-    topicStatus.textContent = state.selectedGroupId ? "No topics in this group yet." : "No topics yet. Create one to start monitoring.";
-    topicStatus.classList.remove("hidden");
+    topicStatus.textContent = "";
+    topicStatus.classList.add("hidden");
     topicList.innerHTML = "";
   } else {
     topicStatus.classList.add("hidden");
     topicList.innerHTML = filteredTopics.map((topic) => {
       const active = state.selectedTopicUuid === topic.uuid && document.body.dataset.page === "dashboard";
-      return `<a href="/?topic=${encodeURIComponent(topic.uuid)}" data-topic="${escapeHtml(topic.uuid)}" class="block w-full rounded-2xl border px-4 py-3 text-left transition-colors ${active ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"}">
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <p class="truncate text-sm font-semibold text-slate-900">${escapeHtml(topic.term)}</p>
-            <p class="mt-1 text-xs text-slate-500">${escapeHtml(formatFrequency(topic))}</p>
+      return `<a href="/?topic=${encodeURIComponent(topic.uuid)}" data-topic="${escapeHtml(topic.uuid)}" class="nr-topic-item ${active ? "is-active" : ""}">
+        <div class="nr-topic-item-row">
+          <div>
+            <p>${escapeHtml(topic.term)}</p>
+            <span>${escapeHtml(formatFrequency(topic))}</span>
           </div>
-          ${topic.hasNewItems ? '<span class="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500"></span>' : ""}
+          ${topic.hasNewItems ? '<i aria-hidden="true"></i>' : ""}
         </div>
       </a>`;
     }).join("");

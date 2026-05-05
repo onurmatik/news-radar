@@ -3,54 +3,85 @@
 {% block title %}NewsRadar | Dashboard{% endblock %}
 
 {% block content %}
-<section class="mx-auto max-w-[1500px] space-y-6 p-4 md:p-6 lg:p-10">
-  <div class="flex flex-col gap-4 border-b border-slate-200 pb-6 lg:flex-row lg:items-end lg:justify-between">
-    <div>
-      <p class="text-xs font-bold uppercase tracking-[0.22em] text-emerald-600">Intelligence feed</p>
-      <h2 id="dashboard-heading" class="mt-2 text-4xl font-bold text-slate-900">All topics</h2>
-      <p id="dashboard-subtitle" class="mt-2 text-sm text-slate-500">Browse the latest saved search results across your monitoring topics.</p>
+<section class="nr-dashboard" aria-labelledby="dashboard-heading">
+  <div class="nr-dashboard-head">
+    <div class="min-w-0">
+      <h2 id="dashboard-heading" class="nr-page-title">All content</h2>
+      <p id="dashboard-subtitle" class="sr-only">Browse the latest saved search results across your monitoring topics.</p>
     </div>
-    <div id="selected-topic-actions" class="hidden flex-wrap items-center gap-3">
-      <a id="edit-selected-topic" class="btn btn-outline" href="/topics">Edit topic</a>
-      <button id="scan-selected-topic" type="button" class="btn btn-primary">Scan now</button>
+    <div class="nr-view-actions">
+      <a class="nr-action-pill" href="/topics">Connect</a>
+      <button class="nr-action-pill nr-action-pill-active" type="button">Trash</button>
+    </div>
+    <div id="selected-topic-actions" class="hidden">
+      <a id="edit-selected-topic" href="/topics">Edit topic</a>
+      <button id="scan-selected-topic" type="button">Scan now</button>
     </div>
   </div>
 
-  <div id="dashboard-signed-out" class="card hidden p-8 text-center">
-    <p class="text-base font-semibold text-slate-900">Sign in to view your radar</p>
-    <p class="mt-2 text-sm text-slate-500">Your topics, feed, bookmarks, and AI analysis are tied to your account.</p>
-    <button type="button" class="btn btn-primary mt-5" data-open-auth>Sign in</button>
-  </div>
+  <div id="dashboard-signed-out" class="hidden"></div>
 
-  <div id="dashboard-content" class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-    <div class="space-y-4">
-      <div class="flex flex-wrap items-center gap-3">
-        <div class="relative min-w-[240px] flex-1">
-          <input id="feed-search" class="input h-10 rounded-full pl-4" placeholder="Search titles, snippets, URLs">
-        </div>
-        <button id="new-only-filter" type="button" class="btn btn-outline">New only</button>
-        <button id="bookmarked-filter" type="button" class="btn btn-outline">Bookmarked</button>
+  <div id="dashboard-content" class="nr-dashboard-content">
+    <div class="nr-feed-column">
+      <div class="nr-dashboard-rule"></div>
+      <div class="nr-feed-toolbar">
+        <label class="nr-search" for="feed-search">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"/>
+            <path d="m16 16 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <input id="feed-search" placeholder="Search">
+        </label>
+        <div id="domain-filters" class="nr-domain-filters"></div>
+        <button id="new-only-filter" type="button" class="nr-filter-pill">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.25" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>New</span>
+        </button>
+        <button id="bookmarked-filter" type="button" class="nr-filter-pill">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="m12 4 2.35 4.76 5.25.76-3.8 3.7.9 5.22L12 15.97l-4.7 2.47.9-5.22-3.8-3.7 5.25-.76L12 4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+          </svg>
+          <span>Bookmarked</span>
+        </button>
+        <p id="feed-result-count" class="nr-results-count">0 results</p>
       </div>
-      <div id="domain-filters" class="flex flex-wrap items-center gap-2"></div>
       <div id="feed-error" class="hidden rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"></div>
-      <div id="feed-list" class="space-y-4"></div>
+      <div id="feed-list" class="nr-feed-list"></div>
     </div>
 
-    <aside class="space-y-4">
-      <div class="card p-5">
-        <div>
-          <h3 class="flex items-center gap-2 text-lg font-semibold text-slate-900">AI analysis</h3>
-          <p class="mt-1 text-sm text-slate-500">Run an instruction across the current filtered feed.</p>
+    <aside class="nr-analysis-panel">
+      <div class="nr-analysis-intro">
+        <div class="nr-analysis-title-row">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 3.8 13.7 8l4.5 1.7-4.5 1.7L12 15.6l-1.7-4.2-4.5-1.7L10.3 8 12 3.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+            <path d="m18 15 .8 1.9 2 .8-2 .8-.8 1.9-.8-1.9-2-.8 2-.8.8-1.9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+          </svg>
+          <h3>Analyze</h3>
         </div>
-        <div id="ai-presets" class="mt-4 flex flex-wrap gap-2"></div>
-        <textarea id="ai-instruction" class="textarea mt-4 min-h-[140px]"></textarea>
-        <button id="run-ai-analysis" type="button" class="btn btn-primary mt-4">Run AI analysis</button>
+        <p>Analyze the currently listed content items with AI. Filter the list to adjust the context.</p>
+        <p id="ai-context-count" class="nr-analysis-context">Context: 0 items</p>
       </div>
-
-      <div class="card p-5">
-        <h3 class="text-lg font-semibold text-slate-900">AI output</h3>
-        <p class="mt-1 text-sm text-slate-500">Responses are generated from the current filtered content set.</p>
-        <div id="ai-output" class="prose-lite mt-4 text-sm leading-6 text-slate-700">Run an AI instruction to see the result here.</div>
+      <div class="nr-analysis-rule"></div>
+      <div id="ai-output" class="prose-lite nr-ai-output">Run an instruction to see the response here.</div>
+      <div class="nr-analysis-bottom">
+        <div class="nr-analysis-rule"></div>
+        <div id="ai-presets" class="nr-ai-presets"></div>
+        <div class="nr-ai-input-card">
+          <textarea id="ai-instruction" class="nr-ai-textarea" aria-label="AI instruction"></textarea>
+          <button type="button" class="nr-ai-save" aria-label="Save instruction">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M7 4.8c0-1 .8-1.8 1.8-1.8h6.4c1 0 1.8.8 1.8 1.8v15.4l-5-3.1-5 3.1V4.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button id="run-ai-analysis" type="button" class="nr-ai-run" aria-label="Run AI analysis">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M5 4.8 20 12 5 19.2v-5.5L13.2 12 5 10.3V4.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </aside>
   </div>
