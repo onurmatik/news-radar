@@ -678,8 +678,6 @@ export function initTopics(context) {
   }
 
   function renderManagedTopicsStage() {
-    const group = managedGroup();
-    const groupName = group ? group.name : "Collection";
     if (!state.groupUuid) {
       return `<div class="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
         Select a collection from the sidebar to manage its topics.
@@ -687,16 +685,6 @@ export function initTopics(context) {
     }
     const addTopicUrl = `/topics?group=${encodeURIComponent(state.groupUuid)}`;
     return `<div class="space-y-8">
-      <div class="rounded-xl border border-slate-200 bg-white p-5">
-        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p class="text-xs font-bold uppercase tracking-widest text-slate-500">Collection topics</p>
-            <p class="mt-1 text-sm leading-6 text-slate-600">${context.utils.escapeHtml(groupName)} has ${state.managedDrafts.length} ${state.managedDrafts.length === 1 ? "topic" : "topics"}.</p>
-          </div>
-          <a class="btn btn-outline btn-sm" href="${addTopicUrl}">Add topic</a>
-        </div>
-      </div>
-
       ${state.managedTopicsLoading ? `<div class="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">Loading topics...</div>` : state.managedDrafts.length ? `<div class="space-y-4">
         ${state.managedDrafts.map((entry, index) => renderTopicDraftCard({
           draft: entry.draft,
@@ -707,6 +695,10 @@ export function initTopics(context) {
           allowDomainSuggestions: false,
         })).join("")}
       </div>` : `<div class="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">No topics in this collection yet.</div>`}
+
+      <div class="flex justify-center pt-1">
+        <a class="btn btn-outline w-full max-w-sm border-dashed border-slate-300 text-slate-500" href="${addTopicUrl}">Add topic</a>
+      </div>
 
       ${state.error ? `<p class="text-sm text-red-600">${context.utils.escapeHtml(state.error)}</p>` : ""}
 
@@ -872,10 +864,10 @@ export function initTopics(context) {
     }
     const pageTitle = state.mode === "edit"
       ? "Edit monitoring topic"
-      : state.mode === "manage" ? `Manage topics${managedGroup() ? ` in ${managedGroup().name}` : ""}`
+      : state.mode === "manage" ? (managedGroup() ? managedGroup().name : "Collection")
       : state.stage === "prompt" ? "Create monitoring topic" : "Review drafts";
     const pageDescription = state.mode === "manage"
-      ? "Edit the monitoring setup for each topic in this collection."
+      ? "Manage topics in this collection."
       : state.stage === "split"
       ? "AI analyzed your prompt and generated focused topic monitors."
       : state.stage === "review"
@@ -887,7 +879,7 @@ export function initTopics(context) {
         <p class="mt-2 max-w-2xl text-base text-slate-600">${pageDescription}</p>
       </div>
       <div class="mx-auto max-w-5xl space-y-8 px-6 py-8 md:px-10">
-        ${state.mode === "manage" ? "" : renderCollectionManager()}
+        ${state.mode === "edit" ? renderCollectionManager() : ""}
         ${state.mode === "manage" ? renderManagedTopicsStage() : state.stage === "prompt" ? renderPromptStage() : state.stage === "split" ? renderSplitStage() : renderReviewStage()}
       </div>
     </div>`;
