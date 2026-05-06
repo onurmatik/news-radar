@@ -252,11 +252,16 @@ export function initTopics(context) {
     const monitoringPrompt = root.querySelector(`[data-draft-prompt="${index}"]`);
     const displayTitle = root.querySelector(`[data-draft-title="${index}"]`);
     const country = root.querySelector(`[data-draft-country="${index}"]`);
+    const queries = ensureAtLeastOne(readDraftList(index, "queries"));
+    const nextDisplayTitle = displayTitle ? displayTitle.value : fallback.displayTitle;
+    const nextMonitoringPrompt = monitoringPrompt
+      ? monitoringPrompt.value
+      : fallback.monitoringPrompt || nextDisplayTitle || normalizeList(queries)[0] || "";
     return {
       ...fallback,
-      monitoringPrompt: monitoringPrompt ? monitoringPrompt.value : fallback.monitoringPrompt,
-      displayTitle: displayTitle ? displayTitle.value : fallback.displayTitle,
-      queries: ensureAtLeastOne(readDraftList(index, "queries")),
+      monitoringPrompt: nextMonitoringPrompt,
+      displayTitle: nextDisplayTitle,
+      queries,
       domainAllowlist: ensureAtLeastOne(readDraftList(index, "domainAllowlist")),
       limitToSelectedDomains: fallback.limitToSelectedDomains,
       limitToSelectedLanguages: fallback.limitToSelectedLanguages,
@@ -266,11 +271,11 @@ export function initTopics(context) {
   }
 
   function collectDraftFromDom() {
-    const cardPrompt = root.querySelector('[data-draft-prompt="0"]');
+    const cardTitle = root.querySelector('[data-draft-title="0"]');
     const monitoringPrompt = root.querySelector("[name='monitoringPrompt']");
     const groupName = root.querySelector("[name='groupName']");
 
-    if (cardPrompt) {
+    if (cardTitle) {
       state.groupNameDraft = groupName ? groupName.value : state.groupNameDraft;
       state.draft = collectTopicDraftFromDom(0, state.draft);
       state.extraDrafts = state.extraDrafts.map((draft, index) => collectTopicDraftFromDom(index + 1, draft));
@@ -303,8 +308,9 @@ export function initTopics(context) {
 
   function buildTopicPayload(draft, { groupUuid = "", isActive = true } = {}) {
     const queries = normalizeList(draft.queries);
+    const monitoringPrompt = draft.monitoringPrompt.trim() || draft.displayTitle.trim() || queries[0] || "";
     return {
-      monitoringPrompt: draft.monitoringPrompt.trim(),
+      monitoringPrompt,
       displayTitle: draft.displayTitle.trim(),
       primaryQuery: queries[0],
       queryVariations: queries.slice(1),
@@ -322,7 +328,6 @@ export function initTopics(context) {
     const queries = normalizeList(draft.queries);
     const languages = normalizeList(draft.languageFilter);
     const domains = normalizeList(draft.domainAllowlist);
-    if (!draft.monitoringPrompt.trim()) return `${label}: monitoring prompt cannot be empty.`;
     if (!draft.displayTitle.trim()) return `${label}: title cannot be empty.`;
     if (!queries.length) return `${label}: add at least one query.`;
     if (queries.length > MAX_QUERY_COUNT) return `${label}: use at most ${MAX_QUERY_COUNT} search queries.`;
@@ -575,6 +580,9 @@ export function initTopics(context) {
     const canAddLanguages = languageValues.length < MAX_LANGUAGE_COUNT;
     const canSuggestMoreDomains = allowDomainSuggestions && draft.limitToSelectedDomains && selectedDomains.length > 0 && selectedDomains.length < MAX_DOMAIN_COUNT;
     const labelClass = "text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400";
+    const filterToggleClass = "flex overflow-hidden rounded-lg border border-emerald-200 bg-white text-[10px] font-extrabold uppercase tracking-[0.08em] shadow-sm shadow-emerald-50";
+    const activeFilterToggleClass = "bg-emerald-50 text-emerald-800";
+    const inactiveFilterToggleClass = "bg-white text-slate-500 hover:bg-slate-50";
     const cardClass = selectable
       ? (selected ? "border-emerald-200 bg-emerald-50/80 shadow-sm shadow-emerald-100/80" : "border-slate-200 bg-white hover:border-slate-300")
       : showStatus && !isActive ? "border-slate-200 bg-slate-50" : "border-slate-200 bg-white";
@@ -613,10 +621,6 @@ export function initTopics(context) {
             ${COUNTRY_OPTIONS.map(([value, label]) => `<option value="${value}" ${draft.country === value ? "selected" : ""}>${label}</option>`).join("")}
           </select>
         </div>
-        <div class="space-y-1.5 md:col-span-3">
-          <label class="${labelClass}">Monitoring scope</label>
-          <input class="input" data-draft-prompt="${index}" value="${context.utils.escapeHtml(draft.monitoringPrompt)}">
-        </div>
       </div>
 
       <div class="mt-6 grid gap-6 border-t ${selectable && selected ? "border-emerald-100" : "border-slate-100"} pt-6 lg:grid-cols-12">
@@ -633,9 +637,9 @@ export function initTopics(context) {
         <div class="space-y-3 lg:col-span-5">
           <div class="flex items-center justify-between" style="min-height: 3rem;">
             <label class="${labelClass}">Source control</label>
-            <div class="flex overflow-hidden rounded-lg border border-slate-200 text-[10px] font-extrabold uppercase tracking-[0.08em]">
-              <button type="button" class="${draft.limitToSelectedDomains ? "bg-white text-slate-500" : "bg-emerald-600 text-white"} px-2.5 py-1" data-draft-domain-mode="all" data-draft-index="${index}">All</button>
-              <button type="button" class="${draft.limitToSelectedDomains ? "bg-emerald-600 text-white" : "bg-white text-slate-500"} border-l border-slate-200 px-2.5 py-1" data-draft-domain-mode="limited" data-draft-index="${index}">Limited</button>
+            <div class="${filterToggleClass}">
+              <button type="button" class="${draft.limitToSelectedDomains ? inactiveFilterToggleClass : activeFilterToggleClass} px-2.5 py-1" data-draft-domain-mode="all" data-draft-index="${index}">All</button>
+              <button type="button" class="${draft.limitToSelectedDomains ? activeFilterToggleClass : inactiveFilterToggleClass} border-l border-emerald-200 px-2.5 py-1" data-draft-domain-mode="limited" data-draft-index="${index}">Limited</button>
             </div>
           </div>
           ${draft.limitToSelectedDomains ? `<div class="space-y-3">
@@ -653,9 +657,9 @@ export function initTopics(context) {
         <div class="space-y-3 lg:col-span-3">
           <div class="flex items-center justify-between" style="min-height: 3rem;">
             <label class="${labelClass}">Languages</label>
-            <div class="flex overflow-hidden rounded-lg border border-slate-200 text-[10px] font-extrabold uppercase tracking-[0.08em]">
-              <button type="button" class="${languageLimited ? "bg-white text-slate-500" : "bg-emerald-600 text-white"} px-2.5 py-1" data-draft-language-mode="all" data-draft-index="${index}">All</button>
-              <button type="button" class="${languageLimited ? "bg-emerald-600 text-white" : "bg-white text-slate-500"} border-l border-slate-200 px-2.5 py-1" data-draft-language-mode="limited" data-draft-index="${index}">Limited</button>
+            <div class="${filterToggleClass}">
+              <button type="button" class="${languageLimited ? inactiveFilterToggleClass : activeFilterToggleClass} px-2.5 py-1" data-draft-language-mode="all" data-draft-index="${index}">All</button>
+              <button type="button" class="${languageLimited ? activeFilterToggleClass : inactiveFilterToggleClass} border-l border-emerald-200 px-2.5 py-1" data-draft-language-mode="limited" data-draft-index="${index}">Limited</button>
             </div>
           </div>
           ${languageLimited ? `<div class="flex items-center justify-between gap-3">
