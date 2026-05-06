@@ -14,6 +14,15 @@ const COUNTRY_OPTIONS = [
   ["US", "United States"],
 ];
 
+const MAX_QUERY_COUNT = 5;
+const MAX_DOMAIN_COUNT = 20;
+const MAX_LANGUAGE_COUNT = 10;
+const DRAFT_LIST_LIMITS = {
+  queries: MAX_QUERY_COUNT,
+  domainAllowlist: MAX_DOMAIN_COUNT,
+  languageFilter: MAX_LANGUAGE_COUNT,
+};
+
 const EMPTY_DRAFT = {
   monitoringPrompt: "",
   displayTitle: "",
@@ -22,6 +31,7 @@ const EMPTY_DRAFT = {
   topicWarning: null,
   limitToSelectedDomains: false,
   domainAllowlist: [""],
+  limitToSelectedLanguages: false,
   languageFilter: [""],
   country: "",
   updateFrequency: "auto",
@@ -34,12 +44,14 @@ function cloneDraft(source = EMPTY_DRAFT) {
     queries: [...(source.queries || [""])],
     suggestedDomains: [...(source.suggestedDomains || [])],
     domainAllowlist: [...(source.domainAllowlist || [""])],
+    limitToSelectedLanguages: Boolean(source.limitToSelectedLanguages),
     languageFilter: [...(source.languageFilter || [""])],
   };
 }
 
 function toDraftFromTopic(topic) {
   const existingDomains = topic.domainAllowlist && topic.domainAllowlist.length ? topic.domainAllowlist : [""];
+  const existingLanguages = topic.languageFilter && topic.languageFilter.length ? topic.languageFilter : [""];
   return {
     monitoringPrompt: topic.monitoringPrompt,
     displayTitle: topic.displayTitle,
@@ -48,7 +60,8 @@ function toDraftFromTopic(topic) {
     topicWarning: null,
     limitToSelectedDomains: Boolean(topic.domainAllowlist && topic.domainAllowlist.length),
     domainAllowlist: existingDomains,
-    languageFilter: topic.languageFilter && topic.languageFilter.length ? topic.languageFilter : [""],
+    limitToSelectedLanguages: Boolean(topic.languageFilter && topic.languageFilter.length),
+    languageFilter: existingLanguages,
     country: topic.country || "",
     updateFrequency: topic.updateFrequency,
     autoEffectiveIntervalHours: topic.autoEffectiveIntervalHours || 24,
@@ -56,16 +69,19 @@ function toDraftFromTopic(topic) {
 }
 
 function toDraftFromSplitSuggestion(suggestion) {
-  const suggestedDomains = normalizeList(suggestion.suggested_domains || []);
+  const suggestedDomains = normalizeList(suggestion.suggested_domains || []).slice(0, MAX_DOMAIN_COUNT);
+  const queries = suggestion.query_variations && suggestion.query_variations.length ? suggestion.query_variations : [suggestion.monitoring_prompt || ""];
+  const languageFilter = normalizeList(suggestion.search_language_filter || []).slice(0, MAX_LANGUAGE_COUNT);
   return {
     monitoringPrompt: suggestion.monitoring_prompt || "",
     displayTitle: suggestion.display_title || suggestion.monitoring_prompt || "",
-    queries: suggestion.query_variations && suggestion.query_variations.length ? suggestion.query_variations : [suggestion.monitoring_prompt || ""],
+    queries: ensureAtLeastOne(normalizeList(queries).slice(0, MAX_QUERY_COUNT)),
     suggestedDomains,
     topicWarning: suggestion.topic_warning || null,
     limitToSelectedDomains: suggestedDomains.length > 0,
     domainAllowlist: ensureAtLeastOne(suggestedDomains),
-    languageFilter: suggestion.search_language_filter && suggestion.search_language_filter.length ? suggestion.search_language_filter : [""],
+    limitToSelectedLanguages: languageFilter.length > 0,
+    languageFilter: ensureAtLeastOne(languageFilter),
     country: suggestion.country || "",
     updateFrequency: "auto",
     autoEffectiveIntervalHours: 24,
@@ -164,7 +180,7 @@ export function initTopics(context) {
   }
 
   function normalizedLanguages() {
-    return normalizeList(state.draft.languageFilter);
+    return state.draft.limitToSelectedLanguages ? normalizeList(state.draft.languageFilter) : [];
   }
 
   function hasPendingPromptChanges() {
@@ -243,6 +259,7 @@ export function initTopics(context) {
       queries: ensureAtLeastOne(readDraftList(index, "queries")),
       domainAllowlist: ensureAtLeastOne(readDraftList(index, "domainAllowlist")),
       limitToSelectedDomains: fallback.limitToSelectedDomains,
+      limitToSelectedLanguages: fallback.limitToSelectedLanguages,
       languageFilter: ensureAtLeastOne(readDraftList(index, "languageFilter")),
       country: country ? country.value : fallback.country,
     };
@@ -293,7 +310,7 @@ export function initTopics(context) {
       queryVariations: queries.slice(1),
       groupUuid: groupUuid || null,
       domainAllowlist: draft.limitToSelectedDomains ? normalizeList(draft.domainAllowlist) : null,
-      languageFilter: normalizeList(draft.languageFilter),
+      languageFilter: draft.limitToSelectedLanguages ? normalizeList(draft.languageFilter) : null,
       country: (draft.country || "").trim() || null,
       updateFrequency: draft.updateFrequency,
       autoEffectiveIntervalHours: draft.autoEffectiveIntervalHours || null,
@@ -302,9 +319,16 @@ export function initTopics(context) {
   }
 
   function validateTopicDraft(draft, label = "Topic") {
+    const queries = normalizeList(draft.queries);
+    const languages = normalizeList(draft.languageFilter);
+    const domains = normalizeList(draft.domainAllowlist);
     if (!draft.monitoringPrompt.trim()) return `${label}: monitoring prompt cannot be empty.`;
     if (!draft.displayTitle.trim()) return `${label}: title cannot be empty.`;
-    if (!normalizeList(draft.queries).length) return `${label}: add at least one query.`;
+    if (!queries.length) return `${label}: add at least one query.`;
+    if (queries.length > MAX_QUERY_COUNT) return `${label}: use at most ${MAX_QUERY_COUNT} search queries.`;
+    if (draft.limitToSelectedLanguages && !languages.length) return `${label}: add at least one language code or turn off language limiting.`;
+    if (draft.limitToSelectedLanguages && languages.length > MAX_LANGUAGE_COUNT) return `${label}: use at most ${MAX_LANGUAGE_COUNT} language codes.`;
+    if (draft.limitToSelectedDomains && domains.length > MAX_DOMAIN_COUNT) return `${label}: use at most ${MAX_DOMAIN_COUNT} domains.`;
     return null;
   }
 
@@ -539,8 +563,17 @@ export function initTopics(context) {
     showStatus = false,
     isActive = true,
   }) {
+    const queryValues = ensureAtLeastOne(draft.queries);
+    const queryCount = normalizeList(draft.queries).length;
     const selectedDomains = normalizeList(draft.domainAllowlist);
-    const canSuggestMoreDomains = allowDomainSuggestions && draft.limitToSelectedDomains && selectedDomains.length > 0 && selectedDomains.length < 20;
+    const domainValues = ensureAtLeastOne(draft.domainAllowlist);
+    const languageValues = ensureAtLeastOne(draft.languageFilter);
+    const languageCount = normalizeList(draft.languageFilter).length;
+    const languageLimited = draft.limitToSelectedLanguages;
+    const canAddQueries = queryValues.length < MAX_QUERY_COUNT;
+    const canAddDomains = domainValues.length < MAX_DOMAIN_COUNT;
+    const canAddLanguages = languageValues.length < MAX_LANGUAGE_COUNT;
+    const canSuggestMoreDomains = allowDomainSuggestions && draft.limitToSelectedDomains && selectedDomains.length > 0 && selectedDomains.length < MAX_DOMAIN_COUNT;
     const labelClass = "text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400";
     const cardClass = selectable
       ? (selected ? "border-emerald-200 bg-emerald-50/80 shadow-sm shadow-emerald-100/80" : "border-slate-200 bg-white hover:border-slate-300")
@@ -588,14 +621,17 @@ export function initTopics(context) {
 
       <div class="mt-6 grid gap-6 border-t ${selectable && selected ? "border-emerald-100" : "border-slate-100"} pt-6 lg:grid-cols-12">
         <div class="space-y-3 lg:col-span-4">
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between" style="min-height: 3rem;">
             <label class="${labelClass}">Search queries</label>
-            <button type="button" class="text-xs font-bold text-emerald-700 hover:underline" data-add-draft-list="queries" data-draft-index="${index}">Add</button>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <p class="text-xs font-bold text-slate-500">${queryCount}/${MAX_QUERY_COUNT} queries</p>
+            <button type="button" class="${canAddQueries ? "text-xs font-bold text-emerald-700 hover:underline" : "text-xs font-bold text-slate-400"}" data-add-draft-list="queries" data-draft-index="${index}" ${canAddQueries ? "" : "disabled"}>Add</button>
           </div>
           ${draftListInputs(index, "queries", draft.queries, "English search query")}
         </div>
         <div class="space-y-3 lg:col-span-5">
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between" style="min-height: 3rem;">
             <label class="${labelClass}">Source control</label>
             <div class="flex overflow-hidden rounded-lg border border-slate-200 text-[10px] font-extrabold uppercase tracking-[0.08em]">
               <button type="button" class="${draft.limitToSelectedDomains ? "bg-white text-slate-500" : "bg-emerald-600 text-white"} px-2.5 py-1" data-draft-domain-mode="all" data-draft-index="${index}">All</button>
@@ -604,10 +640,10 @@ export function initTopics(context) {
           </div>
           ${draft.limitToSelectedDomains ? `<div class="space-y-3">
             <div class="flex items-center justify-between gap-3">
-              <p class="text-xs font-bold text-slate-500">${selectedDomains.length}/20 domains</p>
+              <p class="text-xs font-bold text-slate-500">${selectedDomains.length}/${MAX_DOMAIN_COUNT} domains</p>
               <div class="flex items-center gap-2">
-                ${draft.suggestedDomains.length ? `<button type="button" class="text-xs font-bold text-slate-500 hover:text-slate-900" data-action="restore-draft-domains" data-draft-index="${index}">Use AI list</button>` : ""}
-                <button type="button" class="text-xs font-bold text-emerald-700 hover:underline" data-add-draft-list="domainAllowlist" data-draft-index="${index}">Add domain</button>
+                ${draft.suggestedDomains.length ? `<button type="button" class="text-xs font-bold text-slate-500 hover:text-slate-900" data-action="restore-draft-domains" data-draft-index="${index}">Use suggestions</button>` : ""}
+                <button type="button" class="${canAddDomains ? "text-xs font-bold text-emerald-700 hover:underline" : "text-xs font-bold text-slate-400"}" data-add-draft-list="domainAllowlist" data-draft-index="${index}" ${canAddDomains ? "" : "disabled"}>Add domain</button>
               </div>
             </div>
             ${draftListInputs(index, "domainAllowlist", draft.domainAllowlist, "example.org")}
@@ -615,11 +651,18 @@ export function initTopics(context) {
           </div>` : `<p class="text-sm leading-6 text-slate-500">Do not limit to specific domains.</p>`}
         </div>
         <div class="space-y-3 lg:col-span-3">
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between" style="min-height: 3rem;">
             <label class="${labelClass}">Languages</label>
-            <button type="button" class="text-xs font-bold text-emerald-700 hover:underline" data-add-draft-list="languageFilter" data-draft-index="${index}">Add</button>
+            <div class="flex overflow-hidden rounded-lg border border-slate-200 text-[10px] font-extrabold uppercase tracking-[0.08em]">
+              <button type="button" class="${languageLimited ? "bg-white text-slate-500" : "bg-emerald-600 text-white"} px-2.5 py-1" data-draft-language-mode="all" data-draft-index="${index}">All</button>
+              <button type="button" class="${languageLimited ? "bg-emerald-600 text-white" : "bg-white text-slate-500"} border-l border-slate-200 px-2.5 py-1" data-draft-language-mode="limited" data-draft-index="${index}">Limited</button>
+            </div>
           </div>
-          ${draftListInputs(index, "languageFilter", draft.languageFilter, "en")}
+          ${languageLimited ? `<div class="flex items-center justify-between gap-3">
+            <p class="text-xs font-bold text-slate-500">${languageCount}/${MAX_LANGUAGE_COUNT} language codes</p>
+            <button type="button" class="${canAddLanguages ? "text-xs font-bold text-emerald-700 hover:underline" : "text-xs font-bold text-slate-400"}" data-add-draft-list="languageFilter" data-draft-index="${index}" ${canAddLanguages ? "" : "disabled"}>Add</button>
+          </div>
+          ${draftListInputs(index, "languageFilter", draft.languageFilter, "en")}` : `<p class="text-sm leading-6 text-slate-500">Do not filter by language.</p>`}
         </div>
       </div>
     </div>`;
@@ -704,7 +747,7 @@ export function initTopics(context) {
 
       <div class="flex flex-col gap-4 border-t border-slate-100 pt-8 md:flex-row md:items-center md:justify-between">
         <a class="btn btn-outline" href="/?group=${encodeURIComponent(state.groupUuid)}">Cancel</a>
-        <button type="button" class="btn btn-primary rounded-xl px-6 shadow-lg shadow-emerald-500/20" data-action="save-managed-topics" ${state.busy ? "disabled" : ""}>${state.busy === "save-managed-topics" ? "Saving..." : "Save topics"}</button>
+        <button type="button" class="btn btn-primary rounded-xl px-6 shadow-lg shadow-emerald-500/20" data-action="save-managed-topics" ${state.busy ? "disabled" : ""}>${state.busy === "save-managed-topics" ? "Saving..." : "Save"}</button>
       </div>
     </div>`;
   }
@@ -715,7 +758,7 @@ export function initTopics(context) {
     const canUseSingleTools = state.mode === "edit" || state.extraDrafts.length === 0;
     const draftCountLabel = `${draftCards.length} topic draft${draftCards.length === 1 ? "" : "s"}`;
     const actionLabel = state.mode === "edit"
-      ? "Save topic"
+      ? "Save"
       : draftCards.length > 1 ? "Create topics" : "Create topic";
     return `<div class="space-y-8">
       <div class="rounded-xl border border-slate-200 bg-white p-5">
@@ -886,8 +929,9 @@ export function initTopics(context) {
   }
 
   function applyOrganizerResponse(response, prompt, { preserveTitle = false, defaultGroupName = false } = {}) {
-    const nextQueries = response.query_variations && response.query_variations.length ? response.query_variations : [prompt];
-    const nextDomains = response.suggested_domains && response.suggested_domains.length ? response.suggested_domains : [];
+    const nextQueries = normalizeList(response.query_variations && response.query_variations.length ? response.query_variations : [prompt]).slice(0, MAX_QUERY_COUNT);
+    const nextDomains = normalizeList(response.suggested_domains && response.suggested_domains.length ? response.suggested_domains : []).slice(0, MAX_DOMAIN_COUNT);
+    const nextLanguages = normalizeList(response.search_language_filter || []).slice(0, MAX_LANGUAGE_COUNT);
     const splitSuggestions = response.split_suggestions && response.split_suggestions.length
       ? response.split_suggestions.map((suggestion) => toDraftFromSplitSuggestion(suggestion))
       : [];
@@ -895,12 +939,13 @@ export function initTopics(context) {
       ...state.draft,
       monitoringPrompt: prompt,
       displayTitle: preserveTitle && state.draft.displayTitle.trim() ? state.draft.displayTitle : response.display_title || prompt,
-      queries: nextQueries,
+      queries: ensureAtLeastOne(nextQueries),
       suggestedDomains: nextDomains,
       topicWarning: response.topic_warning || null,
       limitToSelectedDomains: nextDomains.length > 0,
       domainAllowlist: ensureAtLeastOne(nextDomains),
-      languageFilter: response.search_language_filter && response.search_language_filter.length ? response.search_language_filter : [""],
+      limitToSelectedLanguages: nextLanguages.length > 0,
+      languageFilter: ensureAtLeastOne(nextLanguages),
       country: response.country || "",
       updateFrequency: state.draft.updateFrequency || "auto",
       autoEffectiveIntervalHours: state.draft.autoEffectiveIntervalHours || 24,
@@ -956,8 +1001,8 @@ export function initTopics(context) {
         monitoringPrompt: state.draft.monitoringPrompt.trim(),
         selectedDomains: normalizedDomains(),
       });
-      state.draft.domainAllowlist = ensureAtLeastOne(normalizeList([...state.draft.domainAllowlist, ...(response.domains || [])]).slice(0, 20));
-      state.draft.suggestedDomains = normalizeList([...state.draft.suggestedDomains, ...(response.domains || [])]).slice(0, 20);
+      state.draft.domainAllowlist = ensureAtLeastOne(normalizeList([...state.draft.domainAllowlist, ...(response.domains || [])]).slice(0, MAX_DOMAIN_COUNT));
+      state.draft.suggestedDomains = normalizeList([...state.draft.suggestedDomains, ...(response.domains || [])]).slice(0, MAX_DOMAIN_COUNT);
     } catch (error) {
       state.error = error instanceof Error ? error.message : "Unable to suggest more domains.";
     } finally {
@@ -978,6 +1023,10 @@ export function initTopics(context) {
     }
     if (state.draft.limitToSelectedDomains && !normalizedDomains().length) {
       setError("Add at least one domain or turn off domain limiting.");
+      return;
+    }
+    if (state.draft.limitToSelectedLanguages && !normalizedLanguages().length) {
+      setError("Add at least one language code or turn off language limiting.");
       return;
     }
     state.busy = "preview";
@@ -1010,6 +1059,10 @@ export function initTopics(context) {
     }
     if (!feedback.length) {
       setError("Rate at least one test result before updating topic parameters.");
+      return;
+    }
+    if (state.draft.limitToSelectedLanguages && !normalizedLanguages().length) {
+      setError("Add at least one language code or turn off language limiting.");
       return;
     }
     state.busy = "refine";
@@ -1283,13 +1336,32 @@ export function initTopics(context) {
       return;
     }
 
+    const draftLanguageMode = event.target.closest("[data-draft-language-mode]");
+    if (draftLanguageMode) {
+      collectCurrentDraftCardsFromDom();
+      const draft = draftForCard(Number(draftLanguageMode.dataset.draftIndex));
+      if (!draft) return;
+      draft.limitToSelectedLanguages = draftLanguageMode.dataset.draftLanguageMode === "limited";
+      if (draft.limitToSelectedLanguages) {
+        draft.languageFilter = ensureAtLeastOne(normalizeList(draft.languageFilter));
+      }
+      render();
+      return;
+    }
+
     const addDraftList = event.target.closest("[data-add-draft-list]");
     if (addDraftList) {
       collectCurrentDraftCardsFromDom();
       const draft = draftForCard(Number(addDraftList.dataset.draftIndex));
       if (!draft) return;
       const field = addDraftList.dataset.addDraftList;
-      draft[field] = [...draft[field], ""];
+      const limit = DRAFT_LIST_LIMITS[field];
+      const values = ensureAtLeastOne(draft[field]);
+      if (limit && values.length >= limit) {
+        render();
+        return;
+      }
+      draft[field] = [...values, ""];
       render();
       return;
     }
@@ -1349,7 +1421,7 @@ export function initTopics(context) {
       const draft = draftForCard(Number(action.dataset.draftIndex));
       if (!draft) return;
       draft.limitToSelectedDomains = true;
-      draft.domainAllowlist = ensureAtLeastOne(normalizeList(draft.suggestedDomains));
+      draft.domainAllowlist = ensureAtLeastOne(normalizeList(draft.suggestedDomains).slice(0, MAX_DOMAIN_COUNT));
       render();
     }
     if (name === "suggest-domains") suggestDomains();
