@@ -94,10 +94,6 @@ function buildFeedbackItems(previewResults, previewReactions) {
   });
 }
 
-function readList(root, name) {
-  return Array.from(root.querySelectorAll(`[data-list="${name}"]`)).map((input) => input.value);
-}
-
 export function initTopics(context) {
   const root = document.getElementById("topic-form-root");
   if (!root) return;
@@ -119,6 +115,7 @@ export function initTopics(context) {
     previewResults: [],
     previewReactions: {},
     previewHasRun: false,
+    extraDrafts: [],
     splitDrafts: [],
     initializedForTopic: null,
   };
@@ -161,50 +158,56 @@ export function initTopics(context) {
     state.previewResults = [];
     state.previewReactions = {};
     state.previewHasRun = false;
+    state.extraDrafts = [];
     state.splitDrafts = [];
     state.initializedForTopic = topic.uuid;
   }
 
-  function collectDraftFromDom() {
-    const monitoringPrompt = root.querySelector("[name='monitoringPrompt']");
-    const displayTitle = root.querySelector("[name='displayTitle']");
-    const groupName = root.querySelector("[name='groupName']");
-    const country = root.querySelector("[name='country']");
-    state.draft.monitoringPrompt = monitoringPrompt ? monitoringPrompt.value : state.draft.monitoringPrompt;
-    state.draft.displayTitle = displayTitle ? displayTitle.value : state.draft.displayTitle;
-    state.groupNameDraft = groupName ? groupName.value : state.groupNameDraft;
-    state.draft.country = country ? country.value : state.draft.country;
-    state.draft.queries = ensureAtLeastOne(readList(root, "queries"));
-    state.draft.domainAllowlist = ensureAtLeastOne(readList(root, "domainAllowlist"));
-    state.draft.languageFilter = ensureAtLeastOne(readList(root, "languageFilter"));
+  function readDraftList(index, name) {
+    return Array.from(root.querySelectorAll(`[data-draft-list="${name}"][data-draft-index="${index}"]`)).map((input) => input.value);
   }
 
-  function readSplitList(index, name) {
-    return Array.from(root.querySelectorAll(`[data-split-list="${name}"][data-split-index="${index}"]`)).map((input) => input.value);
+  function collectTopicDraftFromDom(index, fallback) {
+    const monitoringPrompt = root.querySelector(`[data-draft-prompt="${index}"]`);
+    const displayTitle = root.querySelector(`[data-draft-title="${index}"]`);
+    const country = root.querySelector(`[data-draft-country="${index}"]`);
+    return {
+      ...fallback,
+      monitoringPrompt: monitoringPrompt ? monitoringPrompt.value : fallback.monitoringPrompt,
+      displayTitle: displayTitle ? displayTitle.value : fallback.displayTitle,
+      queries: ensureAtLeastOne(readDraftList(index, "queries")),
+      domainAllowlist: ensureAtLeastOne(readDraftList(index, "domainAllowlist")),
+      limitToSelectedDomains: fallback.limitToSelectedDomains,
+      languageFilter: ensureAtLeastOne(readDraftList(index, "languageFilter")),
+      country: country ? country.value : fallback.country,
+    };
+  }
+
+  function collectDraftFromDom() {
+    const cardPrompt = root.querySelector('[data-draft-prompt="0"]');
+    const monitoringPrompt = root.querySelector("[name='monitoringPrompt']");
+    const groupName = root.querySelector("[name='groupName']");
+
+    if (cardPrompt) {
+      state.groupNameDraft = groupName ? groupName.value : state.groupNameDraft;
+      state.draft = collectTopicDraftFromDom(0, state.draft);
+      state.extraDrafts = state.extraDrafts.map((draft, index) => collectTopicDraftFromDom(index + 1, draft));
+      return;
+    }
+
+    state.draft.monitoringPrompt = monitoringPrompt ? monitoringPrompt.value : state.draft.monitoringPrompt;
+    state.groupNameDraft = groupName ? groupName.value : state.groupNameDraft;
   }
 
   function collectSplitDraftsFromDom() {
     const groupName = root.querySelector("[name='splitGroupName']");
     state.groupNameDraft = groupName ? groupName.value : state.groupNameDraft;
     state.splitDrafts = state.splitDrafts.map((entry, index) => {
-      const selected = root.querySelector(`[data-split-selected="${index}"]`);
-      const monitoringPrompt = root.querySelector(`[data-split-prompt="${index}"]`);
-      const displayTitle = root.querySelector(`[data-split-title="${index}"]`);
-      const country = root.querySelector(`[data-split-country="${index}"]`);
-      const domainAllowlist = ensureAtLeastOne(readSplitList(index, "domainAllowlist"));
+      const selected = root.querySelector(`[data-draft-selected="${index}"]`);
       return {
         ...entry,
         selected: selected ? selected.checked : entry.selected,
-        draft: {
-          ...entry.draft,
-          monitoringPrompt: monitoringPrompt ? monitoringPrompt.value : entry.draft.monitoringPrompt,
-          displayTitle: displayTitle ? displayTitle.value : entry.draft.displayTitle,
-          queries: ensureAtLeastOne(readSplitList(index, "queries")),
-          domainAllowlist,
-          limitToSelectedDomains: entry.draft.limitToSelectedDomains,
-          languageFilter: ensureAtLeastOne(readSplitList(index, "languageFilter")),
-          country: country ? country.value : entry.draft.country,
-        },
+        draft: collectTopicDraftFromDom(index, entry.draft),
       };
     });
   }
@@ -279,17 +282,10 @@ export function initTopics(context) {
     </div>`;
   }
 
-  function listInputs(name, values, placeholder) {
+  function draftListInputs(draftIndex, name, values, placeholder) {
     return ensureAtLeastOne(values).map((value, index) => `<div class="flex items-center gap-3">
-      <input class="input" data-list="${name}" value="${context.utils.escapeHtml(value)}" placeholder="${context.utils.escapeHtml(placeholder)}">
-      <button type="button" class="btn btn-outline btn-sm" data-remove-list="${name}" data-index="${index}">Remove</button>
-    </div>`).join("");
-  }
-
-  function splitListInputs(splitIndex, name, values, placeholder) {
-    return ensureAtLeastOne(values).map((value, index) => `<div class="flex items-center gap-3">
-      <input class="input" data-split-list="${name}" data-split-index="${splitIndex}" value="${context.utils.escapeHtml(value)}" placeholder="${context.utils.escapeHtml(placeholder)}">
-      <button type="button" class="btn btn-outline btn-sm" data-remove-split-list="${name}" data-split-index="${splitIndex}" data-index="${index}">Remove</button>
+      <input class="input" data-draft-list="${name}" data-draft-index="${draftIndex}" value="${context.utils.escapeHtml(value)}" placeholder="${context.utils.escapeHtml(placeholder)}">
+      <button type="button" class="btn btn-outline btn-sm" data-remove-draft-list="${name}" data-draft-index="${draftIndex}" data-index="${index}">Remove</button>
     </div>`).join("");
   }
 
@@ -333,91 +329,137 @@ export function initTopics(context) {
     </div>`;
   }
 
-  function renderReviewStage() {
-    const canSuggestMoreDomains = state.draft.limitToSelectedDomains && normalizedDomains().length > 0 && normalizedDomains().length < 20;
-    const feedback = feedbackItems();
-    return `<div class="space-y-8">
-      <div class="grid gap-6 lg:grid-cols-2">
-        <div class="space-y-2 lg:col-span-2">
-          <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Monitoring topic</label>
-          <input name="monitoringPrompt" class="input" value="${context.utils.escapeHtml(state.draft.monitoringPrompt)}">
-          <div class="flex items-center justify-between gap-3">
-            <p class="text-xs text-slate-500">Change the topic and rerun AI analysis before saving or testing again.</p>
-            <button type="button" class="btn btn-outline btn-sm" data-action="organize" ${state.busy ? "disabled" : ""}>${state.busy === "organize" ? "Refreshing..." : "Refresh AI suggestions"}</button>
-          </div>
-          ${renderTopicWarning()}
+  function renderTopicDraftCard({
+    draft,
+    index,
+    title,
+    selected = true,
+    selectable = false,
+    removable = false,
+    allowDomainSuggestions = false,
+  }) {
+    const selectedDomains = normalizeList(draft.domainAllowlist);
+    const canSuggestMoreDomains = allowDomainSuggestions && draft.limitToSelectedDomains && selectedDomains.length > 0 && selectedDomains.length < 20;
+    const cardClass = selectable
+      ? (selected ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white")
+      : "border-slate-200 bg-white";
+    return `<div class="rounded-2xl border ${cardClass} p-5">
+      <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        ${selectable ? `<label class="flex items-center gap-3 text-sm font-semibold text-slate-900">
+          <input type="checkbox" class="h-4 w-4" data-draft-selected="${index}" ${selected ? "checked" : ""}>
+          <span>${context.utils.escapeHtml(title)}</span>
+        </label>` : `<p class="text-sm font-semibold text-slate-900">${context.utils.escapeHtml(title)}</p>`}
+        <div class="flex flex-wrap items-center gap-3">
+          ${draft.topicWarning ? `<span class="text-xs font-medium text-amber-700">${context.utils.escapeHtml(draft.topicWarning)}</span>` : ""}
+          ${removable ? `<button type="button" class="btn btn-outline btn-sm" data-action="remove-topic-card" data-draft-index="${index}">Remove topic</button>` : ""}
         </div>
+      </div>
+
+      <div class="mt-4 grid gap-4 lg:grid-cols-2">
         <div class="space-y-2">
           <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Topic title</label>
-          <input name="displayTitle" class="input" value="${context.utils.escapeHtml(state.draft.displayTitle)}">
-        </div>
-        <div class="space-y-2 lg:col-span-2">
-          <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Topic group</label>
-          ${renderGroupField({ inputName: "groupName", listId: "topic-group-options" })}
-        </div>
-      </div>
-
-      <div class="space-y-3">
-        <div class="flex items-center justify-between">
-          <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Query variations</label>
-          <button type="button" class="btn btn-ghost btn-sm" data-add-list="queries">Add</button>
-        </div>
-        ${listInputs("queries", state.draft.queries, "English search query")}
-      </div>
-
-      <div class="space-y-4 rounded-3xl border border-slate-200 bg-slate-50/70 p-5">
-        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div class="space-y-1">
-            <p class="text-xs font-bold uppercase tracking-widest text-slate-500">Search scope</p>
-            <p class="text-sm text-slate-600">${state.draft.limitToSelectedDomains ? "Only search the selected domains below." : "Search the broader web without a domain allowlist."}</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <button type="button" class="btn btn-sm ${state.draft.limitToSelectedDomains ? "btn-outline" : "btn-primary"}" data-domain-mode="off">All sites</button>
-            <button type="button" class="btn btn-sm ${state.draft.limitToSelectedDomains ? "btn-primary" : "btn-outline"}" data-domain-mode="on">Selected domains</button>
-          </div>
-        </div>
-        ${state.draft.limitToSelectedDomains ? `<div class="space-y-3">
-          <div class="flex items-center justify-between">
-            <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Selected domains</label>
-            <div class="flex items-center gap-2">
-              ${state.draft.suggestedDomains.length ? '<button type="button" class="btn btn-ghost btn-sm" data-action="restore-domains">Use AI list</button>' : ""}
-              <button type="button" class="btn btn-ghost btn-sm" data-add-list="domainAllowlist">Add</button>
-            </div>
-          </div>
-          ${listInputs("domainAllowlist", state.draft.domainAllowlist, "example.org")}
-          <div class="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
-            <p class="text-sm text-slate-500">${normalizedDomains().length}/20 selected domains</p>
-            <button type="button" class="btn btn-outline btn-sm" data-action="suggest-domains" ${!canSuggestMoreDomains || state.busy ? "disabled" : ""}>${state.busy === "suggest-domains" ? "Suggesting..." : "Suggest more like this"}</button>
-          </div>
-        </div>` : ""}
-      </div>
-
-      <div class="grid gap-6 lg:grid-cols-2">
-        <div class="space-y-3">
-          <div class="flex items-center justify-between">
-            <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Languages</label>
-            <button type="button" class="btn btn-ghost btn-sm" data-add-list="languageFilter">Add</button>
-          </div>
-          ${listInputs("languageFilter", state.draft.languageFilter, "en")}
+          <input class="input" data-draft-title="${index}" value="${context.utils.escapeHtml(draft.displayTitle)}">
         </div>
         <div class="space-y-2">
           <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Country</label>
-          <select name="country" class="input">
-            ${COUNTRY_OPTIONS.map(([value, label]) => `<option value="${value}" ${state.draft.country === value ? "selected" : ""}>${label}</option>`).join("")}
+          <select class="input" data-draft-country="${index}">
+            ${COUNTRY_OPTIONS.map(([value, label]) => `<option value="${value}" ${draft.country === value ? "selected" : ""}>${label}</option>`).join("")}
           </select>
+        </div>
+        <div class="space-y-2 lg:col-span-2">
+          <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Monitoring topic</label>
+          <input class="input" data-draft-prompt="${index}" value="${context.utils.escapeHtml(draft.monitoringPrompt)}">
         </div>
       </div>
 
-      ${state.previewHasRun ? renderPreview(feedback) : ""}
+      <div class="mt-4 grid gap-4 lg:grid-cols-3">
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Queries</label>
+            <button type="button" class="btn btn-ghost btn-sm" data-add-draft-list="queries" data-draft-index="${index}">Add</button>
+          </div>
+          ${draftListInputs(index, "queries", draft.queries, "English search query")}
+        </div>
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Search scope</label>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" class="btn btn-sm ${draft.limitToSelectedDomains ? "btn-outline" : "btn-primary"}" data-draft-domain-mode="all" data-draft-index="${index}">All sites</button>
+            <button type="button" class="btn btn-sm ${draft.limitToSelectedDomains ? "btn-primary" : "btn-outline"}" data-draft-domain-mode="limited" data-draft-index="${index}">Selected domains</button>
+          </div>
+          ${draft.limitToSelectedDomains ? `<div class="space-y-3">
+            <div class="flex items-center justify-between gap-3">
+              <p class="text-sm text-slate-500">${selectedDomains.length}/20 domains</p>
+              <div class="flex items-center gap-2">
+                ${draft.suggestedDomains.length ? `<button type="button" class="btn btn-ghost btn-sm" data-action="restore-draft-domains" data-draft-index="${index}">Use AI list</button>` : ""}
+                <button type="button" class="btn btn-ghost btn-sm" data-add-draft-list="domainAllowlist" data-draft-index="${index}">Add</button>
+              </div>
+            </div>
+            ${draftListInputs(index, "domainAllowlist", draft.domainAllowlist, "example.org")}
+            ${allowDomainSuggestions ? `<button type="button" class="btn btn-outline btn-sm" data-action="suggest-domains" ${!canSuggestMoreDomains || state.busy ? "disabled" : ""}>${state.busy === "suggest-domains" ? "Suggesting..." : "Suggest more like this"}</button>` : ""}
+          </div>` : `<p class="text-sm leading-6 text-slate-500">No domain allowlist will be sent to Perplexity.</p>`}
+        </div>
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Languages</label>
+            <button type="button" class="btn btn-ghost btn-sm" data-add-draft-list="languageFilter" data-draft-index="${index}">Add</button>
+          </div>
+          ${draftListInputs(index, "languageFilter", draft.languageFilter, "en")}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function renderReviewStage() {
+    const feedback = feedbackItems();
+    const draftCards = [state.draft, ...state.extraDrafts];
+    const canUseSingleTools = state.mode === "edit" || state.extraDrafts.length === 0;
+    const actionLabel = state.mode === "edit"
+      ? "Save topic"
+      : draftCards.length > 1 ? "Create topics" : "Create topic";
+    return `<div class="space-y-8">
+      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+        <div class="space-y-4">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p class="text-xs font-bold uppercase tracking-widest text-slate-500">Topic review</p>
+              <p class="mt-1 text-sm leading-6 text-slate-600">Review the topic drafts before creating them.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" class="btn btn-outline btn-sm" data-action="organize" ${state.busy ? "disabled" : ""}>${state.busy === "organize" ? "Refreshing..." : "Refresh AI suggestions"}</button>
+            </div>
+          </div>
+          ${renderTopicWarning()}
+          <div class="space-y-2">
+            <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Topic group</label>
+            ${renderGroupField({ inputName: "groupName", listId: "topic-group-options" })}
+          </div>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        ${draftCards.map((draft, index) => renderTopicDraftCard({
+          draft,
+          index,
+          title: `Topic ${index + 1}`,
+          removable: state.mode === "create" && index > 0,
+          allowDomainSuggestions: canUseSingleTools && index === 0,
+        })).join("")}
+      </div>
+      ${state.mode === "create" ? `<div class="flex justify-end">
+        <button type="button" class="btn btn-primary btn-sm" data-action="add-topic-card">Add topic</button>
+      </div>` : ""}
+
+      ${canUseSingleTools && state.previewHasRun ? renderPreview(feedback) : ""}
       ${state.error ? `<p class="text-sm text-red-600">${context.utils.escapeHtml(state.error)}</p>` : ""}
 
       <div class="flex items-center justify-between gap-3 pt-2">
         <div>${state.mode === "edit" ? '<button type="button" class="btn btn-ghost text-red-600" data-action="delete-topic">Delete topic</button>' : ""}</div>
         <div class="flex flex-wrap items-center justify-end gap-3">
-          ${state.mode === "create" ? '<button type="button" class="btn btn-outline" data-action="back-to-prompt">Back</button>' : ""}
           <a class="btn btn-outline" href="${state.mode === "edit" ? "/topics" : "/"}">Cancel</a>
-          <button type="button" class="btn btn-outline" data-action="preview" ${state.busy ? "disabled" : ""}>${state.busy === "preview" ? "Testing..." : "Test run"}</button>
-          ${feedback.length ? `<button type="button" class="btn btn-primary" data-action="refine" ${state.busy ? "disabled" : ""}>${state.busy === "refine" ? "Updating..." : "Update topic parameters"}</button>` : `<button type="button" class="btn btn-primary" data-action="save" ${state.busy ? "disabled" : ""}>${state.busy === "save" ? "Saving..." : state.mode === "edit" ? "Save topic" : "Create topic"}</button>`}
+          ${canUseSingleTools ? `<button type="button" class="btn btn-outline" data-action="preview" ${state.busy ? "disabled" : ""}>${state.busy === "preview" ? "Testing..." : "Test run"}</button>` : ""}
+          ${canUseSingleTools && feedback.length ? `<button type="button" class="btn btn-primary" data-action="refine" ${state.busy ? "disabled" : ""}>${state.busy === "refine" ? "Updating..." : "Update topic parameters"}</button>` : `<button type="button" class="btn btn-primary" data-action="save" ${state.busy ? "disabled" : ""}>${state.busy === "save" ? "Saving..." : actionLabel}</button>`}
         </div>
       </div>
     </div>`;
@@ -428,9 +470,11 @@ export function initTopics(context) {
     return `<div class="space-y-6">
       <div class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
         <div class="space-y-4">
-          <div>
-            <p class="text-xs font-bold uppercase tracking-widest text-slate-500">Multiple topic review</p>
-            <p class="mt-1 text-sm leading-6 text-slate-600">Select and edit the focused topics to create from this broad prompt.</p>
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p class="text-xs font-bold uppercase tracking-widest text-slate-500">Multiple topic review</p>
+              <p class="mt-1 text-sm leading-6 text-slate-600">Select and edit the focused topics to create from this broad prompt.</p>
+            </div>
           </div>
           ${renderTopicWarning()}
           <div class="space-y-2">
@@ -442,73 +486,21 @@ export function initTopics(context) {
       </div>
 
       <div class="space-y-4">
-        ${state.splitDrafts.map((entry, index) => {
-          const draft = entry.draft;
-          return `<div class="rounded-2xl border ${entry.selected ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"} p-5">
-            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <label class="flex items-center gap-3 text-sm font-semibold text-slate-900">
-                <input type="checkbox" class="h-4 w-4" data-split-selected="${index}" ${entry.selected ? "checked" : ""}>
-                <span>Topic ${index + 1}</span>
-              </label>
-              ${draft.topicWarning ? `<span class="text-xs font-medium text-amber-700">${context.utils.escapeHtml(draft.topicWarning)}</span>` : ""}
-            </div>
-
-            <div class="mt-4 grid gap-4 lg:grid-cols-2">
-              <div class="space-y-2">
-                <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Topic title</label>
-                <input class="input" data-split-title="${index}" value="${context.utils.escapeHtml(draft.displayTitle)}">
-              </div>
-              <div class="space-y-2">
-                <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Country</label>
-                <select class="input" data-split-country="${index}">
-                  ${COUNTRY_OPTIONS.map(([value, label]) => `<option value="${value}" ${draft.country === value ? "selected" : ""}>${label}</option>`).join("")}
-                </select>
-              </div>
-              <div class="space-y-2 lg:col-span-2">
-                <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Monitoring topic</label>
-                <input class="input" data-split-prompt="${index}" value="${context.utils.escapeHtml(draft.monitoringPrompt)}">
-              </div>
-            </div>
-
-            <div class="mt-4 grid gap-4 lg:grid-cols-3">
-              <div class="space-y-3">
-                <div class="flex items-center justify-between">
-                  <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Queries</label>
-                  <button type="button" class="btn btn-ghost btn-sm" data-add-split-list="queries" data-split-index="${index}">Add</button>
-                </div>
-                ${splitListInputs(index, "queries", draft.queries, "English search query")}
-              </div>
-              <div class="space-y-3">
-                <div class="flex items-center justify-between">
-                  <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Search scope</label>
-                </div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <button type="button" class="btn btn-sm ${draft.limitToSelectedDomains ? "btn-outline" : "btn-primary"}" data-split-domain-mode="all" data-split-index="${index}">All sites</button>
-                  <button type="button" class="btn btn-sm ${draft.limitToSelectedDomains ? "btn-primary" : "btn-outline"}" data-split-domain-mode="limited" data-split-index="${index}">Selected domains</button>
-                </div>
-                ${draft.limitToSelectedDomains ? `<div class="space-y-3">
-                  <div class="flex items-center justify-between">
-                    <p class="text-sm text-slate-500">${normalizeList(draft.domainAllowlist).length}/20 domains</p>
-                    <button type="button" class="btn btn-ghost btn-sm" data-add-split-list="domainAllowlist" data-split-index="${index}">Add</button>
-                  </div>
-                  ${splitListInputs(index, "domainAllowlist", draft.domainAllowlist, "example.org")}
-                </div>` : `<p class="text-sm leading-6 text-slate-500">No domain allowlist will be sent to Perplexity.</p>`}
-              </div>
-              <div class="space-y-3">
-                <div class="flex items-center justify-between">
-                  <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Languages</label>
-                  <button type="button" class="btn btn-ghost btn-sm" data-add-split-list="languageFilter" data-split-index="${index}">Add</button>
-                </div>
-                ${splitListInputs(index, "languageFilter", draft.languageFilter, "en")}
-              </div>
-            </div>
-          </div>`;
-        }).join("")}
+        ${state.splitDrafts.map((entry, index) => renderTopicDraftCard({
+          draft: entry.draft,
+          index,
+          title: `Topic ${index + 1}`,
+          selected: entry.selected,
+          selectable: true,
+          removable: state.splitDrafts.length > 1,
+        })).join("")}
+      </div>
+      <div class="flex justify-end">
+        <button type="button" class="btn btn-primary btn-sm" data-action="add-topic-card">Add topic</button>
       </div>
 
       ${state.error ? `<p class="text-sm text-red-600">${context.utils.escapeHtml(state.error)}</p>` : ""}
       <div class="flex flex-wrap items-center justify-end gap-3">
-        <button type="button" class="btn btn-outline" data-action="back-to-review" ${state.busy ? "disabled" : ""}>Back</button>
         <a class="btn btn-outline" href="/">Cancel</a>
         <button type="button" class="btn btn-primary" data-action="bulk-save" ${state.busy ? "disabled" : ""}>${state.busy === "bulk-save" ? "Creating..." : "Create selected topics"}</button>
       </div>
@@ -595,6 +587,7 @@ export function initTopics(context) {
     state.previewReactions = {};
     state.previewHasRun = false;
     state.suggestedGroupName = response.suggested_group_name || "";
+    state.extraDrafts = [];
     state.splitDrafts = splitSuggestions.map((draft) => ({ selected: true, draft }));
     state.stage = state.mode === "create" && state.splitDrafts.length > 0 ? "split" : "review";
   }
@@ -714,24 +707,20 @@ export function initTopics(context) {
   async function saveTopic() {
     collectDraftFromDom();
     const topic = activeTopic();
-    if (!state.draft.monitoringPrompt.trim()) {
-      setError("Monitoring prompt cannot be empty.");
-      return;
-    }
-    if (!state.draft.displayTitle.trim()) {
-      setError("Topic title cannot be empty.");
-      return;
-    }
-    if (!normalizedQueries().length) {
-      setError("Add at least one query before saving.");
-      return;
+    const drafts = state.mode === "create" ? [state.draft, ...state.extraDrafts] : [state.draft];
+    for (const [index, draft] of drafts.entries()) {
+      const validationError = validateTopicDraft(draft, `Topic ${index + 1}`);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+      if (draft.limitToSelectedDomains && !normalizeList(draft.domainAllowlist).length) {
+        setError(`Topic ${index + 1}: add at least one domain or turn off domain limiting.`);
+        return;
+      }
     }
     if (hasPendingPromptChanges()) {
       setError("Refresh AI suggestions after editing the monitoring prompt before saving.");
-      return;
-    }
-    if (state.draft.limitToSelectedDomains && !normalizedDomains().length) {
-      setError("Add at least one domain or turn off domain limiting.");
       return;
     }
     state.busy = "save";
@@ -739,16 +728,35 @@ export function initTopics(context) {
     render();
     try {
       const resolvedGroupUuid = await resolveGroupUuid();
-      const payload = buildTopicPayload(state.draft, {
-        groupUuid: resolvedGroupUuid,
-        isActive: topic ? topic.isActive : true,
-      });
-      const response = state.mode === "edit" && state.topicUuid
-        ? await context.api.updateTopic(state.topicUuid, payload)
-        : (await context.api.createTopic(payload)).topic;
+      let response;
+      if (state.mode === "edit" && state.topicUuid) {
+        const payload = buildTopicPayload(state.draft, {
+          groupUuid: resolvedGroupUuid,
+          isActive: topic ? topic.isActive : true,
+        });
+        response = await context.api.updateTopic(state.topicUuid, payload);
+      } else if (drafts.length > 1) {
+        const bulkResponse = await context.api.createTopics({
+          topics: drafts.map((draft) => buildTopicPayload(draft, {
+            groupUuid: resolvedGroupUuid,
+            isActive: true,
+          })),
+        });
+        response = (bulkResponse.topics || [])[0];
+      } else {
+        const payload = buildTopicPayload(state.draft, {
+          groupUuid: resolvedGroupUuid,
+          isActive: true,
+        });
+        response = (await context.api.createTopic(payload)).topic;
+      }
       await context.reloadNavigation();
-      const uuid = String(response.uuid);
-      context.setSelection({ topicUuid: uuid, navigate: true });
+      if (response) {
+        const uuid = String(response.uuid);
+        context.setSelection({ topicUuid: uuid, navigate: true });
+      } else {
+        window.location.assign("/");
+      }
     } catch (error) {
       state.error = error instanceof Error ? error.message : "Unable to save topic.";
       state.busy = null;
@@ -770,6 +778,10 @@ export function initTopics(context) {
       const validationError = validateTopicDraft(entry.draft, `Topic ${entry.index + 1}`);
       if (validationError) {
         setError(validationError);
+        return;
+      }
+      if (entry.draft.limitToSelectedDomains && !normalizeList(entry.draft.domainAllowlist).length) {
+        setError(`Topic ${entry.index + 1}: add at least one domain or turn off domain limiting.`);
         return;
       }
     }
@@ -816,73 +828,92 @@ export function initTopics(context) {
     }
   }
 
+  function collectCurrentDraftCardsFromDom() {
+    if (state.stage === "split") {
+      collectSplitDraftsFromDom();
+    } else {
+      collectDraftFromDom();
+    }
+  }
+
+  function draftForCard(index) {
+    if (state.stage === "split") {
+      return state.splitDrafts[index] ? state.splitDrafts[index].draft : null;
+    }
+    if (index === 0) return state.draft;
+    return state.extraDrafts[index - 1] || null;
+  }
+
+  function addTopicCard() {
+    collectCurrentDraftCardsFromDom();
+    const draft = cloneDraft(EMPTY_DRAFT);
+    if (state.stage === "split") {
+      state.splitDrafts.push({ selected: true, draft });
+    } else {
+      state.extraDrafts.push(draft);
+      state.previewResults = [];
+      state.previewReactions = {};
+      state.previewHasRun = false;
+    }
+    state.error = null;
+    render();
+  }
+
+  function removeTopicCard(index) {
+    collectCurrentDraftCardsFromDom();
+    if (state.stage === "split") {
+      if (state.splitDrafts.length <= 1) return;
+      state.splitDrafts = state.splitDrafts.filter((_entry, currentIndex) => currentIndex !== index);
+    } else if (index > 0) {
+      state.extraDrafts = state.extraDrafts.filter((_draft, currentIndex) => currentIndex !== index - 1);
+    }
+    state.error = null;
+    render();
+  }
+
   root.addEventListener("click", (event) => {
-    const splitSelected = event.target.closest("[data-split-selected]");
-    if (splitSelected) {
+    const draftSelected = event.target.closest("[data-draft-selected]");
+    if (draftSelected) {
       collectSplitDraftsFromDom();
       render();
       return;
     }
-    const splitDomainMode = event.target.closest("[data-split-domain-mode]");
-    if (splitDomainMode) {
-      collectSplitDraftsFromDom();
-      const splitIndex = Number(splitDomainMode.dataset.splitIndex);
-      state.splitDrafts[splitIndex].draft.limitToSelectedDomains = splitDomainMode.dataset.splitDomainMode === "limited";
-      if (state.splitDrafts[splitIndex].draft.limitToSelectedDomains) {
-        const nextDomains = normalizeList(state.splitDrafts[splitIndex].draft.domainAllowlist).length
-          ? normalizeList(state.splitDrafts[splitIndex].draft.domainAllowlist)
-          : normalizeList(state.splitDrafts[splitIndex].draft.suggestedDomains);
-        state.splitDrafts[splitIndex].draft.domainAllowlist = ensureAtLeastOne(nextDomains);
+
+    const draftDomainMode = event.target.closest("[data-draft-domain-mode]");
+    if (draftDomainMode) {
+      collectCurrentDraftCardsFromDom();
+      const draft = draftForCard(Number(draftDomainMode.dataset.draftIndex));
+      if (!draft) return;
+      draft.limitToSelectedDomains = draftDomainMode.dataset.draftDomainMode === "limited";
+      if (draft.limitToSelectedDomains) {
+        const nextDomains = normalizeList(draft.domainAllowlist).length
+          ? normalizeList(draft.domainAllowlist)
+          : normalizeList(draft.suggestedDomains);
+        draft.domainAllowlist = ensureAtLeastOne(nextDomains);
       }
       render();
       return;
     }
-    const addSplitList = event.target.closest("[data-add-split-list]");
-    if (addSplitList) {
-      collectSplitDraftsFromDom();
-      const splitIndex = Number(addSplitList.dataset.splitIndex);
-      const field = addSplitList.dataset.addSplitList;
-      state.splitDrafts[splitIndex].draft[field] = [...state.splitDrafts[splitIndex].draft[field], ""];
+
+    const addDraftList = event.target.closest("[data-add-draft-list]");
+    if (addDraftList) {
+      collectCurrentDraftCardsFromDom();
+      const draft = draftForCard(Number(addDraftList.dataset.draftIndex));
+      if (!draft) return;
+      const field = addDraftList.dataset.addDraftList;
+      draft[field] = [...draft[field], ""];
       render();
       return;
     }
-    const removeSplitList = event.target.closest("[data-remove-split-list]");
-    if (removeSplitList) {
-      collectSplitDraftsFromDom();
-      const splitIndex = Number(removeSplitList.dataset.splitIndex);
-      const field = removeSplitList.dataset.removeSplitList;
-      const index = Number(removeSplitList.dataset.index);
-      state.splitDrafts[splitIndex].draft[field] = ensureAtLeastOne(
-        state.splitDrafts[splitIndex].draft[field].filter((_value, currentIndex) => currentIndex !== index)
-      );
-      render();
-      return;
-    }
-    const addList = event.target.closest("[data-add-list]");
-    if (addList) {
-      collectDraftFromDom();
-      state.draft[addList.dataset.addList] = [...state.draft[addList.dataset.addList], ""];
-      render();
-      return;
-    }
-    const removeList = event.target.closest("[data-remove-list]");
-    if (removeList) {
-      collectDraftFromDom();
-      const field = removeList.dataset.removeList;
-      const index = Number(removeList.dataset.index);
-      state.draft[field] = ensureAtLeastOne(state.draft[field].filter((_value, currentIndex) => currentIndex !== index));
-      render();
-      return;
-    }
-    const domainMode = event.target.closest("[data-domain-mode]");
-    if (domainMode) {
-      collectDraftFromDom();
-      const on = domainMode.dataset.domainMode === "on";
-      state.draft.limitToSelectedDomains = on;
-      if (on) {
-        const nextDomains = normalizeList(state.draft.domainAllowlist).length ? normalizeList(state.draft.domainAllowlist) : normalizeList(state.draft.suggestedDomains);
-        state.draft.domainAllowlist = ensureAtLeastOne(nextDomains);
-      }
+
+    const removeDraftList = event.target.closest("[data-remove-draft-list]");
+    if (removeDraftList) {
+      collectCurrentDraftCardsFromDom();
+      const draft = draftForCard(Number(removeDraftList.dataset.draftIndex));
+      if (!draft) return;
+      const field = removeDraftList.dataset.removeDraftList;
+      const index = Number(removeDraftList.dataset.index);
+      draft[field] = ensureAtLeastOne(draft[field].filter((_value, currentIndex) => currentIndex !== index));
       render();
       return;
     }
@@ -898,10 +929,14 @@ export function initTopics(context) {
     if (!action) return;
     const name = action.dataset.action;
     if (name === "organize") runOrganizer();
-    if (name === "restore-domains") {
-      collectDraftFromDom();
-      state.draft.limitToSelectedDomains = true;
-      state.draft.domainAllowlist = ensureAtLeastOne(normalizeList(state.draft.suggestedDomains));
+    if (name === "add-topic-card") addTopicCard();
+    if (name === "remove-topic-card") removeTopicCard(Number(action.dataset.draftIndex));
+    if (name === "restore-draft-domains") {
+      collectCurrentDraftCardsFromDom();
+      const draft = draftForCard(Number(action.dataset.draftIndex));
+      if (!draft) return;
+      draft.limitToSelectedDomains = true;
+      draft.domainAllowlist = ensureAtLeastOne(normalizeList(draft.suggestedDomains));
       render();
     }
     if (name === "suggest-domains") suggestDomains();
@@ -910,17 +945,6 @@ export function initTopics(context) {
     if (name === "save") saveTopic();
     if (name === "bulk-save") saveSplitTopics();
     if (name === "delete-topic") deleteTopic();
-    if (name === "back-to-review") {
-      collectSplitDraftsFromDom();
-      state.error = null;
-      state.stage = "review";
-      render();
-    }
-    if (name === "back-to-prompt") {
-      collectDraftFromDom();
-      state.stage = "prompt";
-      render();
-    }
   });
 
   context.subscribe(() => {
