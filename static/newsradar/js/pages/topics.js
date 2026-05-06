@@ -284,8 +284,8 @@ export function initTopics(context) {
 
   function draftListInputs(draftIndex, name, values, placeholder) {
     return ensureAtLeastOne(values).map((value, index) => `<div class="flex items-center gap-3">
-      <input class="input" data-draft-list="${name}" data-draft-index="${draftIndex}" value="${context.utils.escapeHtml(value)}" placeholder="${context.utils.escapeHtml(placeholder)}">
-      <button type="button" class="btn btn-outline btn-sm" data-remove-draft-list="${name}" data-draft-index="${draftIndex}" data-index="${index}">Remove</button>
+      <input class="input h-9 px-3 text-xs" data-draft-list="${name}" data-draft-index="${draftIndex}" value="${context.utils.escapeHtml(value)}" placeholder="${context.utils.escapeHtml(placeholder)}">
+      <button type="button" class="btn btn-ghost btn-sm px-2 text-slate-400 hover:text-red-600" data-remove-draft-list="${name}" data-draft-index="${draftIndex}" data-index="${index}">Remove</button>
     </div>`).join("");
   }
 
@@ -320,12 +320,15 @@ export function initTopics(context) {
   function renderTopicWarning() {
     const hasSplitDrafts = state.mode === "create" && state.splitDrafts.length > 0;
     const warning = hasSplitDrafts
-      ? "The requested topic is broad, so it was split into focused topic drafts below."
+      ? "Broad topic detected: split into focused drafts."
       : state.draft.topicWarning;
     if (!warning) return "";
-    return `<div class="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-      <p class="font-semibold text-amber-900">Topic warning</p>
-      <p class="mt-1 leading-6">${context.utils.escapeHtml(warning)}</p>
+    return `<div class="inline-flex max-w-full items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
+      <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4 flex-none text-amber-500" aria-hidden="true">
+        <path d="m12 3 9 16H3L12 3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        <path d="M12 9v4M12 17h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span class="font-semibold">${context.utils.escapeHtml(warning)}</span>
     </div>`;
   }
 
@@ -340,70 +343,71 @@ export function initTopics(context) {
   }) {
     const selectedDomains = normalizeList(draft.domainAllowlist);
     const canSuggestMoreDomains = allowDomainSuggestions && draft.limitToSelectedDomains && selectedDomains.length > 0 && selectedDomains.length < 20;
+    const labelClass = "text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400";
     const cardClass = selectable
-      ? (selected ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white")
+      ? (selected ? "border-emerald-200 bg-emerald-50/80 shadow-sm shadow-emerald-100/80" : "border-slate-200 bg-white hover:border-slate-300")
       : "border-slate-200 bg-white";
-    return `<div class="rounded-2xl border ${cardClass} p-5">
-      <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    return `<div class="rounded-xl border ${cardClass} p-6 transition-colors">
+      <div class="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         ${selectable ? `<label class="flex items-center gap-3 text-sm font-semibold text-slate-900">
-          <input type="checkbox" class="h-4 w-4" data-draft-selected="${index}" ${selected ? "checked" : ""}>
-          <span>${context.utils.escapeHtml(title)}</span>
+          <input type="checkbox" class="h-5 w-5 accent-emerald-600" data-draft-selected="${index}" ${selected ? "checked" : ""}>
+          <span class="text-base font-bold">${context.utils.escapeHtml(title)}</span>
         </label>` : `<p class="text-sm font-semibold text-slate-900">${context.utils.escapeHtml(title)}</p>`}
         <div class="flex flex-wrap items-center gap-3">
           ${draft.topicWarning ? `<span class="text-xs font-medium text-amber-700">${context.utils.escapeHtml(draft.topicWarning)}</span>` : ""}
-          ${removable ? `<button type="button" class="btn btn-outline btn-sm" data-action="remove-topic-card" data-draft-index="${index}">Remove topic</button>` : ""}
+          ${removable ? `<button type="button" class="btn btn-ghost btn-sm text-slate-400 hover:text-red-600" data-action="remove-topic-card" data-draft-index="${index}">Remove topic</button>` : ""}
         </div>
       </div>
 
-      <div class="mt-4 grid gap-4 lg:grid-cols-2">
-        <div class="space-y-2">
-          <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Topic title</label>
+      <div class="grid gap-4 md:grid-cols-3">
+        <div class="space-y-1.5 md:col-span-2">
+          <label class="${labelClass}">Display title</label>
           <input class="input" data-draft-title="${index}" value="${context.utils.escapeHtml(draft.displayTitle)}">
         </div>
-        <div class="space-y-2">
-          <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Country</label>
+        <div class="space-y-1.5">
+          <label class="${labelClass}">Target country</label>
           <select class="input" data-draft-country="${index}">
             ${COUNTRY_OPTIONS.map(([value, label]) => `<option value="${value}" ${draft.country === value ? "selected" : ""}>${label}</option>`).join("")}
           </select>
         </div>
-        <div class="space-y-2 lg:col-span-2">
-          <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Monitoring topic</label>
+        <div class="space-y-1.5 md:col-span-3">
+          <label class="${labelClass}">Monitoring scope</label>
           <input class="input" data-draft-prompt="${index}" value="${context.utils.escapeHtml(draft.monitoringPrompt)}">
         </div>
       </div>
 
-      <div class="mt-4 grid gap-4 lg:grid-cols-3">
-        <div class="space-y-3">
+      <div class="mt-6 grid gap-6 border-t ${selectable && selected ? "border-emerald-100" : "border-slate-100"} pt-6 lg:grid-cols-12">
+        <div class="space-y-3 lg:col-span-4">
           <div class="flex items-center justify-between">
-            <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Queries</label>
-            <button type="button" class="btn btn-ghost btn-sm" data-add-draft-list="queries" data-draft-index="${index}">Add</button>
+            <label class="${labelClass}">Search queries</label>
+            <button type="button" class="text-xs font-bold text-emerald-700 hover:underline" data-add-draft-list="queries" data-draft-index="${index}">Add</button>
           </div>
           ${draftListInputs(index, "queries", draft.queries, "English search query")}
         </div>
-        <div class="space-y-3">
+        <div class="space-y-3 lg:col-span-5">
           <div class="flex items-center justify-between">
-            <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Search scope</label>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <button type="button" class="btn btn-sm ${draft.limitToSelectedDomains ? "btn-outline" : "btn-primary"}" data-draft-domain-mode="all" data-draft-index="${index}">All sites</button>
-            <button type="button" class="btn btn-sm ${draft.limitToSelectedDomains ? "btn-primary" : "btn-outline"}" data-draft-domain-mode="limited" data-draft-index="${index}">Selected domains</button>
+            <label class="${labelClass}">Source control</label>
+            <div class="flex overflow-hidden rounded-lg border border-slate-200 text-[10px] font-extrabold uppercase tracking-[0.08em]">
+              <button type="button" class="${draft.limitToSelectedDomains ? "bg-white text-slate-500" : "bg-emerald-600 text-white"} px-2.5 py-1" data-draft-domain-mode="all" data-draft-index="${index}">All</button>
+              <button type="button" class="${draft.limitToSelectedDomains ? "bg-emerald-600 text-white" : "bg-white text-slate-500"} border-l border-slate-200 px-2.5 py-1" data-draft-domain-mode="limited" data-draft-index="${index}">Limited</button>
+            </div>
           </div>
           ${draft.limitToSelectedDomains ? `<div class="space-y-3">
             <div class="flex items-center justify-between gap-3">
-              <p class="text-sm text-slate-500">${selectedDomains.length}/20 domains</p>
+              <p class="text-xs font-bold text-slate-500">${selectedDomains.length}/20 domains</p>
               <div class="flex items-center gap-2">
-                ${draft.suggestedDomains.length ? `<button type="button" class="btn btn-ghost btn-sm" data-action="restore-draft-domains" data-draft-index="${index}">Use AI list</button>` : ""}
-                <button type="button" class="btn btn-ghost btn-sm" data-add-draft-list="domainAllowlist" data-draft-index="${index}">Add</button>
+                ${draft.suggestedDomains.length ? `<button type="button" class="text-xs font-bold text-slate-500 hover:text-slate-900" data-action="restore-draft-domains" data-draft-index="${index}">Use AI list</button>` : ""}
+                <button type="button" class="text-xs font-bold text-emerald-700 hover:underline" data-add-draft-list="domainAllowlist" data-draft-index="${index}">Add domain</button>
               </div>
             </div>
             ${draftListInputs(index, "domainAllowlist", draft.domainAllowlist, "example.org")}
             ${allowDomainSuggestions ? `<button type="button" class="btn btn-outline btn-sm" data-action="suggest-domains" ${!canSuggestMoreDomains || state.busy ? "disabled" : ""}>${state.busy === "suggest-domains" ? "Suggesting..." : "Suggest more like this"}</button>` : ""}
-          </div>` : `<p class="text-sm leading-6 text-slate-500">No domain allowlist will be sent to Perplexity.</p>`}
+          </div>` : `<p class="text-sm leading-6 text-slate-500">Do not limit to specific domains.</p>`}
         </div>
-        <div class="space-y-3">
+        <div class="space-y-3 lg:col-span-3">
           <div class="flex items-center justify-between">
-            <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Languages</label>
-            <button type="button" class="btn btn-ghost btn-sm" data-add-draft-list="languageFilter" data-draft-index="${index}">Add</button>
+            <label class="${labelClass}">Languages</label>
+            <button type="button" class="text-xs font-bold text-emerald-700 hover:underline" data-add-draft-list="languageFilter" data-draft-index="${index}">Add</button>
           </div>
           ${draftListInputs(index, "languageFilter", draft.languageFilter, "en")}
         </div>
@@ -415,24 +419,26 @@ export function initTopics(context) {
     const feedback = feedbackItems();
     const draftCards = [state.draft, ...state.extraDrafts];
     const canUseSingleTools = state.mode === "edit" || state.extraDrafts.length === 0;
+    const draftCountLabel = `${draftCards.length} topic draft${draftCards.length === 1 ? "" : "s"}`;
     const actionLabel = state.mode === "edit"
       ? "Save topic"
       : draftCards.length > 1 ? "Create topics" : "Create topic";
     return `<div class="space-y-8">
-      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+      <div class="rounded-xl border border-slate-200 bg-white p-5">
         <div class="space-y-4">
           <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p class="text-xs font-bold uppercase tracking-widest text-slate-500">Topic review</p>
               <p class="mt-1 text-sm leading-6 text-slate-600">Review the topic drafts before creating them.</p>
             </div>
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="flex flex-wrap items-center gap-3">
+              <span class="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">${draftCountLabel}</span>
               <button type="button" class="btn btn-outline btn-sm" data-action="organize" ${state.busy ? "disabled" : ""}>${state.busy === "organize" ? "Refreshing..." : "Refresh AI suggestions"}</button>
             </div>
           </div>
           ${renderTopicWarning()}
-          <div class="space-y-2">
-            <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Topic group</label>
+          <div class="space-y-2 border-t border-slate-100 pt-4">
+            <label class="text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400">Save into group</label>
             ${renderGroupField({ inputName: "groupName", listId: "topic-group-options" })}
           </div>
         </div>
@@ -447,19 +453,19 @@ export function initTopics(context) {
           allowDomainSuggestions: canUseSingleTools && index === 0,
         })).join("")}
       </div>
-      ${state.mode === "create" ? `<div class="flex justify-end">
-        <button type="button" class="btn btn-primary btn-sm" data-action="add-topic-card">Add topic</button>
+      ${state.mode === "create" ? `<div class="flex justify-center pt-1">
+        <button type="button" class="btn btn-outline w-full max-w-sm border-dashed border-slate-300 text-slate-500" data-action="add-topic-card">Add topic</button>
       </div>` : ""}
 
       ${canUseSingleTools && state.previewHasRun ? renderPreview(feedback) : ""}
       ${state.error ? `<p class="text-sm text-red-600">${context.utils.escapeHtml(state.error)}</p>` : ""}
 
-      <div class="flex items-center justify-between gap-3 pt-2">
-        <div>${state.mode === "edit" ? '<button type="button" class="btn btn-ghost text-red-600" data-action="delete-topic">Delete topic</button>' : ""}</div>
+      <div class="flex flex-col gap-4 border-t border-slate-100 pt-8 md:flex-row md:items-center md:justify-between">
+        <div class="text-sm text-slate-400">${state.mode === "edit" ? '<button type="button" class="btn btn-ghost text-red-600" data-action="delete-topic">Delete topic</button>' : "Unsaved changes will be discarded."}</div>
         <div class="flex flex-wrap items-center justify-end gap-3">
           <a class="btn btn-outline" href="${state.mode === "edit" ? "/topics" : "/"}">Cancel</a>
           ${canUseSingleTools ? `<button type="button" class="btn btn-outline" data-action="preview" ${state.busy ? "disabled" : ""}>${state.busy === "preview" ? "Testing..." : "Test run"}</button>` : ""}
-          ${canUseSingleTools && feedback.length ? `<button type="button" class="btn btn-primary" data-action="refine" ${state.busy ? "disabled" : ""}>${state.busy === "refine" ? "Updating..." : "Update topic parameters"}</button>` : `<button type="button" class="btn btn-primary" data-action="save" ${state.busy ? "disabled" : ""}>${state.busy === "save" ? "Saving..." : actionLabel}</button>`}
+          ${canUseSingleTools && feedback.length ? `<button type="button" class="btn btn-primary rounded-xl px-6 shadow-lg shadow-emerald-500/20" data-action="refine" ${state.busy ? "disabled" : ""}>${state.busy === "refine" ? "Updating..." : "Update topic parameters"}</button>` : `<button type="button" class="btn btn-primary rounded-xl px-6 shadow-lg shadow-emerald-500/20" data-action="save" ${state.busy ? "disabled" : ""}>${state.busy === "save" ? "Saving..." : actionLabel}</button>`}
         </div>
       </div>
     </div>`;
@@ -467,22 +473,26 @@ export function initTopics(context) {
 
   function renderSplitStage() {
     const selectedCount = state.splitDrafts.filter((entry) => entry.selected).length;
+    const selectedLabel = `${selectedCount} of ${state.splitDrafts.length} selected`;
+    const actionLabel = selectedCount === 0
+      ? "Create selected topics"
+      : selectedCount === 1 ? "Create 1 selected topic" : `Create ${selectedCount} selected topics`;
     return `<div class="space-y-6">
-      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+      <div class="rounded-xl border border-slate-200 bg-white p-5">
         <div class="space-y-4">
           <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p class="text-xs font-bold uppercase tracking-widest text-slate-500">Multiple topic review</p>
               <p class="mt-1 text-sm leading-6 text-slate-600">Select and edit the focused topics to create from this broad prompt.</p>
             </div>
+            <span class="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">${selectedLabel}</span>
           </div>
           ${renderTopicWarning()}
-          <div class="space-y-2">
-            <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Topic group</label>
+          <div class="space-y-2 border-t border-slate-100 pt-4">
+            <label class="text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400">Save into group</label>
             ${renderGroupField({ inputName: "splitGroupName", listId: "split-topic-group-options", useSuggestion: true })}
           </div>
         </div>
-        <p class="mt-3 text-sm font-medium text-slate-700">${selectedCount} of ${state.splitDrafts.length} topics selected</p>
       </div>
 
       <div class="space-y-4">
@@ -495,14 +505,17 @@ export function initTopics(context) {
           removable: state.splitDrafts.length > 1,
         })).join("")}
       </div>
-      <div class="flex justify-end">
-        <button type="button" class="btn btn-primary btn-sm" data-action="add-topic-card">Add topic</button>
+      <div class="flex justify-center pt-1">
+        <button type="button" class="btn btn-outline w-full max-w-sm border-dashed border-slate-300 text-slate-500" data-action="add-topic-card">Add topic</button>
       </div>
 
       ${state.error ? `<p class="text-sm text-red-600">${context.utils.escapeHtml(state.error)}</p>` : ""}
-      <div class="flex flex-wrap items-center justify-end gap-3">
+      <div class="flex flex-col gap-4 border-t border-slate-100 pt-8 md:flex-row md:items-center md:justify-between">
+        <p class="text-sm text-slate-400">Unsaved changes will be discarded.</p>
+        <div class="flex flex-wrap items-center justify-end gap-3">
         <a class="btn btn-outline" href="/">Cancel</a>
-        <button type="button" class="btn btn-primary" data-action="bulk-save" ${state.busy ? "disabled" : ""}>${state.busy === "bulk-save" ? "Creating..." : "Create selected topics"}</button>
+        <button type="button" class="btn btn-primary rounded-xl px-6 shadow-lg shadow-emerald-500/20" data-action="bulk-save" ${state.busy ? "disabled" : ""}>${state.busy === "bulk-save" ? "Creating..." : actionLabel}</button>
+        </div>
       </div>
     </div>`;
   }
@@ -548,15 +561,20 @@ export function initTopics(context) {
       root.innerHTML = `<div class="card m-4 p-6 text-sm text-slate-500 md:m-6 lg:m-10">Select a topic to edit.</div>`;
       return;
     }
+    const pageTitle = state.mode === "edit"
+      ? "Edit monitoring topic"
+      : state.stage === "prompt" ? "Create monitoring topic" : "Review drafts";
     const pageDescription = state.stage === "split"
-      ? "Review focused topic drafts, then create the selected topics in one step."
-      : "Start with one topic. AI suggests the query set and domain strategy, then you can test the configuration before saving.";
+      ? "AI analyzed your prompt and generated focused topic monitors."
+      : state.stage === "review"
+        ? "Review the topic draft configuration before saving."
+        : "Start with one topic. AI suggests the query set and domain strategy, then you can test the configuration before saving.";
     root.innerHTML = `<div class="h-full border-none bg-white shadow-none">
-      <div class="px-6 pb-0 pt-8 md:px-10">
-        <h2 class="text-3xl font-bold text-slate-900">${state.mode === "edit" ? "Edit monitoring topic" : "Create monitoring topic"}</h2>
+      <div class="mx-auto max-w-5xl px-6 pb-0 pt-8 md:px-10">
+        <h2 class="text-3xl font-bold text-slate-900">${pageTitle}</h2>
         <p class="mt-2 max-w-2xl text-base text-slate-600">${pageDescription}</p>
       </div>
-      <div class="space-y-8 px-6 py-8 md:px-10">
+      <div class="mx-auto max-w-5xl space-y-8 px-6 py-8 md:px-10">
         ${state.stage === "prompt" ? renderPromptStage() : state.stage === "split" ? renderSplitStage() : renderReviewStage()}
       </div>
     </div>`;
