@@ -11,8 +11,9 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         now = timezone.now()
-        topics = Topic.objects.filter(is_active=True).only(
+        topics = Topic.objects.filter(is_active=True, group__is_active=True).only(
             "uuid",
+            "group_id",
             "update_frequency",
             "auto_effective_interval_hours",
             "last_fetched_at",

@@ -100,12 +100,15 @@ export function initTopics(context) {
 
   const params = new URLSearchParams(window.location.search);
   const editUuid = params.get("edit");
-  const preselectedGroup = params.get("group") || context.state.selectedGroupId || "";
+  const requestedGroup = params.get("group") || context.state.selectedGroupId || "";
+  const manageGroupTopics = params.get("manage") === "topics" && Boolean(requestedGroup);
+  const preselectedGroup = requestedGroup;
   const state = {
-    mode: editUuid ? "edit" : "create",
+    mode: manageGroupTopics ? "manage" : editUuid ? "edit" : "create",
     topicUuid: editUuid,
-    stage: editUuid ? "review" : "prompt",
+    stage: manageGroupTopics ? "manage" : editUuid ? "review" : "prompt",
     draft: cloneDraft(EMPTY_DRAFT),
+    topicIsActive: true,
     groupUuid: preselectedGroup,
     groupNameDraft: "",
     error: null,
@@ -116,12 +119,40 @@ export function initTopics(context) {
     previewHasRun: false,
     extraDrafts: [],
     splitDrafts: [],
+    managedTopics: [],
+    managedTopicsLoaded: !manageGroupTopics,
+    managedTopicsLoading: false,
+    managedDrafts: [],
     initializedForTopic: null,
+    initializedManageGroup: null,
+    collectionDraft: {
+      uuid: "",
+      name: "",
+      description: "",
+      isActive: true,
+    },
+    collectionGroups: context.state.groups || [],
+    collectionLoading: false,
+    collectionBusy: null,
+    collectionError: null,
   };
 
   function activeTopic() {
     if (!state.topicUuid) return null;
     return context.state.topics.find((topic) => topic.uuid === state.topicUuid) || null;
+  }
+
+  function managedGroup() {
+    if (!state.groupUuid) return null;
+    return context.state.groups.find((group) => String(group.uuid) === String(state.groupUuid)) || null;
+  }
+
+  function managedGroupTopics() {
+    if (!state.groupUuid) return [];
+    const topics = state.mode === "manage" ? state.managedTopics : context.state.topics;
+    return topics
+      .filter((topic) => topic.groupUuid === state.groupUuid)
+      .sort((a, b) => String(a.term || "").localeCompare(String(b.term || "")));
   }
 
   function normalizedQueries() {
@@ -151,6 +182,7 @@ export function initTopics(context) {
     state.draft = cloneDraft(toDraftFromTopic(topic));
     state.groupUuid = topic.groupUuid || "";
     state.groupNameDraft = topic.groupName || "";
+    state.topicIsActive = topic.isActive !== false;
     state.lastOrganizedPrompt = topic.monitoringPrompt;
     state.stage = "review";
     state.previewResults = [];
@@ -159,6 +191,41 @@ export function initTopics(context) {
     state.extraDrafts = [];
     state.splitDrafts = [];
     state.initializedForTopic = topic.uuid;
+  }
+
+  function syncManagedDrafts() {
+    if (state.mode !== "manage") return;
+    if (!state.managedTopicsLoaded) return;
+    if (state.initializedManageGroup === state.groupUuid) return;
+    const topics = managedGroupTopics();
+    state.managedDrafts = topics.map((topic) => ({
+      topicUuid: topic.uuid,
+      isActive: topic.isActive,
+      draft: cloneDraft(toDraftFromTopic(topic)),
+    }));
+    state.groupNameDraft = managedGroup()?.name || "";
+    state.initializedManageGroup = state.groupUuid;
+  }
+
+  async function loadManagedTopics({ renderAfter = true } = {}) {
+    if (state.mode !== "manage" || !state.groupUuid || context.state.isAuthenticated !== true) return;
+    state.managedTopicsLoading = true;
+    if (renderAfter) render();
+    try {
+      const response = await context.api.listTopics({
+        groupUuid: state.groupUuid,
+        includeInactive: true,
+      });
+      state.managedTopics = (response.topics || []).map(context.utils.normalizeTopic);
+      state.managedTopicsLoaded = true;
+      state.initializedManageGroup = null;
+      state.error = null;
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : "Unable to load topics.";
+    } finally {
+      state.managedTopicsLoading = false;
+      if (renderAfter) render();
+    }
   }
 
   function readDraftList(index, name) {
@@ -210,6 +277,13 @@ export function initTopics(context) {
     });
   }
 
+  function collectManagedDraftsFromDom() {
+    state.managedDrafts = state.managedDrafts.map((entry, index) => ({
+      ...entry,
+      draft: collectTopicDraftFromDom(index, entry.draft),
+    }));
+  }
+
   function buildTopicPayload(draft, { groupUuid = "", isActive = true } = {}) {
     const queries = normalizeList(draft.queries);
     return {
@@ -243,6 +317,125 @@ export function initTopics(context) {
   function groupNameForUuid(uuid) {
     const group = context.state.groups.find((entry) => String(entry.uuid) === String(uuid));
     return group ? group.name : "";
+  }
+
+  function normalizeCollectionGroup(group) {
+    return context.utils.normalizeGroup ? context.utils.normalizeGroup(group) : {
+      ...group,
+      uuid: String(group.uuid),
+      description: group.description || "",
+      isActive: group.is_active !== undefined ? Boolean(group.is_active) : group.isActive !== false,
+    };
+  }
+
+  async function loadCollections({ renderAfter = true } = {}) {
+    state.collectionLoading = true;
+    if (renderAfter) render();
+    try {
+      const response = await context.api.listTopicGroups({ includeInactive: true });
+      state.collectionGroups = (response.groups || []).map(normalizeCollectionGroup);
+      state.collectionError = null;
+    } catch (error) {
+      state.collectionError = error instanceof Error ? error.message : "Unable to load collections.";
+    } finally {
+      state.collectionLoading = false;
+      if (renderAfter) render();
+    }
+  }
+
+  function collectCollectionDraftFromDom() {
+    const name = root.querySelector("[name='collectionName']");
+    const description = root.querySelector("[name='collectionDescription']");
+    state.collectionDraft = {
+      ...state.collectionDraft,
+      name: name ? name.value : state.collectionDraft.name,
+      description: description ? description.value : state.collectionDraft.description,
+    };
+  }
+
+  function resetCollectionDraft() {
+    state.collectionDraft = {
+      uuid: "",
+      name: "",
+      description: "",
+      isActive: true,
+    };
+    state.collectionError = null;
+  }
+
+  function editCollection(uuid) {
+    const group = state.collectionGroups.find((entry) => String(entry.uuid) === String(uuid));
+    if (!group) return;
+    state.collectionDraft = {
+      uuid: String(group.uuid),
+      name: group.name || "",
+      description: group.description || "",
+      isActive: group.isActive !== false,
+    };
+    state.collectionError = null;
+    render();
+  }
+
+  async function saveCollection() {
+    collectCollectionDraftFromDom();
+    const name = state.collectionDraft.name.trim();
+    const description = state.collectionDraft.description.trim();
+    if (!name) {
+      state.collectionError = "Collection name cannot be empty.";
+      render();
+      return;
+    }
+    state.collectionBusy = "save";
+    state.collectionError = null;
+    render();
+    try {
+      const response = state.collectionDraft.uuid
+        ? await context.api.updateTopicGroup(state.collectionDraft.uuid, { name, description, isActive: state.collectionDraft.isActive })
+        : await context.api.createTopicGroup({ name, description });
+      await context.reloadNavigation();
+      await loadCollections({ renderAfter: false });
+      if (state.groupUuid && String(state.groupUuid) === String(response.uuid || response.group?.uuid)) {
+        state.groupNameDraft = response.name || response.group?.name || name;
+      }
+      resetCollectionDraft();
+    } catch (error) {
+      state.collectionError = error instanceof Error ? error.message : "Unable to save collection.";
+    } finally {
+      state.collectionBusy = null;
+      render();
+    }
+  }
+
+  async function toggleCollectionActive() {
+    collectCollectionDraftFromDom();
+    const uuid = state.collectionDraft.uuid;
+    if (!uuid) return;
+    const nextActive = !state.collectionDraft.isActive;
+    if (!nextActive && !window.confirm("Deactivate this collection? Scheduled scans for its topics will pause, but existing content will be kept.")) return;
+    state.collectionBusy = nextActive ? "reactivate" : "deactivate";
+    state.collectionError = null;
+    render();
+    try {
+      const response = await context.api.updateTopicGroup(uuid, { isActive: nextActive });
+      const updated = normalizeCollectionGroup(response);
+      if (!nextActive && state.groupUuid === uuid) {
+        state.groupUuid = "";
+        state.groupNameDraft = "";
+      }
+      await context.reloadNavigation();
+      await loadCollections({ renderAfter: false });
+      state.collectionDraft = {
+        uuid: String(updated.uuid),
+        name: updated.name || state.collectionDraft.name,
+        description: updated.description || "",
+        isActive: updated.isActive,
+      };
+    } catch (error) {
+      state.collectionError = error instanceof Error ? error.message : "Unable to update collection status.";
+    } finally {
+      state.collectionBusy = null;
+      render();
+    }
   }
 
   async function resolveGroupUuid() {
@@ -291,11 +484,11 @@ export function initTopics(context) {
     const derivedGroupName = state.groupNameDraft || (state.groupUuid ? groupNameForUuid(state.groupUuid) : "");
     const groupOptions = normalizeList(context.state.groups.map((group) => group.name));
     return `<div class="space-y-2">
-      <input name="${inputName}" list="${listId}" class="input" value="${context.utils.escapeHtml(derivedGroupName || "")}" placeholder="Type or choose a group">
+      <input name="${inputName}" list="${listId}" class="input" value="${context.utils.escapeHtml(derivedGroupName || "")}" placeholder="Type or choose a collection">
       <datalist id="${listId}">
         ${groupOptions.map((name) => `<option value="${context.utils.escapeHtml(name)}"></option>`).join("")}
       </datalist>
-      <p class="text-xs text-slate-500">Choose an existing group from suggestions or type a new group name.</p>
+      <p class="text-xs text-slate-500">Choose an existing collection from suggestions or type a new collection name.</p>
     </div>`;
   }
 
@@ -328,6 +521,13 @@ export function initTopics(context) {
     </div>`;
   }
 
+  function renderTopicStatusToggle(index, isActive) {
+    return `<div class="inline-flex overflow-hidden rounded-full border border-slate-200 bg-white text-xs font-bold" role="group" aria-label="Topic status">
+      <button type="button" class="${isActive ? "bg-emerald-600 text-white" : "bg-white text-slate-500"} px-3 py-1.5" data-topic-status-toggle="${index}" data-topic-active-value="true">Active</button>
+      <button type="button" class="${isActive ? "bg-white text-slate-500" : "bg-slate-700 text-white"} border-l border-slate-200 px-3 py-1.5" data-topic-status-toggle="${index}" data-topic-active-value="false">Disabled</button>
+    </div>`;
+  }
+
   function renderTopicDraftCard({
     draft,
     index,
@@ -336,13 +536,26 @@ export function initTopics(context) {
     selectable = false,
     removable = false,
     allowDomainSuggestions = false,
+    showStatus = false,
+    isActive = true,
   }) {
     const selectedDomains = normalizeList(draft.domainAllowlist);
     const canSuggestMoreDomains = allowDomainSuggestions && draft.limitToSelectedDomains && selectedDomains.length > 0 && selectedDomains.length < 20;
     const labelClass = "text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400";
     const cardClass = selectable
       ? (selected ? "border-emerald-200 bg-emerald-50/80 shadow-sm shadow-emerald-100/80" : "border-slate-200 bg-white hover:border-slate-300")
-      : "border-slate-200 bg-white";
+      : showStatus && !isActive ? "border-slate-200 bg-slate-50" : "border-slate-200 bg-white";
+    if (showStatus && !isActive) {
+      return `<div class="rounded-xl border ${cardClass} p-5 transition-colors">
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div class="min-w-0">
+            <p class="truncate text-sm font-bold text-slate-700">${context.utils.escapeHtml(title)}</p>
+            <p class="mt-1 text-xs font-medium text-slate-500">Scheduled scans are paused. Saved content is kept.</p>
+          </div>
+          ${renderTopicStatusToggle(index, isActive)}
+        </div>
+      </div>`;
+    }
     return `<div class="rounded-xl border ${cardClass} p-6 transition-colors">
       <div class="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         ${selectable ? `<label class="flex items-center gap-3 text-sm font-semibold text-slate-900">
@@ -350,6 +563,7 @@ export function initTopics(context) {
           <span class="text-base font-bold">${context.utils.escapeHtml(title)}</span>
         </label>` : `<p class="text-sm font-semibold text-slate-900">${context.utils.escapeHtml(title)}</p>`}
         <div class="flex flex-wrap items-center gap-3">
+          ${showStatus ? renderTopicStatusToggle(index, isActive) : ""}
           ${draft.topicWarning ? `<span class="text-xs font-medium text-amber-700">${context.utils.escapeHtml(draft.topicWarning)}</span>` : ""}
           ${removable ? `<button type="button" class="btn btn-ghost btn-sm text-slate-400 hover:text-red-600" data-action="remove-topic-card" data-draft-index="${index}">Remove topic</button>` : ""}
         </div>
@@ -411,6 +625,98 @@ export function initTopics(context) {
     </div>`;
   }
 
+  function renderCollectionManager() {
+    const editing = Boolean(state.collectionDraft.uuid);
+    const groups = state.collectionGroups || [];
+    const statusActionLabel = state.collectionDraft.isActive ? "Deactivate collection" : "Reactivate collection";
+    const statusBusyLabel = state.collectionDraft.isActive ? "Deactivating..." : "Reactivating...";
+    const statusBusyKey = state.collectionDraft.isActive ? "deactivate" : "reactivate";
+    return `<div class="rounded-xl border border-slate-200 bg-white p-5">
+      <div class="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p class="text-xs font-bold uppercase tracking-widest text-slate-500">Collections</p>
+          <p class="mt-1 text-sm leading-6 text-slate-600">Create, rename, deactivate, or reactivate the collections used to organize topics.</p>
+        </div>
+        ${editing ? `<button type="button" class="btn btn-outline btn-sm" data-action="cancel-collection-edit">New collection</button>` : ""}
+      </div>
+      <div class="grid gap-5 lg:grid-cols-12">
+        <div class="space-y-2 lg:col-span-5">
+          ${state.collectionLoading ? `<div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">Loading collections...</div>` : groups.length ? groups.map((group) => {
+            const active = state.collectionDraft.uuid === String(group.uuid);
+            const isActive = group.isActive !== false;
+            return `<button type="button" class="w-full rounded-lg border ${active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : isActive ? "border-slate-200 bg-white text-slate-700 hover:border-slate-300" : "border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300"} p-3 text-left" data-action="edit-collection" data-collection-uuid="${context.utils.escapeHtml(String(group.uuid))}">
+              <span class="flex min-w-0 items-center justify-between gap-3">
+                <span class="block truncate text-sm font-bold">${context.utils.escapeHtml(group.name)}</span>
+                <span class="rounded-full ${isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-slate-600"} px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">${isActive ? "Active" : "Inactive"}</span>
+              </span>
+              <span class="mt-1 block truncate text-xs font-medium text-slate-500">${context.utils.escapeHtml(group.description || "No description")}</span>
+            </button>`;
+          }).join("") : `<div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">No collections yet.</div>`}
+        </div>
+        <div class="space-y-3 lg:col-span-7">
+          ${editing ? `<div class="inline-flex rounded-full ${state.collectionDraft.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"} px-3 py-1 text-xs font-bold">${state.collectionDraft.isActive ? "Active collection" : "Inactive collection"}</div>` : ""}
+          <div class="grid gap-3 md:grid-cols-2">
+            <div class="space-y-1.5">
+              <label class="text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400">Collection name</label>
+              <input name="collectionName" class="input" value="${context.utils.escapeHtml(state.collectionDraft.name)}" placeholder="e.g. Judicial independence">
+            </div>
+            <div class="space-y-1.5">
+              <label class="text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400">Description</label>
+              <input name="collectionDescription" class="input" value="${context.utils.escapeHtml(state.collectionDraft.description)}" placeholder="Optional">
+            </div>
+          </div>
+          ${state.collectionError ? `<p class="text-sm text-red-600">${context.utils.escapeHtml(state.collectionError)}</p>` : ""}
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              ${editing ? `<button type="button" class="btn btn-ghost ${state.collectionDraft.isActive ? "text-amber-700" : "text-emerald-700"}" data-action="toggle-collection-active" ${state.collectionBusy ? "disabled" : ""}>${state.collectionBusy === statusBusyKey ? statusBusyLabel : statusActionLabel}</button>` : ""}
+            </div>
+            <button type="button" class="btn btn-primary" data-action="save-collection" ${state.collectionBusy ? "disabled" : ""}>${state.collectionBusy === "save" ? "Saving..." : editing ? "Save collection" : "Create collection"}</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function renderManagedTopicsStage() {
+    const group = managedGroup();
+    const groupName = group ? group.name : "Collection";
+    if (!state.groupUuid) {
+      return `<div class="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
+        Select a collection from the sidebar to manage its topics.
+      </div>`;
+    }
+    const addTopicUrl = `/topics?group=${encodeURIComponent(state.groupUuid)}`;
+    return `<div class="space-y-8">
+      <div class="rounded-xl border border-slate-200 bg-white p-5">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-widest text-slate-500">Collection topics</p>
+            <p class="mt-1 text-sm leading-6 text-slate-600">${context.utils.escapeHtml(groupName)} has ${state.managedDrafts.length} ${state.managedDrafts.length === 1 ? "topic" : "topics"}.</p>
+          </div>
+          <a class="btn btn-outline btn-sm" href="${addTopicUrl}">Add topic</a>
+        </div>
+      </div>
+
+      ${state.managedTopicsLoading ? `<div class="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">Loading topics...</div>` : state.managedDrafts.length ? `<div class="space-y-4">
+        ${state.managedDrafts.map((entry, index) => renderTopicDraftCard({
+          draft: entry.draft,
+          index,
+          title: entry.draft.displayTitle || `Topic ${index + 1}`,
+          showStatus: true,
+          isActive: entry.isActive,
+          allowDomainSuggestions: false,
+        })).join("")}
+      </div>` : `<div class="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">No topics in this collection yet.</div>`}
+
+      ${state.error ? `<p class="text-sm text-red-600">${context.utils.escapeHtml(state.error)}</p>` : ""}
+
+      <div class="flex flex-col gap-4 border-t border-slate-100 pt-8 md:flex-row md:items-center md:justify-between">
+        <a class="btn btn-outline" href="/?group=${encodeURIComponent(state.groupUuid)}">Cancel</a>
+        <button type="button" class="btn btn-primary rounded-xl px-6 shadow-lg shadow-emerald-500/20" data-action="save-managed-topics" ${state.busy ? "disabled" : ""}>${state.busy === "save-managed-topics" ? "Saving..." : "Save topics"}</button>
+      </div>
+    </div>`;
+  }
+
   function renderReviewStage() {
     const feedback = feedbackItems();
     const draftCards = [state.draft, ...state.extraDrafts];
@@ -434,7 +740,7 @@ export function initTopics(context) {
           </div>
           ${renderTopicWarning()}
           <div class="space-y-2 border-t border-slate-100 pt-4">
-            <label class="text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400">Save into group</label>
+            <label class="text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400">Save into collection</label>
             ${renderGroupField({ inputName: "groupName", listId: "topic-group-options" })}
           </div>
         </div>
@@ -445,6 +751,8 @@ export function initTopics(context) {
           draft,
           index,
           title: `Topic ${index + 1}`,
+          showStatus: state.mode === "edit" && index === 0,
+          isActive: state.mode === "edit" && index === 0 ? state.topicIsActive : true,
           removable: state.mode === "create" && index > 0,
           allowDomainSuggestions: canUseSingleTools && index === 0,
         })).join("")}
@@ -457,7 +765,7 @@ export function initTopics(context) {
       ${state.error ? `<p class="text-sm text-red-600">${context.utils.escapeHtml(state.error)}</p>` : ""}
 
       <div class="flex flex-col gap-4 border-t border-slate-100 pt-8 md:flex-row md:items-center md:justify-between">
-        <div class="text-sm text-slate-400">${state.mode === "edit" ? '<button type="button" class="btn btn-ghost text-red-600" data-action="delete-topic">Delete topic</button>' : "Unsaved changes will be discarded."}</div>
+        <div class="text-sm text-slate-400">${state.mode === "edit" ? '<button type="button" class="btn btn-ghost text-amber-700" data-action="disable-topic">Disable topic</button>' : "Unsaved changes will be discarded."}</div>
         <div class="flex flex-wrap items-center justify-end gap-3">
           <a class="btn btn-outline" href="${state.mode === "edit" ? "/topics" : "/"}">Cancel</a>
           ${canUseSingleTools ? `<button type="button" class="btn btn-outline" data-action="preview" ${state.busy ? "disabled" : ""}>${state.busy === "preview" ? "Testing..." : "Test run"}</button>` : ""}
@@ -485,7 +793,7 @@ export function initTopics(context) {
           </div>
           ${renderTopicWarning()}
           <div class="space-y-2 border-t border-slate-100 pt-4">
-            <label class="text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400">Save into group</label>
+            <label class="text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400">Save into collection</label>
             ${renderGroupField({ inputName: "splitGroupName", listId: "split-topic-group-options" })}
           </div>
         </div>
@@ -549,6 +857,7 @@ export function initTopics(context) {
 
   function render() {
     syncFromActiveTopic();
+    syncManagedDrafts();
     if (context.state.isAuthenticated !== true) {
       renderSignedOut();
       return;
@@ -557,21 +866,29 @@ export function initTopics(context) {
       root.innerHTML = `<div class="card m-4 p-6 text-sm text-slate-500 md:m-6 lg:m-10">Select a topic to edit.</div>`;
       return;
     }
+    if (state.mode === "manage" && state.groupUuid && !managedGroup()) {
+      root.innerHTML = `<div class="card m-4 p-6 text-sm text-slate-500 md:m-6 lg:m-10">Select an active collection to manage.</div>`;
+      return;
+    }
     const pageTitle = state.mode === "edit"
       ? "Edit monitoring topic"
+      : state.mode === "manage" ? `Manage topics${managedGroup() ? ` in ${managedGroup().name}` : ""}`
       : state.stage === "prompt" ? "Create monitoring topic" : "Review drafts";
-    const pageDescription = state.stage === "split"
+    const pageDescription = state.mode === "manage"
+      ? "Edit the monitoring setup for each topic in this collection."
+      : state.stage === "split"
       ? "AI analyzed your prompt and generated focused topic monitors."
       : state.stage === "review"
         ? "Review the topic draft configuration before saving."
         : "Start with one topic. AI suggests the query set and domain strategy, then you can test the configuration before saving.";
     root.innerHTML = `<div class="h-full border-none bg-white shadow-none">
       <div class="mx-auto max-w-5xl px-6 pb-0 pt-8 md:px-10">
-        <h2 class="text-3xl font-bold text-slate-900">${pageTitle}</h2>
+        <h2 class="text-3xl font-bold text-slate-900">${context.utils.escapeHtml(pageTitle)}</h2>
         <p class="mt-2 max-w-2xl text-base text-slate-600">${pageDescription}</p>
       </div>
       <div class="mx-auto max-w-5xl space-y-8 px-6 py-8 md:px-10">
-        ${state.stage === "prompt" ? renderPromptStage() : state.stage === "split" ? renderSplitStage() : renderReviewStage()}
+        ${state.mode === "manage" ? "" : renderCollectionManager()}
+        ${state.mode === "manage" ? renderManagedTopicsStage() : state.stage === "prompt" ? renderPromptStage() : state.stage === "split" ? renderSplitStage() : renderReviewStage()}
       </div>
     </div>`;
   }
@@ -724,6 +1041,45 @@ export function initTopics(context) {
     }
   }
 
+  async function saveManagedTopics() {
+    collectManagedDraftsFromDom();
+    if (!state.groupUuid) {
+      setError("Select a collection before saving topics.");
+      return;
+    }
+    for (const [index, entry] of state.managedDrafts.entries()) {
+      const validationError = validateTopicDraft(entry.draft, `Topic ${index + 1}`);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+      if (entry.draft.limitToSelectedDomains && !normalizeList(entry.draft.domainAllowlist).length) {
+        setError(`Topic ${index + 1}: add at least one domain or turn off domain limiting.`);
+        return;
+      }
+    }
+    state.busy = "save-managed-topics";
+    state.error = null;
+    render();
+    try {
+      for (const entry of state.managedDrafts) {
+        await context.api.updateTopic(entry.topicUuid, buildTopicPayload(entry.draft, {
+          groupUuid: state.groupUuid,
+          isActive: entry.isActive,
+        }));
+      }
+      await context.reloadNavigation();
+      await loadManagedTopics({ renderAfter: false });
+      state.initializedManageGroup = null;
+      context.showToast("Topics saved.");
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : "Unable to save topics.";
+    } finally {
+      state.busy = null;
+      render();
+    }
+  }
+
   async function saveTopic() {
     collectDraftFromDom();
     const topic = activeTopic();
@@ -752,7 +1108,7 @@ export function initTopics(context) {
       if (state.mode === "edit" && state.topicUuid) {
         const payload = buildTopicPayload(state.draft, {
           groupUuid: resolvedGroupUuid,
-          isActive: topic ? topic.isActive : true,
+          isActive: state.topicIsActive,
         });
         response = await context.api.updateTopic(state.topicUuid, payload);
       } else if (drafts.length > 1) {
@@ -772,6 +1128,10 @@ export function initTopics(context) {
       }
       await context.reloadNavigation();
       if (response) {
+        if (state.mode === "edit" && state.topicIsActive === false) {
+          context.setSelection({ groupId: String(resolvedGroupUuid || ""), topicUuid: null, navigate: true });
+          return;
+        }
         const uuid = String(response.uuid);
         context.setSelection({ topicUuid: uuid, navigate: true });
       } else {
@@ -831,18 +1191,18 @@ export function initTopics(context) {
     }
   }
 
-  async function deleteTopic() {
+  async function disableTopic() {
     const topic = activeTopic();
     if (!topic) return;
-    if (!window.confirm("Delete this topic permanently? This cannot be undone.")) return;
-    state.busy = "delete";
+    if (!window.confirm("Disable this topic? Scheduled scans will stop, but its configuration and saved content will be kept.")) return;
+    state.busy = "disable";
     render();
     try {
       await context.api.deleteTopic(topic.uuid);
       await context.reloadNavigation();
       window.location.assign("/topics");
     } catch (error) {
-      state.error = error instanceof Error ? error.message : "Unable to delete topic.";
+      state.error = error instanceof Error ? error.message : "Unable to disable topic.";
       state.busy = null;
       render();
     }
@@ -851,6 +1211,8 @@ export function initTopics(context) {
   function collectCurrentDraftCardsFromDom() {
     if (state.stage === "split") {
       collectSplitDraftsFromDom();
+    } else if (state.mode === "manage") {
+      collectManagedDraftsFromDom();
     } else {
       collectDraftFromDom();
     }
@@ -860,8 +1222,22 @@ export function initTopics(context) {
     if (state.stage === "split") {
       return state.splitDrafts[index] ? state.splitDrafts[index].draft : null;
     }
+    if (state.mode === "manage") {
+      return state.managedDrafts[index] ? state.managedDrafts[index].draft : null;
+    }
     if (index === 0) return state.draft;
     return state.extraDrafts[index - 1] || null;
+  }
+
+  function setTopicActive(index, isActive) {
+    collectCurrentDraftCardsFromDom();
+    if (state.mode === "manage") {
+      if (!state.managedDrafts[index]) return;
+      state.managedDrafts[index].isActive = isActive;
+    } else if (state.mode === "edit" && index === 0) {
+      state.topicIsActive = isActive;
+    }
+    render();
   }
 
   function addTopicCard() {
@@ -937,6 +1313,14 @@ export function initTopics(context) {
       render();
       return;
     }
+    const topicStatusToggle = event.target.closest("[data-topic-status-toggle]");
+    if (topicStatusToggle) {
+      setTopicActive(
+        Number(topicStatusToggle.dataset.topicStatusToggle),
+        topicStatusToggle.dataset.topicActiveValue === "true",
+      );
+      return;
+    }
     const rate = event.target.closest("[data-rate-url]");
     if (rate) {
       const url = rate.dataset.rateUrl;
@@ -948,6 +1332,23 @@ export function initTopics(context) {
     const action = event.target.closest("[data-action]");
     if (!action) return;
     const name = action.dataset.action;
+    if (name === "edit-collection") {
+      editCollection(action.dataset.collectionUuid);
+      return;
+    }
+    if (name === "cancel-collection-edit") {
+      resetCollectionDraft();
+      render();
+      return;
+    }
+    if (name === "save-collection") {
+      saveCollection();
+      return;
+    }
+    if (name === "toggle-collection-active") {
+      toggleCollectionActive();
+      return;
+    }
     if (name === "organize") runOrganizer();
     if (name === "add-topic-card") addTopicCard();
     if (name === "remove-topic-card") removeTopicCard(Number(action.dataset.draftIndex));
@@ -962,9 +1363,10 @@ export function initTopics(context) {
     if (name === "suggest-domains") suggestDomains();
     if (name === "preview") runPreview();
     if (name === "refine") refineTopic();
+    if (name === "save-managed-topics") saveManagedTopics();
     if (name === "save") saveTopic();
     if (name === "bulk-save") saveSplitTopics();
-    if (name === "delete-topic") deleteTopic();
+    if (name === "disable-topic") disableTopic();
   });
 
   context.subscribe(() => {
@@ -972,4 +1374,6 @@ export function initTopics(context) {
   });
 
   render();
+  loadCollections();
+  loadManagedTopics();
 }

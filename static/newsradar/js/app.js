@@ -50,6 +50,20 @@ function normalizeTopic(topic) {
   };
 }
 
+function normalizeGroup(group) {
+  return {
+    id: group.id,
+    uuid: String(group.uuid),
+    name: group.name,
+    description: group.description || "",
+    isActive: group.is_active !== undefined ? Boolean(group.is_active) : group.isActive !== false,
+    ownerUsername: group.owner_username,
+    isOwner: group.is_owner,
+    createdAt: group.created_at ? new Date(group.created_at) : null,
+    updatedAt: group.updated_at ? new Date(group.updated_at) : null,
+  };
+}
+
 function formatFrequency(topic) {
   switch (topic.updateFrequency) {
     case "auto":
@@ -79,6 +93,13 @@ function formatDistance(value) {
   return date.toLocaleDateString();
 }
 
+function defaultDashboardGroupId() {
+  if (state.groups.length) {
+    return String(state.groups[0].uuid);
+  }
+  return "";
+}
+
 function parseSelectionFromUrl() {
   const params = new URLSearchParams(window.location.search);
   state.selectedGroupId = params.get("group") || "";
@@ -100,8 +121,8 @@ function setSelection({ groupId = "", topicUuid = null, replace = false, navigat
   state.selectedTopicUuid = topicUuid || null;
   if (topicUuid) {
     const topic = state.topics.find((entry) => entry.uuid === topicUuid);
-    if (topic && topic.groupUuid) {
-      state.selectedGroupId = topic.groupUuid;
+    if (topic) {
+      state.selectedGroupId = topic.groupUuid || "";
     }
   }
 
@@ -125,8 +146,8 @@ function setSelectionState({ groupId = "", topicUuid = null } = {}) {
   state.selectedTopicUuid = topicUuid || null;
   if (topicUuid) {
     const topic = state.topics.find((entry) => entry.uuid === topicUuid);
-    if (topic && topic.groupUuid) {
-      state.selectedGroupId = topic.groupUuid;
+    if (topic) {
+      state.selectedGroupId = topic.groupUuid || "";
     }
   }
   renderSidebar();
@@ -196,27 +217,18 @@ async function loadNavigation() {
     notify();
     return;
   }
-  const status = document.getElementById("topic-list-status");
-  if (status) {
-    status.textContent = "Loading topics...";
-    status.classList.remove("hidden", "text-red-600");
-  }
   try {
     const [groupsResponse, topicsResponse] = await Promise.all([
       api.listTopicGroups(),
       api.listTopics(),
     ]);
-    state.groups = groupsResponse.groups || [];
+    state.groups = (groupsResponse.groups || []).map(normalizeGroup);
     state.topics = (topicsResponse.topics || []).map(normalizeTopic);
     reconcileSelection();
     renderSidebar();
     notify();
   } catch (error) {
-    if (status) {
-      status.textContent = error instanceof Error ? error.message : "Unable to load topics.";
-      status.classList.remove("hidden");
-      status.classList.add("text-red-600");
-    }
+    showToast(error instanceof Error ? error.message : "Unable to load navigation.", "error");
   }
 }
 
@@ -225,12 +237,21 @@ function reconcileSelection() {
     const topic = state.topics.find((entry) => entry.uuid === state.selectedTopicUuid);
     if (!topic) {
       state.selectedTopicUuid = null;
-    } else if (topic.groupUuid) {
-      state.selectedGroupId = topic.groupUuid;
+    } else {
+      state.selectedGroupId = topic.groupUuid || "";
     }
   }
-  if (state.selectedGroupId && !state.groups.some((group) => String(group.uuid) === state.selectedGroupId)) {
+  if (
+    state.selectedGroupId
+    && !state.groups.some((group) => String(group.uuid) === state.selectedGroupId)
+  ) {
     state.selectedGroupId = "";
+  }
+  if (!state.selectedGroupId && !state.selectedTopicUuid && document.body.dataset.page === "dashboard") {
+    state.selectedGroupId = defaultDashboardGroupId();
+    if (window.location.pathname === "/" && !window.location.search) {
+      window.history.replaceState({}, "", buildDashboardUrl(state.selectedGroupId, null));
+    }
   }
 }
 
@@ -248,97 +269,33 @@ function renderAuthState() {
 function renderSidebar() {
   renderAuthState();
   const groupList = document.getElementById("group-list");
-  const topicList = document.getElementById("topic-list");
-  const topicStatus = document.getElementById("topic-list-status");
-  const visibleTopicCount = document.getElementById("visible-topic-count");
-  const selectedGroupPanel = document.getElementById("selected-group-panel");
-  if (!groupList || !topicList || !topicStatus || !visibleTopicCount || !selectedGroupPanel) return;
+  if (!groupList) return;
 
   if (!state.isAuthenticated) {
     groupList.innerHTML = "";
-    topicList.innerHTML = "";
-    topicStatus.textContent = "";
-    topicStatus.classList.add("hidden");
-    visibleTopicCount.textContent = "0 topics visible";
-    selectedGroupPanel.classList.add("hidden");
     return;
   }
 
-  const selectedGroup = state.groups.find((group) => String(group.uuid) === state.selectedGroupId) || null;
-  const filteredTopics = state.selectedGroupId
-    ? state.topics.filter((topic) => topic.groupUuid === state.selectedGroupId)
-    : state.topics;
-  visibleTopicCount.textContent = `${filteredTopics.length} topics visible`;
-
-  const allActive = !state.selectedGroupId && !state.selectedTopicUuid;
   groupList.innerHTML = [
-    `<a href="/" data-group="" class="nr-group-item ${allActive ? "is-active" : ""}">
-      <p>All topics</p>
-      <span>${state.topics.length} topics</span>
-    </a>`,
     ...state.groups.map((group) => {
       const uuid = String(group.uuid);
       const count = state.topics.filter((topic) => topic.groupUuid === uuid).length;
-      const active = state.selectedGroupId === uuid && !state.selectedTopicUuid;
-      return `<a href="/?group=${encodeURIComponent(uuid)}" data-group="${escapeHtml(uuid)}" class="nr-group-item ${active ? "is-active" : ""}">
-        <p>${escapeHtml(group.name)}</p>
-        <span>${count} topics</span>
-      </a>`;
+      const active = state.selectedGroupId === uuid;
+      const manageUrl = `/topics?group=${encodeURIComponent(uuid)}&manage=topics`;
+      return `<div class="nr-group-card">
+        <a href="/?group=${encodeURIComponent(uuid)}" data-group="${escapeHtml(uuid)}" class="nr-group-item ${active ? "is-active" : ""}">
+          <p>${escapeHtml(group.name)}</p>
+          <span>${count} topics</span>
+        </a>
+        <a href="${manageUrl}" class="nr-group-edit" aria-label="Manage topics in ${escapeHtml(group.name)}" title="Manage topics">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 20h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="m16.5 3.5 4 4L8 20H4v-4L16.5 3.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+          </svg>
+        </a>
+      </div>`;
     }),
   ].join("");
-
-  if (selectedGroup) {
-    selectedGroupPanel.classList.remove("hidden");
-    selectedGroupPanel.innerHTML = `<div class="nr-selected-group-inner">
-      <div>
-        <p>${escapeHtml(selectedGroup.name)}</p>
-        <span>Visual organization only. Topics keep their own filters and frequency.</span>
-      </div>
-      <button type="button" class="nr-small-pill" data-edit-group="${escapeHtml(String(selectedGroup.uuid))}">Edit</button>
-    </div>`;
-  } else {
-    selectedGroupPanel.classList.add("hidden");
-  }
-
-  if (!filteredTopics.length) {
-    topicStatus.textContent = "";
-    topicStatus.classList.add("hidden");
-    topicList.innerHTML = "";
-  } else {
-    topicStatus.classList.add("hidden");
-    topicList.innerHTML = filteredTopics.map((topic) => {
-      const active = state.selectedTopicUuid === topic.uuid && document.body.dataset.page === "dashboard";
-      return `<a href="/?topic=${encodeURIComponent(topic.uuid)}" data-topic="${escapeHtml(topic.uuid)}" class="nr-topic-item ${active ? "is-active" : ""}">
-        <div class="nr-topic-item-row">
-          <div>
-            <p>${escapeHtml(topic.term)}</p>
-            <span>${escapeHtml(formatFrequency(topic))}</span>
-          </div>
-          ${topic.hasNewItems ? '<i aria-hidden="true"></i>' : ""}
-        </div>
-      </a>`;
-    }).join("");
-  }
-}
-
-function openGroupModal(group = null) {
-  const title = document.getElementById("group-modal-title");
-  const description = document.getElementById("group-modal-description");
-  const uuid = document.getElementById("group-uuid");
-  const name = document.getElementById("group-name");
-  const groupDescription = document.getElementById("group-description");
-  const deleteButton = document.getElementById("delete-group-button");
-  const error = document.getElementById("group-error");
-  if (!title || !description || !uuid || !name || !groupDescription || !deleteButton || !error) return;
-
-  title.textContent = group ? "Edit group" : "Create group";
-  description.textContent = group ? "Rename or delete this visual topic bucket." : "Groups are optional visual buckets for organizing related topics.";
-  uuid.value = group ? String(group.uuid) : "";
-  name.value = group ? group.name || "" : "";
-  groupDescription.value = group ? group.description || "" : "";
-  deleteButton.classList.toggle("hidden", !group);
-  error.classList.add("hidden");
-  openModal("group-modal");
 }
 
 function bindGlobalEvents() {
@@ -368,11 +325,6 @@ function bindGlobalEvents() {
       return;
     }
 
-    const editGroup = event.target.closest("[data-edit-group]");
-    if (editGroup) {
-      const group = state.groups.find((entry) => String(entry.uuid) === editGroup.dataset.editGroup);
-      if (group) openGroupModal(group);
-    }
   });
 
   document.querySelectorAll(".modal").forEach((modal) => {
@@ -398,10 +350,6 @@ function bindGlobalEvents() {
       url.searchParams.set("group", state.selectedGroupId);
     }
     window.location.assign(`${url.pathname}${url.search}`);
-  });
-  document.getElementById("create-group-button")?.addEventListener("click", () => {
-    if (!ensureAuth()) return;
-    openGroupModal();
   });
   document.getElementById("sign-out-button")?.addEventListener("click", async () => {
     try {
@@ -455,57 +403,6 @@ function bindGlobalEvents() {
     document.getElementById("auth-error")?.classList.add("hidden");
   });
 
-  document.getElementById("group-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const uuid = document.getElementById("group-uuid")?.value || "";
-    const name = document.getElementById("group-name")?.value.trim() || "";
-    const description = document.getElementById("group-description")?.value.trim() || "";
-    const error = document.getElementById("group-error");
-    const saveButton = document.getElementById("save-group-button");
-    if (!name) {
-      if (error) {
-        error.textContent = "Group name cannot be empty.";
-        error.classList.remove("hidden");
-      }
-      return;
-    }
-    saveButton.disabled = true;
-    try {
-      const response = uuid
-        ? await api.updateTopicGroup(uuid, { name, description })
-        : await api.createTopicGroup({ name, description });
-      closeModal("group-modal");
-      await loadNavigation();
-      if (!uuid && response.group) {
-        setSelectionState({ groupId: String(response.group.uuid), topicUuid: null });
-      }
-    } catch (requestError) {
-      if (error) {
-        error.textContent = requestError instanceof Error ? requestError.message : "Unable to save group.";
-        error.classList.remove("hidden");
-      }
-    } finally {
-      saveButton.disabled = false;
-    }
-  });
-
-  document.getElementById("delete-group-button")?.addEventListener("click", async () => {
-    const uuid = document.getElementById("group-uuid")?.value || "";
-    if (!uuid) return;
-    if (!window.confirm("Delete this group? Topics in the group will keep their own filters.")) return;
-    try {
-      await api.deleteTopicGroup(uuid);
-      if (state.selectedGroupId === uuid) {
-        state.selectedGroupId = "";
-        state.selectedTopicUuid = null;
-      }
-      closeModal("group-modal");
-      await loadNavigation();
-      showToast("Group deleted.");
-    } catch (requestError) {
-      showToast(requestError instanceof Error ? requestError.message : "Unable to delete group.", "error");
-    }
-  });
 }
 
 function initPage(context) {
@@ -549,6 +446,7 @@ async function init() {
       escapeHtml,
       formatDistance,
       normalizeTopic,
+      normalizeGroup,
       formatFrequency,
     },
   };

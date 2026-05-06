@@ -95,7 +95,12 @@ def web_search_execution(request, payload: WebSearchExecutionRequest):
             "Invalid initiator."
         )
     topic = (
-        Topic.objects.filter(uuid=payload.topic_uuid, user=request.user).first()
+        Topic.objects.filter(
+            uuid=payload.topic_uuid,
+            user=request.user,
+            is_active=True,
+            group__is_active=True,
+        ).first()
     )
     if not topic:
         raise HttpError(404, "Topic not found for UUID.")

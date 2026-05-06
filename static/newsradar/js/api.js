@@ -104,10 +104,11 @@ export const api = {
     });
   },
 
-  listTopics({ search, groupUuid } = {}) {
+  listTopics({ search, groupUuid, includeInactive } = {}) {
     return requestJson(withQuery("/api/topics/", {
       search,
       group_uuid: groupUuid,
+      include_inactive: includeInactive ? "true" : undefined,
     }));
   },
 
@@ -183,8 +184,10 @@ export const api = {
     return requestJson(`/api/topics/${uuid}`, { method: "DELETE" });
   },
 
-  listTopicGroups() {
-    return requestJson("/api/topics/groups");
+  listTopicGroups(params = {}) {
+    return requestJson(withQuery("/api/topics/groups", {
+      include_inactive: params.includeInactive ? "true" : undefined,
+    }));
   },
 
   createTopicGroup(payload) {
@@ -203,6 +206,7 @@ export const api = {
       body: JSON.stringify({
         name: payload.name,
         description: payload.description,
+        is_active: payload.isActive,
       }),
     });
   },

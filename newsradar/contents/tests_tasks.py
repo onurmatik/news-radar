@@ -52,7 +52,7 @@ class ContentDigestEmailCommandTests(TestCase):
             deleted_at=deleted_at,
         )
 
-    def test_command_groups_by_topic_group_limits_each_group_and_marks_only_sent_items_viewed(self):
+    def test_command_groups_by_collection_limits_each_collection_and_marks_only_sent_items_viewed(self):
         user_model = get_user_model()
         user = user_model.objects.create_user(
             username="digest-user",
@@ -110,12 +110,12 @@ class ContentDigestEmailCommandTests(TestCase):
 
         send_mail_mock.assert_called_once()
         subject, message, _, recipients = send_mail_mock.call_args.args[:4]
-        self.assertIn("8 new items across 2 topic groups", subject)
-        self.assertIn("Showing the most recent 5 items per topic group below.", message)
+        self.assertIn("8 new items across 2 collections", subject)
+        self.assertIn("Showing the most recent 5 items per collection below.", message)
         self.assertIn("Energy (5)", message)
         self.assertIn("Mining (2)", message)
-        self.assertIn(f"Topic group: https://newsradar.app/?group={energy_group.uuid}", message)
-        self.assertIn(f"Topic group: https://newsradar.app/?group={mining_group.uuid}", message)
+        self.assertIn(f"Collection: https://newsradar.app/?group={energy_group.uuid}", message)
+        self.assertIn(f"Collection: https://newsradar.app/?group={mining_group.uuid}", message)
         self.assertIn("https://example.com/energy-1", message)
         self.assertIn("https://example.com/energy-2", message)
         self.assertIn("https://example.com/energy-3", message)
@@ -133,7 +133,7 @@ class ContentDigestEmailCommandTests(TestCase):
             message,
         )
         self.assertIn(
-            f"1 more item in this topic group: https://newsradar.app/?group={energy_group.uuid}",
+            f"1 more item in this collection: https://newsradar.app/?group={energy_group.uuid}",
             message,
         )
         self.assertNotIn("https://example.com/already-viewed", message)
@@ -158,6 +158,34 @@ class ContentDigestEmailCommandTests(TestCase):
         self.assertIn("sent_users=1", stdout.getvalue())
         self.assertIn("items_sent=7", stdout.getvalue())
         self.assertIn("marked_viewed=8", stdout.getvalue())
+
+    def test_command_skips_inactive_collection_content(self):
+        user_model = get_user_model()
+        user = user_model.objects.create_user(
+            username="inactive-digest-user",
+            email="inactive-digest@example.com",
+            password="password123",
+        )
+        group = TopicGroup.objects.create(user=user, name="Inactive", is_active=False)
+        topic = self._create_topic_for_user(
+            user,
+            query="inactive collection",
+            group=group,
+        )
+        content = self._create_content(
+            topic=topic,
+            url="https://example.com/inactive",
+            title="Inactive story",
+        )
+
+        stdout = StringIO()
+        with patch("newsradar.contents.digests.send_mail") as send_mail_mock:
+            call_command("send_content_digest_emails", stdout=stdout)
+
+        send_mail_mock.assert_not_called()
+        content.refresh_from_db()
+        self.assertFalse(content.viewed)
+        self.assertIn("processed_users=0", stdout.getvalue())
 
     def test_command_skips_users_without_email_and_leaves_content_unviewed(self):
         user_model = get_user_model()

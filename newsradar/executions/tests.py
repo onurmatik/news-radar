@@ -175,6 +175,29 @@ class ExecutionTests(TestCase):
         self.assertEqual(payload["task_id"], "task-123")
         self.assertTrue(Execution.objects.filter(id=payload["execution_id"]).exists())
 
+    def test_web_search_api_rejects_inactive_topic(self):
+        topic = self._create_topic()
+        topic.is_active = False
+        topic.save(update_fields=["is_active"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            "/api/executions/web-search/",
+            data='{"topic_uuid": "%s", "initiator": "user"}' % topic.uuid,
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(Execution.objects.exists())
+
+    def test_execute_web_search_rejects_inactive_topic(self):
+        topic = self._create_topic()
+        topic.is_active = False
+        topic.save(update_fields=["is_active"])
+
+        with self.assertRaisesMessage(ValueError, "Topic is inactive."):
+            execute_web_search(str(topic.uuid))
+
     def test_scheduled_command_queues_due_fixed_and_auto_topics(self):
         now = timezone.now()
         due_hour = self._create_topic(
@@ -209,6 +232,20 @@ class ExecutionTests(TestCase):
             auto_interval=6,
             last_fetched_at=now - timedelta(hours=2),
         )
+        inactive_collection_topic = self._create_topic(
+            queries=["inactive collection topic"],
+            update_frequency=Topic.UPDATE_FREQUENCY_HOUR,
+            last_fetched_at=now - timedelta(hours=2),
+        )
+        inactive_collection_topic.group.is_active = False
+        inactive_collection_topic.group.save(update_fields=["is_active", "updated_at"])
+        inactive_topic = self._create_topic(
+            queries=["inactive topic"],
+            update_frequency=Topic.UPDATE_FREQUENCY_HOUR,
+            last_fetched_at=now - timedelta(hours=2),
+        )
+        inactive_topic.is_active = False
+        inactive_topic.save(update_fields=["is_active"])
 
         with patch(
             "newsradar.executions.management.commands.scheduled_web_search_execution.web_search_execution.delay"

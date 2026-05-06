@@ -28,7 +28,13 @@ def list_content_by_topic_rss(
         if topic and topic.user_id != request.user.id:
             topic = None
     else:
-        topic = Topic.objects.filter(uuid=topic_uuid, is_active=True).first()
+        topic = Topic.objects.filter(
+            uuid=topic_uuid,
+            is_active=True,
+            group__is_active=True,
+        ).first()
+    if topic and (not topic.is_active or not topic.group.is_active):
+        topic = None
     if not topic:
         raise HttpError(404, "Topic not found.")
 
@@ -37,6 +43,8 @@ def list_content_by_topic_rss(
             Content.objects.filter(
                 execution__topic__user=request.user,
                 execution__topic__uuid=topic_uuid,
+                execution__topic__is_active=True,
+                execution__topic__group__is_active=True,
             )
             .select_related("execution", "execution__topic")
             .order_by(
@@ -53,6 +61,8 @@ def list_content_by_topic_rss(
         contents = (
             Content.objects.filter(
                 execution__topic=topic,
+                execution__topic__is_active=True,
+                execution__topic__group__is_active=True,
             )
             .select_related("execution", "execution__topic")
             .order_by(
@@ -89,19 +99,21 @@ def list_content_by_group_rss(
     offset = max(0, offset)
 
     if request.user.is_authenticated:
-        group = TopicGroup.objects.filter(uuid=group_uuid).first()
+        group = TopicGroup.objects.filter(uuid=group_uuid, is_active=True).first()
         if group and group.user_id != request.user.id:
             group = None
     else:
-        group = TopicGroup.objects.filter(uuid=group_uuid).first()
+        group = TopicGroup.objects.filter(uuid=group_uuid, is_active=True).first()
     if not group:
-        raise HttpError(404, "Topic group not found.")
+        raise HttpError(404, "Collection not found.")
 
     if request.user.is_authenticated and group.user_id == request.user.id:
         contents = (
             Content.objects.filter(
                 execution__topic__user=request.user,
                 execution__topic__group__uuid=group_uuid,
+                execution__topic__is_active=True,
+                execution__topic__group__is_active=True,
             )
             .select_related("execution", "execution__topic")
             .order_by(
@@ -118,6 +130,8 @@ def list_content_by_group_rss(
         contents = (
             Content.objects.filter(
                 execution__topic__group=group,
+                execution__topic__is_active=True,
+                execution__topic__group__is_active=True,
             )
             .select_related("execution", "execution__topic")
             .order_by(
@@ -131,9 +145,9 @@ def list_content_by_group_rss(
             )[offset : offset + limit]
         )
 
-    title = f"NewsRadar Group: {group.name}"
+    title = f"NewsRadar Collection: {group.name}"
     link = request.build_absolute_uri()
-    description = f"Content feed for topic group {group.name}."
+    description = f"Content feed for collection {group.name}."
     feed = _build_rss_feed(
         title=title,
         link=link,

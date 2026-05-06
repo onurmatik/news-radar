@@ -3,7 +3,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from newsradar.topics.models import Topic, TopicGroup
 from newsradar.topics.services import (
@@ -21,6 +23,68 @@ class TopicTestCase(TestCase):
             username="topic-user",
             email="topic-user@example.com",
             password="password123",
+        )
+
+
+class TopicMandatoryCollectionsMigrationTests(TransactionTestCase):
+    migrate_from = [("topics", "0002_purge_legacy_topic_schema")]
+    migrate_to = [("topics", "0003_mandatory_collections")]
+
+    def setUp(self):
+        super().setUp()
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate(self.migrate_from)
+        self.old_apps = self.executor.loader.project_state(self.migrate_from).apps
+
+    def tearDown(self):
+        self.executor.migrate(self.migrate_to)
+        super().tearDown()
+
+    def test_backfills_null_group_topics_with_unique_active_collections(self):
+        user_model = self.old_apps.get_model("auth", "User")
+        topic_model = self.old_apps.get_model("topics", "Topic")
+        topic_group_model = self.old_apps.get_model("topics", "TopicGroup")
+        user = user_model.objects.create_user(
+            username="migration-user",
+            email="migration-user@example.com",
+            password="password123",
+        )
+        topic_group_model.objects.create(user=user, name="Signals", description="")
+        topic_model.objects.create(
+            user=user,
+            monitoring_prompt="Signals",
+            display_title="Signals",
+            queries=["signals"],
+            update_frequency="manual",
+        )
+        topic_model.objects.create(
+            user=user,
+            monitoring_prompt="Signals",
+            display_title="Signals",
+            queries=["signals duplicate"],
+            update_frequency="manual",
+        )
+        topic_model.objects.create(
+            user=user,
+            monitoring_prompt="Unique",
+            display_title="",
+            queries=["unique query"],
+            update_frequency="manual",
+        )
+
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate(self.migrate_to)
+        new_apps = self.executor.loader.project_state(self.migrate_to).apps
+        migrated_topic_model = new_apps.get_model("topics", "Topic")
+        migrated_group_model = new_apps.get_model("topics", "TopicGroup")
+
+        self.assertFalse(migrated_topic_model.objects.filter(group__isnull=True).exists())
+        self.assertEqual(
+            set(migrated_group_model.objects.values_list("name", flat=True)),
+            {"Signals", "Signals 2", "Signals 3", "unique query"},
+        )
+        self.assertTrue(
+            all(migrated_group_model.objects.values_list("is_active", flat=True))
         )
 
 
@@ -301,6 +365,47 @@ class TopicApiTests(TopicTestCase):
         )
         self.assertEqual(payload["update_frequency"], "auto")
         self.assertEqual(payload["auto_effective_interval_hours"], 6)
+        self.assertIsNotNone(payload["group_uuid"])
+        self.assertEqual(payload["group_name"], "Turkey EV policy")
+        self.assertTrue(TopicGroup.objects.filter(name="Turkey EV policy", topics__uuid=payload["uuid"]).exists())
+
+    def test_topic_without_group_creates_one_topic_collection(self):
+        topic = Topic.objects.create(
+            user=self.user,
+            monitoring_prompt="Judicial appointments",
+            display_title="Judicial appointments",
+            queries=["judicial appointments"],
+            update_frequency=Topic.UPDATE_FREQUENCY_MANUAL,
+        )
+
+        self.assertIsNotNone(topic.group_id)
+        self.assertEqual(topic.group.name, "Judicial appointments")
+        self.assertTrue(topic.group.is_active)
+
+    def test_default_collection_names_get_duplicate_suffixes(self):
+        first = Topic.objects.create(
+            user=self.user,
+            monitoring_prompt="Grid reliability",
+            display_title="Grid reliability",
+            queries=["grid reliability"],
+            update_frequency=Topic.UPDATE_FREQUENCY_MANUAL,
+        )
+        second = Topic.objects.create(
+            user=self.user,
+            monitoring_prompt="Grid reliability",
+            display_title="Grid reliability",
+            queries=["grid reliability outage"],
+            update_frequency=Topic.UPDATE_FREQUENCY_MANUAL,
+        )
+
+        self.assertEqual(first.group.name, "Grid reliability")
+        self.assertEqual(second.group.name, "Grid reliability 2")
+
+    def test_topic_group_field_is_required(self):
+        group_field = Topic._meta.get_field("group")
+
+        self.assertFalse(group_field.null)
+        self.assertFalse(group_field.blank)
 
     def test_update_topic_replaces_fixed_queries(self):
         topic = self._create_topic()
@@ -438,6 +543,37 @@ class TopicApiTests(TopicTestCase):
         self.assertIsNone(politics.auto_effective_interval_hours)
         self.assertEqual(payload[0]["display_title"], "Turkey economy agenda")
         self.assertEqual(payload[1]["display_title"], "Turkey politics agenda")
+        self.assertEqual(TopicGroup.objects.count(), 1)
+
+    def test_bulk_create_without_group_creates_one_collection_per_topic(self):
+        response = self.client.post(
+            "/api/topics/bulk",
+            data=json.dumps(
+                {
+                    "topics": [
+                        {
+                            "monitoring_prompt": "Court appointments",
+                            "display_title": "Court appointments",
+                            "primary_query": "court appointments",
+                        },
+                        {
+                            "monitoring_prompt": "Judicial independence",
+                            "display_title": "Judicial independence",
+                            "primary_query": "judicial independence",
+                        },
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Topic.objects.count(), 2)
+        self.assertEqual(TopicGroup.objects.count(), 2)
+        self.assertEqual(
+            set(TopicGroup.objects.values_list("name", flat=True)),
+            {"Court appointments", "Judicial independence"},
+        )
 
     def test_bulk_create_rolls_back_when_later_topic_is_invalid(self):
         response = self.client.post(
@@ -464,6 +600,7 @@ class TopicApiTests(TopicTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Topic.objects.count(), 0)
+        self.assertEqual(TopicGroup.objects.count(), 0)
 
     def test_preview_endpoint_returns_items(self):
         with patch("newsradar.topics.api.preview_web_search") as preview_mock:
@@ -569,7 +706,7 @@ class TopicApiTests(TopicTestCase):
         )
         self.assertEqual(response.json()["domains"], ["bloomberg.com", "ft.com"])
 
-    def test_group_create_update_delete_roundtrip(self):
+    def test_group_create_update_deactivate_roundtrip(self):
         response = self.client.post(
             "/api/topics/groups",
             data=json.dumps({"name": "Signals", "description": "My group"}),
@@ -580,15 +717,92 @@ class TopicApiTests(TopicTestCase):
 
         update_response = self.client.patch(
             f"/api/topics/groups/{group_uuid}",
-            data=json.dumps({"name": "Signals updated", "description": "Updated"}),
+            data=json.dumps({"name": "Signals updated", "description": "Updated", "is_active": False}),
             content_type="application/json",
         )
         self.assertEqual(update_response.status_code, 200)
         self.assertEqual(update_response.json()["name"], "Signals updated")
+        self.assertFalse(update_response.json()["is_active"])
+
+        list_response = self.client.get("/api/topics/groups")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["groups"], [])
+
+        management_response = self.client.get("/api/topics/groups?include_inactive=true")
+        self.assertEqual(management_response.status_code, 200)
+        self.assertEqual(len(management_response.json()["groups"]), 1)
+        self.assertFalse(management_response.json()["groups"][0]["is_active"])
+
+        reactivate_response = self.client.patch(
+            f"/api/topics/groups/{group_uuid}",
+            data=json.dumps({"is_active": True}),
+            content_type="application/json",
+        )
+        self.assertEqual(reactivate_response.status_code, 200)
+        self.assertTrue(reactivate_response.json()["is_active"])
 
         delete_response = self.client.delete(f"/api/topics/groups/{group_uuid}")
         self.assertEqual(delete_response.status_code, 200)
-        self.assertFalse(TopicGroup.objects.filter(uuid=group_uuid).exists())
+        group = TopicGroup.objects.get(uuid=group_uuid)
+        self.assertFalse(group.is_active)
+
+    def test_create_topic_rejects_inactive_collection(self):
+        group = TopicGroup.objects.create(
+            user=self.user,
+            name="Inactive",
+            is_active=False,
+        )
+
+        response = self.client.post(
+            "/api/topics/",
+            data=json.dumps(
+                {
+                    "monitoring_prompt": "Inactive collection topic",
+                    "display_title": "Inactive collection topic",
+                    "primary_query": "inactive collection topic",
+                    "group_uuid": str(group.uuid),
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Topic.objects.count(), 0)
+
+    def test_topic_list_hides_inactive_topics_by_default(self):
+        active_topic = self._create_topic()
+        inactive_topic = Topic.objects.create(
+            user=self.user,
+            monitoring_prompt="disabled topic",
+            display_title="Disabled topic",
+            queries=["disabled topic"],
+            update_frequency=Topic.UPDATE_FREQUENCY_MANUAL,
+            is_active=False,
+        )
+
+        response = self.client.get("/api/topics/")
+        management_response = self.client.get("/api/topics/?include_inactive=true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {item["uuid"] for item in response.json()["topics"]},
+            {str(active_topic.uuid)},
+        )
+        self.assertEqual(management_response.status_code, 200)
+        self.assertEqual(
+            {item["uuid"] for item in management_response.json()["topics"]},
+            {str(active_topic.uuid), str(inactive_topic.uuid)},
+        )
+
+    def test_delete_topic_deactivates_topic(self):
+        topic = self._create_topic()
+
+        response = self.client.delete(f"/api/topics/{topic.uuid}")
+
+        self.assertEqual(response.status_code, 200)
+        topic.refresh_from_db()
+        self.assertFalse(topic.is_active)
+        self.assertEqual(Topic.objects.count(), 1)
 
     def test_group_list_endpoint_does_not_collide_with_topic_uuid_route(self):
         TopicGroup.objects.create(

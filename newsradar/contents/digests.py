@@ -11,7 +11,6 @@ from newsradar.contents.models import Content
 
 logger = logging.getLogger(__name__)
 MAX_ITEMS_PER_TOPIC_GROUP = 5
-UNGROUPED_TOPIC_GROUP_LABEL = "Ungrouped topics"
 
 
 def _build_topic_label(queries: list[str]) -> str:
@@ -29,7 +28,7 @@ def _build_topic_label(queries: list[str]) -> str:
 
 def _build_digest_subject(item_count: int, topic_group_count: int) -> str:
     item_suffix = "item" if item_count == 1 else "items"
-    topic_group_suffix = "topic group" if topic_group_count == 1 else "topic groups"
+    topic_group_suffix = "collection" if topic_group_count == 1 else "collections"
     return (
         f"NewsRadar digest: {item_count} new {item_suffix} "
         f"across {topic_group_count} {topic_group_suffix}"
@@ -69,15 +68,13 @@ def _build_dashboard_url(
 
 
 def _build_topic_group_key(content: Content) -> tuple[str, int | None]:
-    if content.topic.group_id is None:
-        return ("ungrouped", None)
     return ("group", content.topic.group_id)
 
 
 def _build_topic_group_label(content: Content) -> str:
     if content.topic.group and content.topic.group.name.strip():
         return content.topic.group.name.strip()
-    return UNGROUPED_TOPIC_GROUP_LABEL
+    return "Collection"
 
 
 def _build_topic_group_sections(
@@ -118,10 +115,10 @@ def _build_digest_message(*, user, sections: list[dict], item_count: int) -> str
             f"Your NewsRadar digest includes {item_count} new "
             f"{'item' if item_count == 1 else 'items'} "
             f"across {len(sections)} "
-            f"{'topic group' if len(sections) == 1 else 'topic groups'}:"
+            f"{'collection' if len(sections) == 1 else 'collections'}:"
         ),
         "",
-        f"Showing the most recent {MAX_ITEMS_PER_TOPIC_GROUP} items per topic group below.",
+        f"Showing the most recent {MAX_ITEMS_PER_TOPIC_GROUP} items per collection below.",
         "",
     ]
 
@@ -131,7 +128,7 @@ def _build_digest_message(*, user, sections: list[dict], item_count: int) -> str
         topic_group_url = _build_dashboard_url(group_uuid=section["group_uuid"])
         message_lines.append(f"{section_label} ({len(section_items)})")
         if topic_group_url:
-            message_lines.append(f"   Topic group: {topic_group_url}")
+            message_lines.append(f"   Collection: {topic_group_url}")
         for index, content in enumerate(section_items, start=1):
             topic_label = _build_topic_label(content.topic.queries or [])
             title = (content.title or "").strip() or content.url
@@ -148,7 +145,7 @@ def _build_digest_message(*, user, sections: list[dict], item_count: int) -> str
             remaining_suffix = "item" if remaining_count == 1 else "items"
             if topic_group_url:
                 message_lines.append(
-                    f"   {remaining_count} more {remaining_suffix} in this topic group: {topic_group_url}"
+                    f"   {remaining_count} more {remaining_suffix} in this collection: {topic_group_url}"
                 )
             else:
                 message_lines.append(
@@ -168,9 +165,9 @@ def _build_digest_message_html(*, user, sections: list[dict], item_count: int) -
             f"{item_count} new "
             f"{'item' if item_count == 1 else 'items'} "
             f"across {section_count} "
-            f"{'topic group' if section_count == 1 else 'topic groups'}:</p>"
+            f"{'collection' if section_count == 1 else 'collections'}:</p>"
         ),
-        f"<p>Showing the most recent {MAX_ITEMS_PER_TOPIC_GROUP} items per topic group below.</p>",
+        f"<p>Showing the most recent {MAX_ITEMS_PER_TOPIC_GROUP} items per collection below.</p>",
     ]
 
     for section in sections:
@@ -181,7 +178,7 @@ def _build_digest_message_html(*, user, sections: list[dict], item_count: int) -
         if topic_group_url:
             escaped_topic_group_url = escape(topic_group_url)
             message.append(
-                f'<p>Topic group: <a href="{escaped_topic_group_url}">'
+                f'<p>Collection: <a href="{escaped_topic_group_url}">'
                 f"{escaped_topic_group_url}</a></p>"
             )
         message.append("<ul>")
@@ -208,7 +205,7 @@ def _build_digest_message_html(*, user, sections: list[dict], item_count: int) -
             remaining_suffix = "item" if remaining_count == 1 else "items"
             if topic_group_url:
                 message.append(
-                    f"<li>{remaining_count} more {remaining_suffix} in this topic group: "
+                    f"<li>{remaining_count} more {remaining_suffix} in this collection: "
                     f"<a href=\"{escaped_topic_group_url}\">{escaped_topic_group_url}</a></li>"
                 )
             else:
@@ -229,6 +226,8 @@ def send_unviewed_content_email_digests(
         Content.objects.filter(
             deleted_at__isnull=True,
             viewed=False,
+            topic__is_active=True,
+            topic__group__is_active=True,
         )
         .select_related("topic__group", "topic__user")
         .only(

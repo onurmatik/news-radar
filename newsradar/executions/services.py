@@ -243,9 +243,11 @@ def execute_web_search(
             topic_uuid = uuid.UUID(topic_uuid)
         except ValueError as exc:
             raise ValueError("Invalid topic UUID.") from exc
-    topic = Topic.objects.filter(uuid=topic_uuid).first()
+    topic = Topic.objects.filter(uuid=topic_uuid).select_related("group").first()
     if not topic:
         raise ValueError("Topic not found for UUID.")
+    if not topic.is_active or not topic.group.is_active:
+        raise ValueError("Topic is inactive.")
 
     execution = None
     if execution_id is not None:

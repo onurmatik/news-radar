@@ -190,7 +190,11 @@ def _content_published_at_expression():
 
 
 def _active_contents_queryset():
-    return Content.objects.filter(deleted_at__isnull=True)
+    return Content.objects.filter(
+        deleted_at__isnull=True,
+        execution__topic__is_active=True,
+        execution__topic__group__is_active=True,
+    )
 
 
 def _latest_content_per_topic_url(queryset):
@@ -343,6 +347,7 @@ class ContentFeedItem(Schema):
     created_at: datetime
     published_at: datetime | None
     topic_uuid: UUID
+    topic_display_title: str
     topic_queries: list[str]
     relevance_score: float | None
     is_bookmarked: bool
@@ -442,6 +447,28 @@ class AIInteractionResponse(Schema):
     total_tokens: int | None
 
 
+def _topic_display_title(topic: Topic) -> str:
+    return (topic.display_title or topic.primary_query or "").strip() or str(topic.uuid)
+
+
+def _content_feed_item(content: Content) -> ContentFeedItem:
+    topic = content.execution.topic
+    return ContentFeedItem(
+        id=content.id,
+        url=content.url,
+        title=content.title or "",
+        summary=(content.snippet or "").strip(),
+        source=content.normalized_domain(),
+        created_at=content.created_at,
+        published_at=content.last_updated or content.date or content.created_at,
+        topic_uuid=topic.uuid,
+        topic_display_title=_topic_display_title(topic),
+        topic_queries=topic.queries or [],
+        relevance_score=None,
+        is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
+    )
+
+
 class NotificationTopicItem(Schema):
     topic_uuid: UUID
     topic_queries: list[str]
@@ -485,19 +512,7 @@ def get_content_item(request, content_id: int):
     if not content:
         raise HttpError(404, "Content not found.")
 
-    return ContentFeedItem(
-        id=content.id,
-        url=content.url,
-        title=content.title or "",
-        summary=(content.snippet or "").strip(),
-        source=content.normalized_domain(),
-        created_at=content.created_at,
-        published_at=content.last_updated or content.date or content.created_at,
-        topic_uuid=content.execution.topic.uuid,
-        topic_queries=content.execution.topic.queries or [],
-        relevance_score=None,
-        is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
-    )
+    return _content_feed_item(content)
 
 
 @api.get("/items/{content_id}/detail", response=ContentDetailItem)
@@ -917,9 +932,14 @@ def list_content(
                 raise HttpError(404, "Topic not found.")
             if topic.user_id != request.user.id:
                 raise HttpError(404, "Topic not found.")
+            if not topic.is_active or not topic.group.is_active:
+                raise HttpError(404, "Topic not found.")
             queryset = _active_contents_queryset().filter(execution__topic=topic)
         else:
-            queryset = _active_contents_queryset().filter(execution__topic__user=request.user)
+            queryset = _active_contents_queryset().filter(
+                execution__topic__user=request.user,
+                execution__topic__group__is_active=True,
+            )
 
         queryset = _latest_content_per_topic_url(queryset)
         queryset = _apply_new_filter(queryset, baseline, only_new)
@@ -937,19 +957,7 @@ def list_content(
         )
     return ContentFeedResponse(
         items=[
-            ContentFeedItem(
-                id=content.id,
-                url=content.url,
-                title=content.title or "",
-                summary=(content.snippet or "").strip(),
-                source=content.normalized_domain(),
-                created_at=content.created_at,
-                published_at=content.last_updated or content.date or content.created_at,
-                topic_uuid=content.execution.topic.uuid,
-                topic_queries=content.execution.topic.queries or [],
-                relevance_score=None,
-                is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
-            )
+            _content_feed_item(content)
             for content in contents
         ]
     )
@@ -985,7 +993,7 @@ def list_shared_content_by_topic(
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
 
-    topic = Topic.objects.filter(uuid=topic_uuid).first()
+    topic = Topic.objects.filter(uuid=topic_uuid, is_active=True, group__is_active=True).first()
     if not topic:
         raise HttpError(404, "Topic not found.")
 
@@ -1003,19 +1011,7 @@ def list_shared_content_by_topic(
 
     return ContentFeedResponse(
         items=[
-            ContentFeedItem(
-                id=content.id,
-                url=content.url,
-                title=content.title or "",
-                summary=(content.snippet or "").strip(),
-                source=content.normalized_domain(),
-                created_at=content.created_at,
-                published_at=content.last_updated or content.date or content.created_at,
-                topic_uuid=content.execution.topic.uuid,
-                topic_queries=content.execution.topic.queries or [],
-                relevance_score=None,
-                is_bookmarked=False,
-            )
+            _content_feed_item(content)
             for content in contents
         ]
     )
@@ -1036,7 +1032,13 @@ def list_content_by_topic_rss(
         if topic and topic.user_id != request.user.id:
             topic = None
     else:
-        topic = Topic.objects.filter(uuid=topic_uuid, is_active=True).first()
+        topic = Topic.objects.filter(
+            uuid=topic_uuid,
+            is_active=True,
+            group__is_active=True,
+        ).first()
+    if topic and (not topic.is_active or not topic.group.is_active):
+        topic = None
     if not topic:
         raise HttpError(404, "Topic not found.")
 
@@ -1083,13 +1085,12 @@ def list_content_by_group(
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
 
-    group = TopicGroup.objects.filter(uuid=group_uuid).first()
+    group = TopicGroup.objects.filter(uuid=group_uuid, is_active=True).first()
     if not group:
-        raise HttpError(404, "Topic group not found.")
+        raise HttpError(404, "Collection not found.")
     if group.user_id != request.user.id:
-        raise HttpError(404, "Topic group not found.")
-    queryset = Content.objects.filter(
-        deleted_at__isnull=True,
+        raise HttpError(404, "Collection not found.")
+    queryset = _active_contents_queryset().filter(
         execution__topic__user=request.user,
         execution__topic__group__uuid=group_uuid,
     )
@@ -1114,19 +1115,7 @@ def list_content_by_group(
 
     return ContentFeedResponse(
         items=[
-            ContentFeedItem(
-                id=content.id,
-                url=content.url,
-                title=content.title or "",
-                summary=(content.snippet or "").strip(),
-                source=content.normalized_domain(),
-                created_at=content.created_at,
-                published_at=content.last_updated or content.date or content.created_at,
-                topic_uuid=content.execution.topic.uuid,
-                topic_queries=content.execution.topic.queries or [],
-                relevance_score=None,
-                is_bookmarked=bool(getattr(content, "is_bookmarked", False)),
-            )
+            _content_feed_item(content)
             for content in contents
         ]
     )
@@ -1143,9 +1132,9 @@ def list_shared_content_by_group(
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
 
-    group = TopicGroup.objects.filter(uuid=group_uuid).first()
+    group = TopicGroup.objects.filter(uuid=group_uuid, is_active=True).first()
     if not group:
-        raise HttpError(404, "Topic group not found.")
+        raise HttpError(404, "Collection not found.")
 
     queryset = _latest_content_per_topic_url(
         _active_contents_queryset().filter(
@@ -1161,19 +1150,7 @@ def list_shared_content_by_group(
 
     return ContentFeedResponse(
         items=[
-            ContentFeedItem(
-                id=content.id,
-                url=content.url,
-                title=content.title or "",
-                summary=(content.snippet or "").strip(),
-                source=content.normalized_domain(),
-                created_at=content.created_at,
-                published_at=content.last_updated or content.date or content.created_at,
-                topic_uuid=content.execution.topic.uuid,
-                topic_queries=content.execution.topic.queries or [],
-                relevance_score=None,
-                is_bookmarked=False,
-            )
+            _content_feed_item(content)
             for content in contents
         ]
     )
@@ -1190,13 +1167,13 @@ def list_content_by_group_rss(
     offset = max(0, offset)
 
     if request.user.is_authenticated:
-        group = TopicGroup.objects.filter(uuid=group_uuid).first()
+        group = TopicGroup.objects.filter(uuid=group_uuid, is_active=True).first()
         if group and group.user_id != request.user.id:
             group = None
     else:
-        group = TopicGroup.objects.filter(uuid=group_uuid).first()
+        group = TopicGroup.objects.filter(uuid=group_uuid, is_active=True).first()
     if not group:
-        raise HttpError(404, "Topic group not found.")
+        raise HttpError(404, "Collection not found.")
 
     contents_filter = {"execution__topic__group": group}
     contents = (
@@ -1213,9 +1190,9 @@ def list_content_by_group_rss(
         )[offset : offset + limit]
     )
 
-    title = f"NewsRadar Group: {group.name}"
+    title = f"NewsRadar Collection: {group.name}"
     link = request.build_absolute_uri()
-    description = f"Content feed for topic group {group.name}."
+    description = f"Content feed for collection {group.name}."
     feed = _build_rss_feed(
         title=title,
         link=link,

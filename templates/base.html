@@ -48,16 +48,6 @@
 
     <div class="nr-workspace">
       <aside class="nr-sidebar">
-        <div class="nr-sidebar-head">
-          <button id="create-group-button" type="button" class="nr-group-select">
-            <span>Topic groups</span>
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="m7 10 5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-          <p id="visible-topic-count" class="sr-only">0 topics visible</p>
-        </div>
-
         <div class="nr-sidebar-body custom-scrollbar">
           <button id="add-topic-button" type="button" class="nr-add-topic">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -67,9 +57,6 @@
             <span>Add Topic</span>
           </button>
           <div id="group-list" class="nr-group-list"></div>
-          <div id="selected-group-panel" class="nr-selected-group hidden"></div>
-          <div id="topic-list-status" class="nr-topic-status">Loading topics...</div>
-          <div id="topic-list" class="nr-topic-list"></div>
         </div>
       </aside>
 
@@ -115,28 +102,6 @@
           <button id="auth-reset" type="button" class="btn btn-outline">Back to sign in</button>
         </div>
       </div>
-    </div>
-  </div>
-
-  <div id="group-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="group-modal-title">
-    <div class="modal-panel max-w-lg">
-      <div class="mb-5">
-        <h2 id="group-modal-title" class="text-xl font-semibold text-slate-900">Create group</h2>
-        <p id="group-modal-description" class="mt-1 text-sm text-slate-500">Groups are optional visual buckets for organizing related topics.</p>
-      </div>
-      <form id="group-form" class="space-y-4">
-        <input type="hidden" id="group-uuid">
-        <input id="group-name" class="input" placeholder="Group name" required>
-        <input id="group-description" class="input" placeholder="Description (optional)">
-        <p id="group-error" class="hidden text-sm text-red-600"></p>
-        <div class="flex items-center justify-between gap-3">
-          <button id="delete-group-button" type="button" class="btn btn-danger hidden">Delete group</button>
-          <div class="ml-auto flex items-center gap-2">
-            <button type="button" class="btn btn-outline" data-modal-close="group-modal">Cancel</button>
-            <button id="save-group-button" type="submit" class="btn btn-primary">Save group</button>
-          </div>
-        </div>
-      </form>
     </div>
   </div>
 

@@ -453,6 +453,75 @@ class ContentFeedVersioningTests(TestCase):
         self.assertIn(latest_revision.id, returned_ids)
         self.assertNotIn(old_revision.id, returned_ids)
 
+    def test_content_feed_items_include_topic_display_title(self):
+        topic = self._create_topic_for_user(self.user, query="judicial independence")
+        content = self._create_content(
+            topic,
+            url="https://example.com/judiciary",
+            title="Judiciary story",
+        )
+
+        response = self.client.get("/api/contents/")
+
+        self.assertEqual(response.status_code, 200)
+        item = next(entry for entry in response.json()["items"] if entry["id"] == content.id)
+        self.assertEqual(item["topic_display_title"], "Judicial Independence")
+
+    def test_inactive_group_content_is_hidden_until_reactivated(self):
+        group = TopicGroup.objects.create(
+            user=self.user,
+            name="Macro",
+            is_active=False,
+        )
+        topic = self._create_topic_for_user(
+            self.user,
+            query="macro policy",
+            group=group,
+        )
+        content = self._create_content(
+            topic,
+            url="https://example.com/inactive-group",
+            title="Inactive group story",
+        )
+
+        group_response = self.client.get(f"/api/contents/groups/{group.uuid}")
+        all_response = self.client.get("/api/contents/")
+
+        self.assertEqual(group_response.status_code, 404)
+        self.assertNotIn(content.id, {item["id"] for item in all_response.json()["items"]})
+
+        group.is_active = True
+        group.save(update_fields=["is_active", "updated_at"])
+        reactivated_response = self.client.get(f"/api/contents/groups/{group.uuid}")
+
+        self.assertEqual(reactivated_response.status_code, 200)
+        self.assertIn(content.id, {item["id"] for item in reactivated_response.json()["items"]})
+
+    def test_inactive_topic_content_is_hidden_until_reactivated(self):
+        topic = self._create_topic_for_user(self.user, query="disabled policy")
+        content = self._create_content(
+            topic,
+            url="https://example.com/inactive-topic",
+            title="Inactive topic story",
+        )
+        topic.is_active = False
+        topic.save(update_fields=["is_active"])
+
+        topic_response = self.client.get(f"/api/contents/?topic_uuid={topic.uuid}")
+        all_response = self.client.get("/api/contents/")
+        group_response = self.client.get(f"/api/contents/groups/{topic.group.uuid}")
+
+        self.assertEqual(topic_response.status_code, 404)
+        self.assertNotIn(content.id, {item["id"] for item in all_response.json()["items"]})
+        self.assertNotIn(content.id, {item["id"] for item in group_response.json()["items"]})
+
+        topic.is_active = True
+        topic.save(update_fields=["is_active"])
+        reactivated_response = self.client.get(f"/api/contents/groups/{topic.group.uuid}")
+
+        self.assertEqual(reactivated_response.status_code, 200)
+        self.assertIn(content.id, {item["id"] for item in reactivated_response.json()["items"]})
+
     def test_list_content_search_filters_title_snippet_and_url(self):
         topic = self._create_topic_for_user(self.user, query="markets")
         title_match = self._create_content(

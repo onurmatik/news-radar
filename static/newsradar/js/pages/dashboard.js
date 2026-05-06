@@ -30,6 +30,8 @@ function mapNewsItem(item) {
     timestamp: Number.isNaN(timestamp.getTime()) ? new Date() : timestamp,
     fetchedAt: Number.isNaN(fetchedAt.getTime()) ? new Date() : fetchedAt,
     relevanceScore: item.relevance_score || 0,
+    topicUuid: item.topic_uuid ? String(item.topic_uuid) : "",
+    topicDisplayTitle: item.topic_display_title || (item.topic_queries || [])[0] || "Untitled topic",
     keywords: item.topic_queries || [],
     url: item.url,
     isBookmarked: Boolean(item.is_bookmarked),
@@ -80,9 +82,14 @@ export function initDashboard(context) {
   }
 
   function selectedGroupName() {
-    if (!context.state.selectedGroupId) return "All topics";
+    if (!context.state.selectedGroupId) return "Collections";
     const group = context.state.groups.find((entry) => String(entry.uuid) === context.state.selectedGroupId);
-    return group ? group.name : "All topics";
+    return group ? group.name : "Collections";
+  }
+
+  function selectedGroupTopicCount() {
+    if (!context.state.selectedGroupId) return 0;
+    return context.state.topics.filter((topic) => topic.groupUuid === context.state.selectedGroupId).length;
   }
 
   function feedKey() {
@@ -116,12 +123,12 @@ export function initDashboard(context) {
 
   function renderHeading() {
     const topic = selectedTopic();
-    const label = topic ? topic.term : context.state.selectedGroupId ? selectedGroupName() : "All content";
+    const label = topic ? topic.term : selectedGroupName();
     if (heading) heading.textContent = label;
     if (subtitle) {
       subtitle.textContent = topic
         ? `Monitoring prompt: ${topic.monitoringPrompt}`
-        : "Browse the latest saved search results across your monitoring topics.";
+        : "Browse the latest saved search results in this collection.";
     }
     selectedTopicActions?.classList.add("hidden");
     if (editSelectedTopic && topic) {
@@ -181,16 +188,18 @@ export function initDashboard(context) {
             </svg>
           </div>
           <p>${hasTopics ? "No matching content" : "No topics created"}</p>
-          <span>${hasTopics ? "Try changing filters or run a new scan for the selected topic." : "Create a topic to start monitoring this group."}</span>
-          <button type="button" class="nr-empty-button" data-empty-add-topic>Add a new topic</button>
+          <span>${hasTopics ? "Try changing filters or manage the topics in this collection." : "Create a topic to start monitoring news."}</span>
+          <button type="button" class="nr-empty-button" data-empty-manage-topics>Manage topics</button>
         </div>
       </div>`;
       return;
     }
+    const showTopicLabels = !context.state.selectedTopicUuid && selectedGroupTopicCount() > 1;
     feedList.innerHTML = items.map((item) => `<article class="nr-content-card">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0 flex-1 space-y-3">
           <div class="flex flex-wrap items-center gap-2">
+            ${showTopicLabels && item.topicUuid ? `<a href="/?topic=${encodeURIComponent(item.topicUuid)}" data-topic="${context.utils.escapeHtml(item.topicUuid)}" class="nr-content-topic">${context.utils.escapeHtml(item.topicDisplayTitle)}</a>` : ""}
             <span class="badge badge-secondary">${context.utils.escapeHtml(item.source)}</span>
             <span class="text-xs text-slate-500">${context.utils.escapeHtml(context.utils.formatDistance(item.timestamp))}</span>
           </div>
@@ -387,10 +396,15 @@ export function initDashboard(context) {
   });
 
   feedList?.addEventListener("click", (event) => {
-    const addTopic = event.target.closest("[data-empty-add-topic]");
-    if (addTopic) {
+    const manageTopics = event.target.closest("[data-empty-manage-topics]");
+    if (manageTopics) {
       if (!context.ensureAuth()) return;
-      window.location.assign("/topics");
+      const url = new URL("/topics", window.location.origin);
+      if (context.state.selectedGroupId) {
+        url.searchParams.set("group", context.state.selectedGroupId);
+        url.searchParams.set("manage", "topics");
+      }
+      window.location.assign(`${url.pathname}${url.search}`);
       return;
     }
     const bookmark = event.target.closest("[data-bookmark]");

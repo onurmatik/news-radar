@@ -70,10 +70,8 @@ class Topic(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     group = models.ForeignKey(
         "topics.TopicGroup",
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         related_name="topics",
-        null=True,
-        blank=True,
     )
     is_active = models.BooleanField(default=True)
     monitoring_prompt = models.TextField(blank=True, default="")
@@ -177,6 +175,8 @@ class Topic(models.Model):
         self.display_title = normalized_title
         self.search_language_filter = normalized_languages or None
         self.country = normalized_country
+        if self.group_id is None:
+            self.group = create_default_topic_group_for_topic(self)
 
         super().save(*args, **kwargs)
 
@@ -190,6 +190,7 @@ class TopicGroup(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     name = models.CharField(max_length=120)
     description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -204,3 +205,32 @@ class TopicGroup(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+def unique_topic_group_name(user_id: int, preferred_name: str, *, exclude_group_id: int | None = None) -> str:
+    base = normalize_topic_query(preferred_name or "") or "Untitled collection"
+    base = base[:120].strip() or "Untitled collection"
+    existing = TopicGroup.objects.filter(user_id=user_id)
+    if exclude_group_id is not None:
+        existing = existing.exclude(id=exclude_group_id)
+    existing_names = set(existing.values_list("name", flat=True))
+    if base not in existing_names:
+        return base
+
+    index = 2
+    while True:
+        suffix = f" {index}"
+        candidate = f"{base[:120 - len(suffix)].rstrip()}{suffix}"
+        if candidate not in existing_names:
+            return candidate
+        index += 1
+
+
+def create_default_topic_group_for_topic(topic: Topic) -> TopicGroup:
+    if topic.user_id is None:
+        raise ValidationError("Topic must have a user before assigning a collection.")
+    preferred_name = topic.display_title or topic.primary_query or topic.monitoring_prompt or f"Topic {topic.id or ''}"
+    return TopicGroup.objects.create(
+        user_id=topic.user_id,
+        name=unique_topic_group_name(topic.user_id, preferred_name),
+    )

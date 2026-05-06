@@ -78,9 +78,11 @@ def _resolve_group(request, group_uuid: uuid.UUID | None) -> TopicGroup | None:
         return None
     group = TopicGroup.objects.filter(uuid=group_uuid).first()
     if not group:
-        raise HttpError(404, "Topic group not found for UUID.")
+        raise HttpError(404, "Collection not found for UUID.")
     if group.user_id != request.user.id:
-        raise HttpError(403, "Topic group belongs to another user.")
+        raise HttpError(403, "Collection belongs to another user.")
+    if not group.is_active:
+        raise HttpError(400, "Collection is inactive.")
     return group
 
 
@@ -123,6 +125,7 @@ def _group_to_item(*, group: TopicGroup, request) -> "TopicGroupItem":
         uuid=group.uuid,
         name=group.name,
         description=group.description or "",
+        is_active=group.is_active,
         owner_username=_owner_label(group.user),
         is_owner=request.user.is_authenticated and group.user_id == request.user.id,
         created_at=group.created_at,
@@ -256,6 +259,7 @@ class TopicGroupItem(Schema):
     uuid: uuid.UUID
     name: str
     description: str
+    is_active: bool
     owner_username: str
     is_owner: bool
     created_at: datetime
@@ -278,6 +282,7 @@ class TopicGroupCreateResponse(Schema):
 class TopicGroupUpdateRequest(Schema):
     name: str | None = None
     description: str | None = None
+    is_active: bool | None = None
 
 
 def _build_topic_defaults(payload: TopicWriteRequest) -> dict[str, object]:
@@ -324,11 +329,14 @@ def list_topics(
     request,
     search: str | None = None,
     group_uuid: uuid.UUID | None = None,
+    include_inactive: bool = False,
 ):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
 
-    topics_queryset = Topic.objects.filter(user=request.user)
+    topics_queryset = Topic.objects.filter(user=request.user, group__is_active=True)
+    if not include_inactive:
+        topics_queryset = topics_queryset.filter(is_active=True)
     if group_uuid:
         topics_queryset = topics_queryset.filter(group__uuid=group_uuid)
     if search:
@@ -471,10 +479,12 @@ def create_topics(request, payload: TopicBulkCreateRequest):
 
 
 @api.get("/groups", response=TopicGroupListResponse)
-def list_topic_groups(request):
+def list_topic_groups(request, include_inactive: bool = False):
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required.")
     groups = TopicGroup.objects.filter(user=request.user).select_related("user")
+    if not include_inactive:
+        groups = groups.filter(is_active=True)
     return TopicGroupListResponse(
         groups=[_group_to_item(group=group, request=request) for group in groups]
     )
@@ -486,7 +496,7 @@ def get_topic_group(request, group_uuid: uuid.UUID):
         raise HttpError(401, "Authentication required.")
     group = TopicGroup.objects.filter(uuid=group_uuid, user=request.user).select_related("user").first()
     if not group:
-        raise HttpError(404, "Topic group not found for UUID.")
+        raise HttpError(404, "Collection not found for UUID.")
     return _group_to_item(group=group, request=request)
 
 
@@ -496,7 +506,7 @@ def create_topic_group(request, payload: TopicGroupCreateRequest):
         raise HttpError(401, "Authentication required.")
     name = normalize_topic_query(payload.name or "")
     if not name:
-        raise HttpError(400, "Group name cannot be empty.")
+        raise HttpError(400, "Collection name cannot be empty.")
     try:
         group = TopicGroup.objects.create(
             user=request.user,
@@ -504,7 +514,7 @@ def create_topic_group(request, payload: TopicGroupCreateRequest):
             description=payload.description or "",
         )
     except IntegrityError as exc:
-        raise HttpError(400, "Group name already exists.") from exc
+        raise HttpError(400, "Collection name already exists.") from exc
     return TopicGroupCreateResponse(group=_group_to_item(group=group, request=request))
 
 
@@ -514,18 +524,20 @@ def update_topic_group(request, group_uuid: uuid.UUID, payload: TopicGroupUpdate
         raise HttpError(401, "Authentication required.")
     group = TopicGroup.objects.filter(uuid=group_uuid).select_related("user").first()
     if not group:
-        raise HttpError(404, "Topic group not found for UUID.")
+        raise HttpError(404, "Collection not found for UUID.")
     if group.user_id != request.user.id:
-        raise HttpError(403, "Topic group belongs to another user.")
+        raise HttpError(403, "Collection belongs to another user.")
 
     updates: dict[str, object] = {}
     if payload.name is not None:
         name = normalize_topic_query(payload.name)
         if not name:
-            raise HttpError(400, "Group name cannot be empty.")
+            raise HttpError(400, "Collection name cannot be empty.")
         updates["name"] = name
     if payload.description is not None:
         updates["description"] = payload.description
+    if payload.is_active is not None:
+        updates["is_active"] = payload.is_active
     if not updates:
         raise HttpError(400, "Provide at least one field to update.")
 
@@ -534,7 +546,7 @@ def update_topic_group(request, group_uuid: uuid.UUID, payload: TopicGroupUpdate
     try:
         group.save(update_fields=list(updates.keys()) + ["updated_at"])
     except IntegrityError as exc:
-        raise HttpError(400, "Group name already exists.") from exc
+        raise HttpError(400, "Collection name already exists.") from exc
     return _group_to_item(group=group, request=request)
 
 
@@ -544,11 +556,12 @@ def delete_topic_group(request, group_uuid: uuid.UUID):
         raise HttpError(401, "Authentication required.")
     group = TopicGroup.objects.filter(uuid=group_uuid).first()
     if not group:
-        raise HttpError(404, "Topic group not found for UUID.")
+        raise HttpError(404, "Collection not found for UUID.")
     if group.user_id != request.user.id:
-        raise HttpError(403, "Topic group belongs to another user.")
-    group.delete()
-    return {"deleted": True}
+        raise HttpError(403, "Collection belongs to another user.")
+    group.is_active = False
+    group.save(update_fields=["is_active", "updated_at"])
+    return {"deactivated": True}
 
 
 @api.patch("/{topic_uuid}", response=TopicListItem)
@@ -579,5 +592,6 @@ def delete_topic(request, topic_uuid: uuid.UUID):
         raise HttpError(404, "Topic not found for UUID.")
     if topic.user_id != request.user.id:
         raise HttpError(403, "Topic belongs to another user.")
-    topic.delete()
-    return {"deleted": True}
+    topic.is_active = False
+    topic.save(update_fields=["is_active"])
+    return {"deactivated": True}
