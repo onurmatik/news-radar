@@ -120,7 +120,6 @@ export function initTopics(context) {
     previewReactions: {},
     previewHasRun: false,
     splitDrafts: [],
-    splitCtaDismissed: false,
     initializedForTopic: null,
   };
 
@@ -163,7 +162,6 @@ export function initTopics(context) {
     state.previewReactions = {};
     state.previewHasRun = false;
     state.splitDrafts = [];
-    state.splitCtaDismissed = true;
     state.initializedForTopic = topic.uuid;
   }
 
@@ -324,15 +322,14 @@ export function initTopics(context) {
   }
 
   function renderTopicWarning() {
-    if (!state.draft.topicWarning) return "";
-    const canSplit = state.mode === "create" && state.splitDrafts.length > 0 && !state.splitCtaDismissed;
+    const hasSplitDrafts = state.mode === "create" && state.splitDrafts.length > 0;
+    const warning = hasSplitDrafts
+      ? "The requested topic is broad, so it was split into focused topic drafts below."
+      : state.draft.topicWarning;
+    if (!warning) return "";
     return `<div class="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
       <p class="font-semibold text-amber-900">Topic warning</p>
-      <p class="mt-1 leading-6">${context.utils.escapeHtml(state.draft.topicWarning)}</p>
-      ${canSplit ? `<div class="mt-4 flex flex-wrap items-center gap-3">
-        <button type="button" class="btn btn-primary btn-sm" data-action="start-split">Create multiple topics</button>
-        <button type="button" class="btn btn-outline btn-sm" data-action="continue-single">Continue with single topic</button>
-      </div>` : ""}
+      <p class="mt-1 leading-6">${context.utils.escapeHtml(warning)}</p>
     </div>`;
   }
 
@@ -435,6 +432,7 @@ export function initTopics(context) {
             <p class="text-xs font-bold uppercase tracking-widest text-slate-500">Multiple topic review</p>
             <p class="mt-1 text-sm leading-6 text-slate-600">Select and edit the focused topics to create from this broad prompt.</p>
           </div>
+          ${renderTopicWarning()}
           <div class="space-y-2">
             <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Topic group</label>
             ${renderGroupField({ inputName: "splitGroupName", listId: "split-topic-group-options", useSuggestion: true })}
@@ -598,8 +596,7 @@ export function initTopics(context) {
     state.previewHasRun = false;
     state.suggestedGroupName = response.suggested_group_name || "";
     state.splitDrafts = splitSuggestions.map((draft) => ({ selected: true, draft }));
-    state.splitCtaDismissed = false;
-    state.stage = "review";
+    state.stage = state.mode === "create" && state.splitDrafts.length > 0 ? "split" : "review";
   }
 
   async function runOrganizer() {
@@ -901,17 +898,6 @@ export function initTopics(context) {
     if (!action) return;
     const name = action.dataset.action;
     if (name === "organize") runOrganizer();
-    if (name === "start-split") {
-      collectDraftFromDom();
-      state.error = null;
-      state.stage = "split";
-      render();
-    }
-    if (name === "continue-single") {
-      state.splitCtaDismissed = true;
-      state.error = null;
-      render();
-    }
     if (name === "restore-domains") {
       collectDraftFromDom();
       state.draft.limitToSelectedDomains = true;
