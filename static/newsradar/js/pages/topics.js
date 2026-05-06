@@ -580,8 +580,8 @@ export function initTopics(context) {
     const canAddLanguages = languageValues.length < MAX_LANGUAGE_COUNT;
     const canSuggestMoreDomains = allowDomainSuggestions && draft.limitToSelectedDomains && selectedDomains.length > 0 && selectedDomains.length < MAX_DOMAIN_COUNT;
     const labelClass = "text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400";
-    const filterToggleClass = "flex overflow-hidden rounded-lg border border-emerald-200 bg-white text-[10px] font-extrabold uppercase tracking-[0.08em] shadow-sm shadow-emerald-50";
-    const activeFilterToggleClass = "bg-emerald-50 text-emerald-800";
+    const filterToggleClass = "flex overflow-hidden rounded-lg border border-slate-200 bg-white text-[10px] font-extrabold uppercase tracking-[0.08em] shadow-sm shadow-slate-100";
+    const activeFilterToggleClass = "bg-slate-100 text-slate-800";
     const inactiveFilterToggleClass = "bg-white text-slate-500 hover:bg-slate-50";
     const cardClass = selectable
       ? (selected ? "border-emerald-200 bg-emerald-50/80 shadow-sm shadow-emerald-100/80" : "border-slate-200 bg-white hover:border-slate-300")
@@ -639,7 +639,7 @@ export function initTopics(context) {
             <label class="${labelClass}">Source control</label>
             <div class="${filterToggleClass}">
               <button type="button" class="${draft.limitToSelectedDomains ? inactiveFilterToggleClass : activeFilterToggleClass} px-2.5 py-1" data-draft-domain-mode="all" data-draft-index="${index}">All</button>
-              <button type="button" class="${draft.limitToSelectedDomains ? activeFilterToggleClass : inactiveFilterToggleClass} border-l border-emerald-200 px-2.5 py-1" data-draft-domain-mode="limited" data-draft-index="${index}">Limited</button>
+              <button type="button" class="${draft.limitToSelectedDomains ? activeFilterToggleClass : inactiveFilterToggleClass} border-l border-slate-200 px-2.5 py-1" data-draft-domain-mode="limited" data-draft-index="${index}">Limited</button>
             </div>
           </div>
           ${draft.limitToSelectedDomains ? `<div class="space-y-3">
@@ -659,7 +659,7 @@ export function initTopics(context) {
             <label class="${labelClass}">Languages</label>
             <div class="${filterToggleClass}">
               <button type="button" class="${languageLimited ? inactiveFilterToggleClass : activeFilterToggleClass} px-2.5 py-1" data-draft-language-mode="all" data-draft-index="${index}">All</button>
-              <button type="button" class="${languageLimited ? activeFilterToggleClass : inactiveFilterToggleClass} border-l border-emerald-200 px-2.5 py-1" data-draft-language-mode="limited" data-draft-index="${index}">Limited</button>
+              <button type="button" class="${languageLimited ? activeFilterToggleClass : inactiveFilterToggleClass} border-l border-slate-200 px-2.5 py-1" data-draft-language-mode="limited" data-draft-index="${index}">Limited</button>
             </div>
           </div>
           ${languageLimited ? `<div class="flex items-center justify-between gap-3">
