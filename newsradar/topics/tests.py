@@ -77,6 +77,31 @@ class TopicOrganizerServiceTests(TopicTestCase):
         self.assertIsNone(result["suggested_group_name"])
         self.assertEqual(result["split_suggestions"], [])
 
+    def test_organizer_drops_group_name_without_split_suggestions(self):
+        openai_response = {
+            "query_variations": [
+                "politicization of judiciary in Turkey",
+                "Turkey judicial independence politics",
+            ],
+            "domains": ["reuters.com"],
+            "country": "tr",
+            "languages": ["tr"],
+            "topic_warning": "",
+            "suggested_group_name": "Türkiye gündemi",
+            "split_topics": [],
+        }
+
+        with patch("newsradar.topics.services.OpenAI") as openai_cls:
+            openai_cls.return_value.responses.create.return_value = SimpleNamespace(
+                output_text=json.dumps(openai_response)
+            )
+            result = organize_topic_configuration("Türkiye'de yargının siyasallaşması")
+
+        prompt = openai_cls.return_value.responses.create.call_args.kwargs["input"]
+        self.assertIn("must not be broader or more generic", prompt)
+        self.assertIsNone(result["suggested_group_name"])
+        self.assertEqual(result["split_suggestions"], [])
+
     def test_organizer_normalizes_split_suggestions(self):
         openai_response = {
             "query_variations": ["Turkey agenda"],

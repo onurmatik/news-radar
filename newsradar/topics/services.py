@@ -355,13 +355,15 @@ def _normalize_topic_configuration(
         max_length=10,
     ) or fallback["search_language_filter"]
     topic_warning = normalize_topic_query(raw_values.get("topic_warning") or "") or None
+    split_suggestions = _normalize_split_suggestions(raw_values.get("split_topics"))
     suggested_group_name = (
         normalize_topic_query(
             raw_values.get("suggested_group_name") or raw_values.get("group_name") or ""
         )
         or None
     )
-    split_suggestions = _normalize_split_suggestions(raw_values.get("split_topics"))
+    if not split_suggestions:
+        suggested_group_name = None
 
     return {
         "display_title": fallback["display_title"] or normalize_topic_query(monitoring_prompt),
@@ -471,7 +473,9 @@ def organize_topic_configuration(monitoring_prompt: str) -> dict[str, Any]:
         "- Evaluate the topic choice itself and set topic_warning when the topic is too wide, too vague, too ambiguous, or otherwise likely to produce noisy monitoring results.\n"
         "- Leave topic_warning empty when no warning is needed.\n"
         "- suggested_group_name should be a short shared umbrella for the topic set, such as Turkey agenda or AI by country.\n"
+        "- suggested_group_name must preserve the user's original subject and must not be broader or more generic than the original topic.\n"
         "- Keep suggested_group_name empty when split_topics is empty.\n"
+        "- For country-specific topical prompts, keep the subject in suggested_group_name; do not use generic country agenda names unless the user asked for a general agenda/news topic.\n"
         "- When topic_warning is empty, return split_topics as an empty array.\n"
         "- When the topic is broad, populate split_topics with focused topic drafts the user could create instead.\n"
         "- For broad agenda topics, create 3 to 6 focused split_topics.\n"
@@ -482,6 +486,7 @@ def organize_topic_configuration(monitoring_prompt: str) -> dict[str, Any]:
         "- Split topic display_title must not start with Monitor, Track, Watch, Follow, developments on, updates on, or news about.\n"
         "- Split topic display_title must not repeat the country, geography, or group name.\n"
         "- Example: for Türkiye gündemi, use suggested_group_name Türkiye gündemi and split titles like politics, economy, foreign policy, energy.\n"
+        "- Example: for Türkiye'de yargının siyasallaşması, if split topics are needed, use suggested_group_name Türkiye yargı siyasallaşması and split titles like judicial appointments, court independence, constitutional court.\n"
         "- Split topic query_variations must be in English and can reuse the same base query when the country filter differentiates the topics.\n"
         "- Split topic country must be empty or one of the supported country codes listed below.\n"
         f"- Supported countries for split topics: {supported_countries}.\n"

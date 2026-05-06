@@ -108,7 +108,6 @@ export function initTopics(context) {
     draft: cloneDraft(EMPTY_DRAFT),
     groupUuid: preselectedGroup,
     groupNameDraft: "",
-    suggestedGroupName: "",
     error: null,
     busy: null,
     lastOrganizedPrompt: "",
@@ -152,7 +151,6 @@ export function initTopics(context) {
     state.draft = cloneDraft(toDraftFromTopic(topic));
     state.groupUuid = topic.groupUuid || "";
     state.groupNameDraft = topic.groupName || "";
-    state.suggestedGroupName = "";
     state.lastOrganizedPrompt = topic.monitoringPrompt;
     state.stage = "review";
     state.previewResults = [];
@@ -289,15 +287,13 @@ export function initTopics(context) {
     </div>`).join("");
   }
 
-  function renderGroupField({ inputName, listId, useSuggestion = false } = {}) {
+  function renderGroupField({ inputName, listId } = {}) {
     const derivedGroupName = state.groupNameDraft || (state.groupUuid ? groupNameForUuid(state.groupUuid) : "");
-    const inputValue = useSuggestion && !derivedGroupName
-      ? state.suggestedGroupName
-      : derivedGroupName;
+    const groupOptions = normalizeList(context.state.groups.map((group) => group.name));
     return `<div class="space-y-2">
-      <input name="${inputName}" list="${listId}" class="input" value="${context.utils.escapeHtml(inputValue || "")}" placeholder="${state.suggestedGroupName ? context.utils.escapeHtml(state.suggestedGroupName) : "Type or choose a group"}">
+      <input name="${inputName}" list="${listId}" class="input" value="${context.utils.escapeHtml(derivedGroupName || "")}" placeholder="Type or choose a group">
       <datalist id="${listId}">
-        ${context.state.groups.map((group) => `<option value="${context.utils.escapeHtml(group.name)}"></option>`).join("")}
+        ${groupOptions.map((name) => `<option value="${context.utils.escapeHtml(name)}"></option>`).join("")}
       </datalist>
       <p class="text-xs text-slate-500">Choose an existing group from suggestions or type a new group name.</p>
     </div>`;
@@ -490,7 +486,7 @@ export function initTopics(context) {
           ${renderTopicWarning()}
           <div class="space-y-2 border-t border-slate-100 pt-4">
             <label class="text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-400">Save into group</label>
-            ${renderGroupField({ inputName: "splitGroupName", listId: "split-topic-group-options", useSuggestion: true })}
+            ${renderGroupField({ inputName: "splitGroupName", listId: "split-topic-group-options" })}
           </div>
         </div>
       </div>
@@ -580,7 +576,7 @@ export function initTopics(context) {
     </div>`;
   }
 
-  function applyOrganizerResponse(response, prompt, { preserveTitle = false } = {}) {
+  function applyOrganizerResponse(response, prompt, { preserveTitle = false, defaultGroupName = false } = {}) {
     const nextQueries = response.query_variations && response.query_variations.length ? response.query_variations : [prompt];
     const nextDomains = response.suggested_domains && response.suggested_domains.length ? response.suggested_domains : [];
     const splitSuggestions = response.split_suggestions && response.split_suggestions.length
@@ -604,7 +600,9 @@ export function initTopics(context) {
     state.previewResults = [];
     state.previewReactions = {};
     state.previewHasRun = false;
-    state.suggestedGroupName = response.suggested_group_name || "";
+    if (defaultGroupName && !state.groupUuid) {
+      state.groupNameDraft = prompt;
+    }
     state.extraDrafts = [];
     state.splitDrafts = splitSuggestions.map((draft) => ({ selected: true, draft }));
     state.stage = state.mode === "create" && state.splitDrafts.length > 0 ? "split" : "review";
@@ -619,10 +617,14 @@ export function initTopics(context) {
     }
     state.busy = "organize";
     state.error = null;
+    const defaultGroupName = state.mode === "create"
+      && state.stage === "prompt"
+      && !state.groupUuid
+      && !state.groupNameDraft.trim();
     render();
     try {
       const response = await context.api.organizeTopic({ monitoringPrompt: prompt });
-      applyOrganizerResponse(response, prompt);
+      applyOrganizerResponse(response, prompt, { defaultGroupName });
     } catch (error) {
       state.error = error instanceof Error ? error.message : "Unable to analyze this topic.";
     } finally {
